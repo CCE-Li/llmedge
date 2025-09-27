@@ -1,157 +1,177 @@
 # llmedge
-Library for using GGUF models on Android devices, powered by llama.cpp.
 
+**llmedge** is a lightweight Android library for running GGUF language models fully on-device, powered by [llama.cpp](https://github.com/ggerganov/llama.cpp).
 
-Examples repo : [llmedge-examples](https://github.com/Aatricks/llmedge-examples)
+See the [examples repository](https://github.com/Aatricks/llmedge-examples) for sample usage.
 
-See `CREDITS.md` for acknowledgments to the original author Shubham Panchal and upstream projects.
+Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS.md`](./CREDITS.md).
 
-## Usage
-### Downloading models from Hugging Face
+---
 
-llmedge can now fetch GGUF weights directly from the Hugging Face hub. The helper caches the
-selected artifact under `Context.filesDir/hf-models/<repo>/<revision>/` and reuses it on
-subsequent runs.
+## Features
 
-```kotlin
-val smol = SmolLM()
+- Run GGUF models directly on Android using llama.cpp (JNI)
+- Download and cache models from Hugging Face
+- Minimal on-device RAG (retrieval-augmented generation) pipeline
+- Built-in memory usage metrics
+- Optional Vulkan acceleration
 
-val download = smol.loadFromHuggingFace(
-      context = context,
-      modelId = "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
-   filename = "tinyllama-1.1b-chat-v1.0.Q2_K.gguf", // optional preference
-   forceDownload = false,
-   preferSystemDownloader = true, // offload big transfers to DownloadManager
-)
+---
 
-Log.d("llmedge", "Loaded ${download.file.name} from ${download.file.parent}")
-```
+## Table of Contents
 
-Highlights:
+1. [Installation](#installation)  
+2. [Usage](#usage)  
+   - [Downloading Models](#downloading-models)  
+   - [On-device RAG](#on-device-rag)  
+3. [Building](#building)  
+4. [Architecture](#architecture)  
+5. [Technologies](#technologies)  
+6. [Memory Metrics](#memory-metrics)  
+7. [Notes](#notes)
 
-- `SmolLM.loadFromHuggingFace` downloads (if needed) and feeds the GGUF into the regular
-   `load()` pipeline, so you can start prompting immediately afterwards.
-- Supply `onProgress` for byte-level progress updates or `token` for private repositories.
-- Requests that target older mirrors such as `bartowski/TinyLlama-1.1B-Chat-v1.0-GGUF` automatically
-   resolve to the up-to-date `TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF` weights.
-- When you don't specify a `contextSize`, the helper caps the initial window at 8192 tokens to avoid
-   exhausting the default Android heap. Pass `InferenceParams(contextSize = …)` to opt into a larger
-   context.
-- Large downloads default to Android's `DownloadManager` when `preferSystemDownloader=true`, which keeps
-   the transfer out of your app's Dalvik heap and avoids common OOMs on 256 MB devices.
-- Advanced callers can work with `HuggingFaceHub.ensureModelOnDisk()` directly to inspect the
-   repo tree, pick specific quantizations, or manage caching themselves.
+---
 
-### On-device RAG
+## Installation
 
-This repo includes a minimal on-device RAG pipeline inside the `llmedge` Android library module. It mirrors the flow from Android-Doc-QA using:
+Clone the repository along with the `llama.cpp` submodule:
 
-- `sentence-embeddings` (ONNX) for embeddings
-- A simple whitespace `TextSplitter`
-- An in-memory cosine `VectorStore` with JSON persistence
-- `SmolLM` (llama.cpp JNI) for answering with retrieved context
-
-Setup:
-
-1) Place embedding assets:
-   - `llmedge/src/main/assets/embeddings/all-minilm-l6-v2/model.onnx`
-   - `llmedge/src/main/assets/embeddings/all-minilm-l6-v2/tokenizer.json`
-
-   You can download from the HF `sentence-transformers/all-MiniLM-L6-v2` repo.
-
-2) Build the library:
-
-```powershell
-.\gradlew :llmedge:assembleRelease
-```
-
-3) Usage from an app module (Kotlin):
-
-```kotlin
-import io.aatricks.llmedge.SmolLM
-import io.aatricks.llmedge.rag.RAGEngine
-
-val smol = SmolLM()
-// smol.load("/path/to/model.gguf", SmolLM.InferenceParams()) // ensure your GGUF is available
-
-val rag = RAGEngine(context = this, smolLM = smol)
-CoroutineScope(Dispatchers.IO).launch {
-   rag.init()
-   // Index a PDF from SAF Uri
-   val count = rag.indexPdf(pdfUri)
-   val answer = rag.ask("What are the key points?")
-   withContext(Dispatchers.Main) { /* render answer */ }
-}
-```
-
-Notes:
-- For PDF parsing, we use `com.tom-roush:pdfbox-android`.
-- Embeddings artifact: `io.gitlab.shubham0204:sentence-embeddings:v6`.
-- If you prefer the full Android-Doc-QA app, see the original repo for UI and ObjectBox persistence.
-
-Troubleshooting:
-- Empty or irrelevant answers: If the retrieved context is empty, your PDF may be a scanned/image-only PDF. This demo does not perform OCR. Use a text-based PDF or add OCR (e.g., ML Kit Text Recognition or Tesseract) before indexing.
-- ONNX error "Missing Input: token_type_ids": The library auto-falls back to enable `token_type_ids` and `last_hidden_state` when needed (e.g., BGE models). For a fixed configuration, pass an `EmbeddingConfig` with `useTokenTypeIds=true`.
-
-
-1. Clone the repository with its `llama.cpp` submodule:
-
-```commandline
+```bash
 git clone --depth=1 https://github.com/Aatricks/llmedge
 cd llmedge
 git submodule update --init --recursive
 ```
 
-2. Android Studio starts building the project automatically. If not, select **Build > Rebuild Project** to start a project build.
+Open the project in Android Studio. If it does not build automatically, use ***Build > Rebuild Project.***
 
-3. After a successful project build, [connect an Android device](https://developer.android.com/studio/run/device) to your system. Once connected, the name of the device must be visible in top menu-bar in Android Studio.
+## Usage
 
-## Working
+### Downloading Models
 
-1. The application uses llama.cpp to load and execute GGUF models. As llama.cpp is written in pure C/C++, it is easy 
-   to compile on Android-based targets using the [NDK](https://developer.android.com/ndk). 
+llmedge can download and cache GGUF model weights directly from Hugging Face:
 
-2. The `llmedge` module uses a `LLMInference.cpp` class which interacts with llama.cpp's C-style API to execute the 
-   GGUF model and a JNI binding `smollm.cpp` (native file name retained for binary compatibility). On the Kotlin side, the `SmolLM` class provides 
-   the required methods to interact with the JNI (C++ side) bindings under the package `io.aatricks.llmedge`.
+```kotlin
+val smol = SmolLM()
+
+val download = smol.loadFromHuggingFace(
+    context = context,
+    modelId = "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+    filename = "tinyllama-1.1b-chat-v1.0.Q2_K.gguf", // optional
+    forceDownload = false,
+    preferSystemDownloader = true
+)
+
+Log.d("llmedge", "Loaded ${download.file.name} from ${download.file.parent}")
+```
+
+#### Key points:
+
+- loadFromHuggingFace downloads (if needed) and loads the model immediately after.
+
+- Supports onProgress callbacks and private repositories via token.
+
+- Requests to old mirrors automatically resolve to up-to-date Hugging Face repos.
+
+- Automatically uses the model's declared context window (minimum 1K tokens) and caps it to a heap-aware limit (2K–8K). Override with `InferenceParams(contextSize = …)` if needed.
+
+- Large downloads use Android's DownloadManager when `preferSystemDownloader = true` to keep transfers out of the Dalvik heap.
+
+- Advanced users can call `HuggingFaceHub.ensureModelOnDisk()` to manage caching and quantization manually.
+
+### On-device RAG
+
+The library includes a minimal on-device RAG pipeline, similar to Android-Doc-QA, built with:
+- Sentence embeddings (ONNX)
+- Whitespace `TextSplitter`
+- In-memory cosine `VectorStore` with JSON persistence
+- `SmolLM` for context-aware responses
+
+### Setup
+
+1. Download embeddings
+
+   From the Hugging Face repository `sentence-transformers/all-MiniLM-L6-v2`, place:
+
+```
+llmedge/src/main/assets/embeddings/all-minilm-l6-v2/model.onnx
+llmedge/src/main/assets/embeddings/all-minilm-l6-v2/tokenizer.json
+```
+
+2. Build the library
+
+```
+./gradlew :llmedge:assembleRelease
+```
+
+3. Use in your application
+
+```kotlin
+    val smol = SmolLM()
+    val rag = RAGEngine(context = this, smolLM = smol)
+
+    CoroutineScope(Dispatchers.IO).launch {
+        rag.init()
+        val count = rag.indexPdf(pdfUri)
+        val answer = rag.ask("What are the key points?")
+        withContext(Dispatchers.Main) {
+            // render answer
+        }
+    }
+```
+
+#### Notes:
+
+- Uses `com.tom-roush:pdfbox-android` for PDF parsing.
+- Embeddings library: `io.gitlab.shubham0204:sentence-embeddings:v6`.
+- Scanned PDFs require OCR (e.g., ML Kit or Tesseract) before indexing.
+- ONNX `token_type_ids` errors are automatically handled; override via `EmbeddingConfig` if required.
+
+## Architecture
+
+1. llama.cpp (C/C++) provides the core inference engine, built via the Android NDK.
+2. `LLMInference.cpp` wraps the llama.cpp C API.
+3. `smollm.cpp` exposes JNI bindings for Kotlin.
+4. The `SmolLM` Kotlin class provides a high-level API for model loading and inference.
 
 ## Technologies
 
-* [ggerganov/llama.cpp](https://github.com/ggerganov/llama.cpp) is a pure C/C++ framework to execute machine learning 
-   models on multiple execution backends. It provides a primitive C-style API to interact with LLMs 
-    converted to the [GGUF format](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) native to [ggml](https://github.com/ggerganov/ggml)/llama.cpp. The app uses JNI bindings to interact with a small class `smollm.cpp` which uses llama.cpp to load and execute GGUF models.
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) — Core LLM backend
+- GGUF — Model format
+- Android NDK / JNI — Native bindings
+- ONNX Runtime — Sentence embeddings
+- Android DownloadManager — Large file downloads
 
-## Memory metrics (RAM)
+## Memory Metrics
 
-You can capture RAM usage snapshots from your app:
+You can measure RAM usage at runtime:
 
-- API: `io.aatricks.llmedge.util.MemoryMetrics.snapshot(context)` returns a `Snapshot` with system and process stats.
-- Pretty print: call `snapshot.toPretty(context)` to get a human-readable string.
+```kotlin
+val snapshot = MemoryMetrics.snapshot(context)
+Log.d("Memory", snapshot.toPretty(context))
+```
 
-The example app (`llmedge-examples`) shows RAM snapshots:
+Typical measurement points:
+
 - Before model load
 - After model load
-- After a blocking prompt
-- After a streaming prompt
+- After blocking prompt
+- After streaming prompt
 
-It also displays whether Vulkan acceleration is enabled for the `SmolLM` instance via `SmolLM.isVulkanEnabled()`.
+#### Key fields:
 
-### What the PSS fields mean
+- `totalPssKb`: Total proportional RAM usage. Best for overall tracking.
+- `dalvikPssKb`: JVM-managed heap and runtime.
+- `nativePssKb`: Native heap (llama.cpp, ONNX, tensors, KV cache).
+- `otherPssKb`: Miscellaneous memory.
 
-Android reports per-process memory using PSS (Proportional Set Size), where shared pages are proportionally divided
-among processes, making it a fairer indicator of how much RAM your process effectively uses.
-
-- `totalPssKb`: Total proportional RAM of the process (KB). The best single number to track overall app RAM impact.
-- `dalvikPssKb`: Managed (Dalvik/ART) heap and runtime structures (KB). Moves with your Java/Kotlin allocations and GC.
-- `nativePssKb`: Native (C/C++) heap and resident mmapped regions (KB). For llmedge, llama.cpp/ONNX/tensors/KV cache typically
-   contribute here.
-- `otherPssKb`: Everything else attributed to the process not included above, consolidated by the summary (KB).
-
-Tips:
-- Use `totalPssKb` for high-level RAM tracking.
-- Watch `nativePssKb` while loading models and running inference; that’s where LLM/embedding memory usually lands.
-- Expect some fluctuation snapshot-to-snapshot due to allocations and GC timing.
+Monitor `nativePssKb` closely during model loading and inference to understand LLM memory footprint.
 
 ## Notes
 
-- You may need to download the Vulkan SDK and set the `VULKAN_SDK` environment variable for building the project.
+- Vulkan SDK may be required; set the `VULKAN_SDK` environment variable when building with Vulkan.
+- Vulkan acceleration can be checked via `SmolLM.isVulkanEnabled()`.
+
+## License and Credits
+
+This project builds upon work by [Shubham Panchal](https://github.com/shubham0204) and [ggerganov](https://github.com/ggerganov).
+See [CREDITS.md](CREDITS.md) for full details.
