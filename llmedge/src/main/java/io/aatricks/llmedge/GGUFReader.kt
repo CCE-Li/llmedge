@@ -18,8 +18,9 @@ package io.aatricks.llmedge
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.Closeable
 
-class GGUFReader {
+class GGUFReader : Closeable {
     companion object {
         init {
             System.loadLibrary("ggufreader")
@@ -30,6 +31,9 @@ class GGUFReader {
 
     suspend fun load(modelPath: String) =
         withContext(Dispatchers.IO) {
+            if (nativeHandle != 0L) {
+                close()
+            }
             nativeHandle = getGGUFContextNativeHandle(modelPath)
         }
 
@@ -51,6 +55,13 @@ class GGUFReader {
         }
     }
 
+    override fun close() {
+        if (nativeHandle != 0L) {
+            releaseGGUFContext(nativeHandle)
+            nativeHandle = 0L
+        }
+    }
+
     /**
      * Returns the native handle (pointer to gguf_context created on the native side)
      */
@@ -65,4 +76,6 @@ class GGUFReader {
      * Read the chat template from the GGUF file, given the native handle
      */
     private external fun getChatTemplate(nativeHandle: Long): String
+
+    private external fun releaseGGUFContext(nativeHandle: Long)
 }

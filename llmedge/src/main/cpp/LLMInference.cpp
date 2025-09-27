@@ -1,7 +1,9 @@
 #include "LLMInference.h"
 #include <android/log.h>
+#include <algorithm>
 #include <cstring>
 #include <iostream>
+#include <limits>
 
 #define TAG "[SmolLMAndroid-Cpp]"
 #define LOGi(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -41,8 +43,12 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
 
     // create an instance of llama_context
     llama_context_params ctx_params = llama_context_default_params();
-    ctx_params.n_ctx = contextSize;
-    ctx_params.n_batch = contextSize;
+    const long safeContext = std::clamp(contextSize, 1L, static_cast<long>(std::numeric_limits<uint32_t>::max()));
+    if (safeContext != contextSize) {
+        LOGi("contextSize %ld adjusted to %ld to fit llama context limits", contextSize, safeContext);
+    }
+    ctx_params.n_ctx = static_cast<uint32_t>(safeContext);
+    ctx_params.n_batch = static_cast<int>(safeContext);
     ctx_params.n_threads = nThreads;
     ctx_params.no_perf = true; // disable performance metrics
     _ctx = llama_init_from_model(_model, ctx_params);
@@ -105,12 +111,22 @@ LLMInference::getContextSizeUsed() const {
 void
 LLMInference::startCompletion(const char *query) {
     if (!_storeChats) {
+        for (auto it = _messages.begin(); it != _messages.end();) {
+            if (std::strcmp(it->role, "system") != 0) {
+                free(const_cast<char *>(it->role));
+                free(const_cast<char *>(it->content));
+                it = _messages.erase(it);
+            } else {
+                ++it;
+            }
+        }
         _prevLen = 0;
-        _formattedMessages.clear();
-        _formattedMessages = std::vector<char>(llama_n_ctx(_ctx));
+        _formattedMessages.assign(llama_n_ctx(_ctx), 0);
     }
     _responseGenerationTime = 0;
     _responseNumTokens = 0;
+    _response.clear();
+    _cacheResponseTokens.clear();
     addChatMessage(query, "user");
     // apply the chat-template
     int newLen = llama_chat_apply_template(_chatTemplate, _messages.data(), _messages.size(), true,
@@ -127,12 +143,21 @@ LLMInference::startCompletion(const char *query) {
     }
     std::string prompt(_formattedMessages.begin() + _prevLen, _formattedMessages.begin() + newLen);
     _promptTokens = common_tokenize(llama_model_get_vocab(_model), prompt, true, true);
+    if (_promptTokens.empty()) {
+        LOGe("tokenize() returned no tokens for prompt; aborting completion");
+        throw std::runtime_error("empty prompt tokenization");
+    }
+    if (_promptTokens.size() > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+        LOGe("prompt token count %zu exceeds int32 range", _promptTokens.size());
+        throw std::runtime_error("prompt too long for llama_batch");
+    }
 
-    // create a llama_batch containing a single sequence
-    // see llama_batch_init for more details
-    _batch = new llama_batch();
+    if (_batch == nullptr) {
+        _batch = new llama_batch();
+    }
+    std::memset(_batch, 0, sizeof(llama_batch));
     _batch->token = _promptTokens.data();
-    _batch->n_tokens = _promptTokens.size();
+    _batch->n_tokens = static_cast<int32_t>(_promptTokens.size());
 }
 
 // taken from:
@@ -174,6 +199,10 @@ LLMInference::_isValidUtf8(const char *response) {
 
 std::string
 LLMInference::completionLoop() {
+    if (_batch == nullptr || _batch->n_tokens <= 0) {
+        LOGe("completionLoop invoked with empty llama_batch");
+        throw std::runtime_error("llama batch missing tokens");
+    }
     // check if the length of the inputs to the model
     // have exceeded the context size of the model
     uint32_t contextSize = llama_n_ctx(_ctx);
@@ -192,8 +221,11 @@ LLMInference::completionLoop() {
     // convert the integer token to its corresponding word-piece
     _currToken = llama_sampler_sample(_sampler, _ctx, -1);
     if (llama_vocab_is_eog(llama_model_get_vocab(_model), _currToken)) {
-        addChatMessage(strdup(_response.data()), "assistant");
+        if (_storeChats) {
+            addChatMessage(_response.c_str(), "assistant");
+        }
         _response.clear();
+        _cacheResponseTokens.clear();
         return "[EOG]";
     }
     std::string piece = common_token_to_piece(_ctx, _currToken, true);
@@ -207,6 +239,10 @@ LLMInference::completionLoop() {
     // in the KV cache
     _batch->token = &_currToken;
     _batch->n_tokens = 1;
+    _batch->pos = nullptr;
+    _batch->seq_id = nullptr;
+    _batch->n_seq_id = nullptr;
+    _batch->logits = nullptr;
 
     if (_isValidUtf8(_cacheResponseTokens.c_str())) {
         _response += _cacheResponseTokens;
@@ -221,13 +257,15 @@ LLMInference::completionLoop() {
 void
 LLMInference::stopCompletion() {
     if (_storeChats) {
-        addChatMessage(_response.c_str(), "assistant");
+        _prevLen = llama_chat_apply_template(_chatTemplate, _messages.data(), _messages.size(), false, nullptr, 0);
+        if (_prevLen < 0) {
+            throw std::runtime_error("llama_chat_apply_template() in LLMInference::stopCompletion() failed");
+        }
+    } else {
+        _prevLen = 0;
     }
     _response.clear();
-    _prevLen = llama_chat_apply_template(_chatTemplate, _messages.data(), _messages.size(), false, nullptr, 0);
-    if (_prevLen < 0) {
-        throw std::runtime_error("llama_chat_apply_template() in LLMInference::stopCompletion() failed");
-    }
+    _cacheResponseTokens.clear();
 }
 
 LLMInference::~LLMInference() {

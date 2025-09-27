@@ -6,7 +6,42 @@ Examples repo : [llmedge-examples](https://github.com/Aatricks/llmedge-examples)
 
 See `CREDITS.md` for acknowledgments to the original author Shubham Panchal and upstream projects.
 
-## Setup
+## Usage
+### Downloading models from Hugging Face
+
+llmedge can now fetch GGUF weights directly from the Hugging Face hub. The helper caches the
+selected artifact under `Context.filesDir/hf-models/<repo>/<revision>/` and reuses it on
+subsequent runs.
+
+```kotlin
+val smol = SmolLM()
+
+val download = smol.loadFromHuggingFace(
+      context = context,
+      modelId = "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+   filename = "tinyllama-1.1b-chat-v1.0.Q2_K.gguf", // optional preference
+   forceDownload = false,
+   preferSystemDownloader = true, // offload big transfers to DownloadManager
+)
+
+Log.d("llmedge", "Loaded ${download.file.name} from ${download.file.parent}")
+```
+
+Highlights:
+
+- `SmolLM.loadFromHuggingFace` downloads (if needed) and feeds the GGUF into the regular
+   `load()` pipeline, so you can start prompting immediately afterwards.
+- Supply `onProgress` for byte-level progress updates or `token` for private repositories.
+- Requests that target older mirrors such as `bartowski/TinyLlama-1.1B-Chat-v1.0-GGUF` automatically
+   resolve to the up-to-date `TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF` weights.
+- When you don't specify a `contextSize`, the helper caps the initial window at 8192 tokens to avoid
+   exhausting the default Android heap. Pass `InferenceParams(contextSize = …)` to opt into a larger
+   context.
+- Large downloads default to Android's `DownloadManager` when `preferSystemDownloader=true`, which keeps
+   the transfer out of your app's Dalvik heap and avoids common OOMs on 256 MB devices.
+- Advanced callers can work with `HuggingFaceHub.ensureModelOnDisk()` directly to inspect the
+   repo tree, pick specific quantizations, or manage caching themselves.
+
 ### On-device RAG
 
 This repo includes a minimal on-device RAG pipeline inside the `llmedge` Android library module. It mirrors the flow from Android-Doc-QA using:

@@ -39,3 +39,11 @@ Java_io_aatricks_llmedge_GGUFReader_getChatTemplate(JNIEnv* env, jobject thiz, j
     }
     return env->NewStringUTF(chatTemplate.c_str());
 }
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_aatricks_llmedge_GGUFReader_releaseGGUFContext(JNIEnv* env, jobject thiz, jlong nativeHandle) {
+    auto* ggufContext = reinterpret_cast<gguf_context*>(nativeHandle);
+    if (ggufContext != nullptr) {
+        gguf_free(ggufContext);
+    }
+}

@@ -16,8 +16,10 @@
 
 package io.aatricks.llmedge
 
+import android.content.Context
 import android.os.Build
 import android.util.Log
+import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -35,8 +37,12 @@ class SmolLM(
     useVulkan: Boolean = true
 ) {
     companion object {
+        private const val LOG_TAG = "SmolLM"
+        private const val DEFAULT_CONTEXT_SIZE_CAP: Long = 8_192L
+        private const val MIN_CONTEXT_SIZE: Long = 1_024L
+
         init {
-            val logTag = SmolLM::class.java.simpleName
+            val logTag = LOG_TAG
 
             // check if the following CPU features are available,
             // and load the native library accordingly
@@ -225,25 +231,79 @@ class SmolLM(
         modelPath: String,
         params: InferenceParams = InferenceParams(),
     ) = withContext(Dispatchers.IO) {
+        if (nativePtr != 0L) {
+            close()
+        }
+
         val ggufReader = GGUFReader()
-        ggufReader.load(modelPath)
-        val modelContextSize = ggufReader.getContextSize() ?: DefaultInferenceParams.contextSize
-        val modelChatTemplate =
-            ggufReader.getChatTemplate() ?: DefaultInferenceParams.chatTemplate
+        val resolvedContextSize: Long
+        val resolvedChatTemplate: String
+        try {
+            ggufReader.load(modelPath)
+            val modelContextSize = ggufReader.getContextSize() ?: DefaultInferenceParams.contextSize
+            resolvedContextSize = resolveContextSize(params.contextSize, modelContextSize)
+            resolvedChatTemplate = resolveChatTemplate(params.chatTemplate, ggufReader)
+        } finally {
+            ggufReader.close()
+        }
         nativePtr =
             loadModel(
                 modelPath,
                 params.minP,
                 params.temperature,
                 params.storeChats,
-                params.contextSize ?: modelContextSize,
-                params.chatTemplate ?: modelChatTemplate,
+                resolvedContextSize,
+                resolvedChatTemplate,
                 params.numThreads,
                 params.useMmap,
                 params.useMlock,
                 useVulkanGPU
             )
     }
+
+        /**
+         * Downloads a GGUF model from Hugging Face (if needed) and loads it for inference.
+         *
+         * @param context Android context used to resolve the destination directory under app storage.
+         * @param modelId Hugging Face repository id (for example, "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF").
+         * @param revision Repository revision or branch name. Defaults to "main".
+         * @param preferredQuantizations Ordered list of substrings used to pick the desired GGUF variant.
+         * @param filename Optional explicit file name/path (relative to the repo root) to download.
+         * @param params Inference parameters to apply once the model is loaded.
+         * @param token Optional Hugging Face access token for private repositories.
+         * @param forceDownload When true, always redownload the file even if a cached copy exists.
+        * @param preferSystemDownloader When true, prefer Android's DownloadManager for large downloads.
+         * @param onProgress Optional progress listener receiving downloaded bytes and total bytes (when known).
+         *
+         * @return [HuggingFaceHub.ModelDownloadResult] describing the loaded asset.
+         */
+        suspend fun loadFromHuggingFace(
+            context: Context,
+            modelId: String,
+            revision: String = "main",
+            preferredQuantizations: List<String> = HuggingFaceHub.DEFAULT_QUANTIZATION_PRIORITIES,
+            filename: String? = null,
+            params: InferenceParams = InferenceParams(),
+            token: String? = null,
+            forceDownload: Boolean = false,
+            preferSystemDownloader: Boolean = true,
+            onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+        ): HuggingFaceHub.ModelDownloadResult {
+            val downloadResult =
+                HuggingFaceHub.ensureModelOnDisk(
+                    context = context,
+                    modelId = modelId,
+                    revision = revision,
+                    preferredQuantizations = preferredQuantizations,
+                    filename = filename,
+                    token = token,
+                    forceDownload = forceDownload,
+                    preferSystemDownloader = preferSystemDownloader,
+                    onProgress = onProgress,
+                )
+            load(downloadResult.file.absolutePath, params)
+            return downloadResult
+        }
 
     /**
      * Adds a user message to the chat history.
@@ -414,4 +474,33 @@ class SmolLM(
     private external fun completionLoop(modelPtr: Long): String
 
     private external fun stopCompletion(modelPtr: Long)
+
+    private fun resolveContextSize(requested: Long?, modelContextSize: Long): Long {
+        val desired = requested ?: modelContextSize
+        val heapAwareCap = recommendedContextCap()
+        val effectiveCap = minOf(DEFAULT_CONTEXT_SIZE_CAP, heapAwareCap)
+        val clamped = desired.coerceIn(MIN_CONTEXT_SIZE, effectiveCap)
+        if (desired != clamped) {
+            val heapMb = Runtime.getRuntime().maxMemory() / (1024 * 1024)
+            Log.w(
+                LOG_TAG,
+                "Context window $desired→$clamped tokens to fit heap (${heapMb}MB max). " +
+                    "Override via InferenceParams(contextSize=...).",
+            )
+        }
+        return clamped
+    }
+
+    private fun resolveChatTemplate(explicit: String?, ggufReader: GGUFReader): String =
+        explicit ?: (ggufReader.getChatTemplate() ?: DefaultInferenceParams.chatTemplate)
+
+    private fun recommendedContextCap(): Long {
+        val heapMb = Runtime.getRuntime().maxMemory() / (1024 * 1024)
+        return when {
+            heapMb <= 256 -> 2_048L
+            heapMb <= 384 -> 4_096L
+            heapMb <= 512 -> 6_144L
+            else -> DEFAULT_CONTEXT_SIZE_CAP
+        }
+    }
 }

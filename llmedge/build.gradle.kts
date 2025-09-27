@@ -17,6 +17,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.0.0"
 }
 
 android {
@@ -71,6 +72,13 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
     // Sentence Embeddings (on-device) - provides ONNX-based sentence-transformers
     implementation("io.gitlab.shubham0204:sentence-embeddings:v6")
+
+    // Hugging Face Hub client (Ktor + JSON serialization)
+    implementation("io.ktor:ktor-client-core:2.3.12")
+    implementation("io.ktor:ktor-client-okhttp:2.3.12")
+    implementation("io.ktor:ktor-client-content-negotiation:2.3.12")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     // PDF parsing on Android (Apache 2.0)
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")

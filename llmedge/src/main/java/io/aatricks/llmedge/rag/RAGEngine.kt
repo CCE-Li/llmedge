@@ -44,6 +44,7 @@ class RAGEngine(
     private val vectorStore = InMemoryVectorStore(
         File(context.filesDir, "rag_store/index.json")
     )
+    private var systemPromptInjected = false
 
     suspend fun init() {
         vectorStore.load()
@@ -72,11 +73,9 @@ class RAGEngine(
             Log.w(TAG, "No retrieval hits; vector store empty or no similar content")
             return@withContext "No relevant context found in the indexed documents. If your PDF is a scanned image, text extraction may be empty (no OCR). Try a text-based PDF."
         }
+        ensureSystemPrompt()
         val prompt = buildPrompt(contextText, question)
-        // Provide a strong system instruction for each query (recommended when storeChats=false)
-        smolLM.addSystemPrompt(SYSTEM_PROMPT)
-        smolLM.addUserMessage(prompt)
-        val answer = smolLM.getResponse("")
+        val answer = smolLM.getResponse(prompt)
         return@withContext answer.trim()
     }
     suspend fun contextFor(question: String, topK: Int = 5): String = withContext(Dispatchers.Default) {
@@ -92,6 +91,12 @@ class RAGEngine(
 
     fun getLastContext(): String = lastContext
 
+    private fun ensureSystemPrompt() {
+        if (!systemPromptInjected) {
+            smolLM.addSystemPrompt(SYSTEM_PROMPT)
+            systemPromptInjected = true
+        }
+    }
 
     private fun buildPrompt(context: String, query: String): String {
         return """

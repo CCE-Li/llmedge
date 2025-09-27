@@ -6,11 +6,11 @@
 
 class LLMInference {
     // llama.cpp-specific types
-    llama_context* _ctx;
-    llama_model*   _model;
-    llama_sampler* _sampler;
-    llama_token    _currToken;
-    llama_batch*   _batch;
+    llama_context* _ctx = nullptr;
+    llama_model*   _model = nullptr;
+    llama_sampler* _sampler = nullptr;
+    llama_token    _currToken = 0;
+    llama_batch*   _batch = nullptr;
 
     // container to store user/assistant messages in the chat
     std::vector<llama_chat_message> _messages;
@@ -27,7 +27,7 @@ class LLMInference {
     std::string _response;
     std::string _cacheResponseTokens;
     // whether to cache previous messages in `_messages`
-    bool _storeChats;
+    bool _storeChats = true;
 
     // response generation metrics
     int64_t _responseGenerationTime = 0;
