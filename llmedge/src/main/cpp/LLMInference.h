@@ -28,6 +28,8 @@ class LLMInference {
     std::string _cacheResponseTokens;
     // whether to cache previous messages in `_messages`
     bool _storeChats = true;
+    bool _disableThinking = false;
+    int  _reasoningBudget = -1;
 
     // response generation metrics
     int64_t _responseGenerationTime = 0;
@@ -59,6 +61,8 @@ class LLMInference {
     std::string completionLoop();
 
     void stopCompletion();
+
+    void setReasoningOptions(bool disableThinking, int reasoningBudget);
 
     ~LLMInference();
 };

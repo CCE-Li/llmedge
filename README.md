@@ -23,6 +23,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 1. [Installation](#installation)  
 2. [Usage](#usage)  
    - [Downloading Models](#downloading-models)  
+   - [Reasoning Controls](#reasoning-controls)  
    - [On-device RAG](#on-device-rag)  
 3. [Building](#building)  
 4. [Architecture](#architecture)  
@@ -45,6 +46,26 @@ git submodule update --init --recursive
 Open the project in Android Studio. If it does not build automatically, use ***Build > Rebuild Project.***
 
 ## Usage
+
+### Quick Start
+
+Load a local GGUF file and run a blocking prompt from a background coroutine:
+
+```kotlin
+val smol = SmolLM()
+
+CoroutineScope(Dispatchers.IO).launch {
+    val modelFile = File(context.filesDir, "models/tinyllama.gguf")
+    smol.load(modelFile.absolutePath)
+
+    val reply = smol.getResponse("Summarize on-device LLMs in one sentence.")
+    withContext(Dispatchers.Main) {
+        outputView.text = reply
+    }
+}
+```
+
+Call `smol.close()` when the instance is no longer needed to free native memory.
 
 ### Downloading Models
 
@@ -77,6 +98,31 @@ Log.d("llmedge", "Loaded ${download.file.name} from ${download.file.parent}")
 - Large downloads use Android's DownloadManager when `preferSystemDownloader = true` to keep transfers out of the Dalvik heap.
 
 - Advanced users can call `HuggingFaceHub.ensureModelOnDisk()` to manage caching and quantization manually.
+
+### Reasoning Controls
+
+`SmolLM` lets you disable or re-enable "thinking" traces produced by reasoning-aware models through the `ThinkingMode` enum and the optional `reasoningBudget` parameter. The default configuration keeps thinking enabled (`ThinkingMode.DEFAULT`, reasoning budget `-1`). To start a session with thinking disabled (equivalent to passing `--no-think` or `--reasoning-budget 0`), specify it when loading the model:
+
+```kotlin
+val smol = SmolLM()
+
+val params = SmolLM.InferenceParams(
+    thinkingMode = SmolLM.ThinkingMode.DISABLED,
+    reasoningBudget = 0, // explicit override, optional when the mode is DISABLED
+)
+smol.load(modelPath, params)
+```
+
+At runtime you can flip the behaviour without reloading the model:
+
+```kotlin
+smol.setThinkingEnabled(true)              // restore the default
+smol.setReasoningBudget(0)                 // force-disable thoughts again
+val budget = smol.getReasoningBudget()     // inspect the current budget
+val mode = smol.getThinkingMode()          // inspect the current mode
+```
+
+Setting the budget to `0` always disables thinking, while `-1` leaves it unrestricted. If you omit `reasoningBudget`, the library chooses `0` when the mode is `DISABLED` and `-1` otherwise. The API also injects the `/no_think` tag automatically when thinking is disabled, so you do not need to modify prompts manually.
 
 ### On-device RAG
 

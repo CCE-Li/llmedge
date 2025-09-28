@@ -40,6 +40,7 @@ class SmolLM(
         private const val LOG_TAG = "SmolLM"
         private const val DEFAULT_CONTEXT_SIZE_CAP: Long = 8_192L
         private const val MIN_CONTEXT_SIZE: Long = 1_024L
+        private const val DEFAULT_REASONING_BUDGET: Int = -1
 
         init {
             val logTag = LOG_TAG
@@ -140,6 +141,8 @@ class SmolLM(
 
     private var nativePtr = 0L
     private var useVulkanGPU = true
+    private var currentThinkingMode = ThinkingMode.DEFAULT
+    private var currentReasoningBudget = DEFAULT_REASONING_BUDGET
 
     init {
         this.useVulkanGPU = useVulkan
@@ -157,6 +160,17 @@ class SmolLM(
         val contextSize: Long = 1024L
         val chatTemplate: String =
             "{% for message in messages %}{% if loop.first and messages[0]['role'] != 'system' %}{{ '<|im_start|>system You are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|> ' }}{% endif %}{{'<|im_start|>' + message['role'] + ' ' + message['content'] + '<|im_end|>' + ' '}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant ' }}{% endif %}"
+    }
+
+    enum class ThinkingMode {
+        DEFAULT,
+        DISABLED;
+
+        internal val disableReasoning: Boolean
+            get() = this == DISABLED
+
+        internal val reasoningBudget: Int
+            get() = if (this == DISABLED) 0 else DEFAULT_REASONING_BUDGET
     }
 
     /**
@@ -181,6 +195,12 @@ class SmolLM(
      *                   This can improve loading times and reduce memory usage. (Default: true)
      * @property useMlock Whether to lock the model in memory. This can prevent the model from
      *                    being swapped out to disk, potentially improving performance. (Default: false)
+     * @property thinkingMode Controls whether reasoning “think” traces remain enabled. Use
+     *                        [ThinkingMode.DISABLED] to request the equivalent of llama.cpp's
+     *                        `--no-think` flag. (Default: [ThinkingMode.DEFAULT])
+     * @property reasoningBudget Optional override for llama.cpp's `--reasoning-budget` flag. Set to
+     *                           `0` to disable thinking explicitly, `-1` to leave it unrestricted,
+     *                           or omit to let [thinkingMode] decide.
      */
     data class InferenceParams(
         val minP: Float = 0.1f,
@@ -191,6 +211,8 @@ class SmolLM(
         val numThreads: Int = 4,
         val useMmap: Boolean = true,
         val useMlock: Boolean = false,
+        val thinkingMode: ThinkingMode = ThinkingMode.DEFAULT,
+        val reasoningBudget: Int? = null,
     )
 
     /**
@@ -259,6 +281,8 @@ class SmolLM(
                 params.useMlock,
                 useVulkanGPU
             )
+        val reasoningBudget = resolvedReasoningBudget(params.thinkingMode, params.reasoningBudget)
+        applyReasoningState(params.thinkingMode, reasoningBudget)
     }
 
         /**
@@ -334,6 +358,28 @@ class SmolLM(
     fun addAssistantMessage(message: String) {
         verifyHandle()
         addChatMessage(nativePtr, message, "assistant")
+    }
+
+    fun getThinkingMode(): ThinkingMode = currentThinkingMode
+
+    fun getReasoningBudget(): Int = currentReasoningBudget
+
+    fun isThinkingEnabled(): Boolean = currentReasoningBudget != 0
+
+    fun setThinkingMode(mode: ThinkingMode) {
+        verifyHandle()
+        val targetBudget = if (mode.disableReasoning) 0 else DEFAULT_REASONING_BUDGET
+        applyReasoningState(mode, targetBudget)
+    }
+
+    fun setThinkingEnabled(enabled: Boolean) {
+        setThinkingMode(if (enabled) ThinkingMode.DEFAULT else ThinkingMode.DISABLED)
+    }
+
+    fun setReasoningBudget(budget: Int) {
+        verifyHandle()
+        val mode = if (budget == 0) ThinkingMode.DISABLED else ThinkingMode.DEFAULT
+        applyReasoningState(mode, budget)
     }
 
     /**
@@ -431,6 +477,8 @@ class SmolLM(
             close(nativePtr)
             nativePtr = 0L
         }
+        currentThinkingMode = ThinkingMode.DEFAULT
+        currentReasoningBudget = DEFAULT_REASONING_BUDGET
     }
 
     private fun verifyHandle() {
@@ -449,6 +497,12 @@ class SmolLM(
         useMlock: Boolean,
         useVulkan: Boolean
     ): Long
+
+    private external fun setReasoningOptions(
+        modelPtr: Long,
+        disableThinking: Boolean,
+        reasoningBudget: Int,
+    )
 
     private external fun addChatMessage(
         modelPtr: Long,
@@ -474,6 +528,19 @@ class SmolLM(
     private external fun completionLoop(modelPtr: Long): String
 
     private external fun stopCompletion(modelPtr: Long)
+
+    private fun applyReasoningState(mode: ThinkingMode, budget: Int) {
+        val effectiveMode = if (budget == 0) ThinkingMode.DISABLED else mode
+        currentThinkingMode = effectiveMode
+        currentReasoningBudget = budget
+        if (nativePtr != 0L) {
+            setReasoningOptions(nativePtr, effectiveMode.disableReasoning || budget == 0, budget)
+        }
+    }
+
+    private fun resolvedReasoningBudget(mode: ThinkingMode, override: Int?): Int {
+        return override ?: if (mode.disableReasoning) 0 else DEFAULT_REASONING_BUDGET
+    }
 
     private fun resolveContextSize(requested: Long?, modelContextSize: Long): Long {
         val desired = requested ?: modelContextSize

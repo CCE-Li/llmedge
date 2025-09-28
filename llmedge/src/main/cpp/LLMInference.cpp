@@ -73,6 +73,8 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
         _chatTemplate = strdup(chatTemplate);
     }
     this->_storeChats = storeChats;
+    _disableThinking = false;
+    _reasoningBudget = -1;
 }
 
 void
@@ -127,7 +129,16 @@ LLMInference::startCompletion(const char *query) {
     _responseNumTokens = 0;
     _response.clear();
     _cacheResponseTokens.clear();
-    addChatMessage(query, "user");
+    std::string finalQuery = query ? std::string(query) : std::string();
+    const bool suppressThinking = _disableThinking || _reasoningBudget == 0;
+    if (suppressThinking && finalQuery.find("/no_think") == std::string::npos) {
+        if (!finalQuery.empty()) {
+            finalQuery.insert(0, "/no_think\n");
+        } else {
+            finalQuery = "/no_think";
+        }
+    }
+    addChatMessage(finalQuery.c_str(), "user");
     // apply the chat-template
     int newLen = llama_chat_apply_template(_chatTemplate, _messages.data(), _messages.size(), true,
                                            _formattedMessages.data(), _formattedMessages.size());
@@ -266,6 +277,14 @@ LLMInference::stopCompletion() {
     }
     _response.clear();
     _cacheResponseTokens.clear();
+}
+
+void
+LLMInference::setReasoningOptions(bool disableThinking, int reasoningBudget) {
+    const bool requestedNoThink = disableThinking || reasoningBudget == 0;
+    _disableThinking = requestedNoThink;
+    _reasoningBudget = reasoningBudget;
+    LOGi("Reasoning controls: disableThinking=%d, reasoningBudget=%d", _disableThinking, _reasoningBudget);
 }
 
 LLMInference::~LLMInference() {

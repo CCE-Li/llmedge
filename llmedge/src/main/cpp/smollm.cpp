@@ -74,6 +74,17 @@ Java_io_aatricks_llmedge_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlong
     env->ReleaseStringUTFChars(prompt, promptCstr);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_io_aatricks_llmedge_SmolLM_setReasoningOptions(JNIEnv* env, jobject thiz, jlong modelPtr, jboolean disableThinking,
+                                                    jint reasoningBudget) {
+    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    if (llmInference == nullptr) {
+        return;
+    }
+    const bool disable = disableThinking == JNI_TRUE;
+    llmInference->setReasoningOptions(disable, reasoningBudget);
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_io_aatricks_llmedge_SmolLM_completionLoop(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
