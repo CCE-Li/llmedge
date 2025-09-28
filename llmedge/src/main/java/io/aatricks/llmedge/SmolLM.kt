@@ -289,7 +289,7 @@ class SmolLM(
          * Downloads a GGUF model from Hugging Face (if needed) and loads it for inference.
          *
          * @param context Android context used to resolve the destination directory under app storage.
-         * @param modelId Hugging Face repository id (for example, "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF").
+         * @param modelId Hugging Face repository id (for example, "unsloth/Qwen3-0.6B-GGUF").
          * @param revision Repository revision or branch name. Defaults to "main".
          * @param preferredQuantizations Ordered list of substrings used to pick the desired GGUF variant.
          * @param filename Optional explicit file name/path (relative to the repo root) to download.

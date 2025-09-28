@@ -76,8 +76,8 @@ val smol = SmolLM()
 
 val download = smol.loadFromHuggingFace(
     context = context,
-    modelId = "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
-    filename = "tinyllama-1.1b-chat-v1.0.Q2_K.gguf", // optional
+    modelId = "unsloth/Qwen3-0.6B-GGUF",
+    filename = "Qwen3-0.6B-Q4_K_M.gguf", // optional
     forceDownload = false,
     preferSystemDownloader = true
 )

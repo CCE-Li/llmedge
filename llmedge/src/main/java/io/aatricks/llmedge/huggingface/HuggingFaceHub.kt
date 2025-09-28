@@ -1,18 +1,18 @@
 /*
- * Copyright (C) 2025 Shubham Panchal
+ * Copyright (C) 2025 Aatricks
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
+ * Licensed under the GNU General Public License v3.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
+ * 
+ *   http://www.gnu.org/licenses/gpl-3.0
+ * 
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */
+*/
 
 package io.aatricks.llmedge.huggingface
 
@@ -166,17 +166,6 @@ object HuggingFaceHub {
     fun sanitize(modelId: String): String = modelId.replace("/", "_")
 
     private fun resolveModelReference(modelId: String, revision: String): ResolvedModel {
-        val normalized = normalizeModelId(modelId)
-        MODEL_ALIASES[normalized]?.let { alias ->
-            val resolvedRevision = alias.revision ?: revision
-            return ResolvedModel(
-                requestedModelId = modelId,
-                requestedRevision = revision,
-                modelId = alias.modelId,
-                revision = resolvedRevision,
-                aliasApplied = true,
-            )
-        }
         return ResolvedModel(
             requestedModelId = modelId,
             requestedRevision = revision,
@@ -185,14 +174,6 @@ object HuggingFaceHub {
             aliasApplied = false,
         )
     }
-
-    private fun normalizeModelId(modelId: String): String =
-        modelId
-            .trim()
-            .removePrefix("https://huggingface.co/")
-            .removePrefix("hf://")
-            .removeSuffix(".git")
-            .lowercase()
 
     private fun selectFile(
         files: List<HFModelTree.HFModelFile>,
@@ -222,16 +203,16 @@ object HuggingFaceHub {
     private const val LOG_TAG = "HuggingFaceHub"
 
     val DEFAULT_QUANTIZATION_PRIORITIES: List<String> = listOf(
-        "Q2_K",
-        "Q3_K_S",
-        "Q3_K_M",
-        "Q3_K_L",
-        "Q4_K_S",
         "Q4_K_M",
         "Q4_K",
+        "Q4_K_S",
         "Q4_0",
+        "Q3_K_L",
         "Q5_K_S",
+        "Q3_K_M",
         "Q5_K_M",
+        "Q3_K_S",
+        "Q2_K",
         "Q5_K",
         "Q5_0",
         "Q8_0",
@@ -251,15 +232,5 @@ object HuggingFaceHub {
         val modelId: String,
         val revision: String,
         val aliasApplied: Boolean,
-    )
-
-    private data class ModelAlias(
-        val modelId: String,
-        val revision: String? = null,
-    )
-
-    private val MODEL_ALIASES: Map<String, ModelAlias> = mapOf(
-        "bartowski/tinyllama-1.1b-chat-v1.0-gguf" to ModelAlias("TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF"),
-        "tinyllama-1.1b-chat-v1.0-gguf" to ModelAlias("TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF"),
     )
 }
