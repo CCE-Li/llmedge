@@ -24,11 +24,11 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Adapter to make SmolLM work as a VisionModelAnalyzer when vision support is available.
- * 
- * This is a placeholder implementation that will be enhanced when llama.cpp vision
- * support is fully integrated. Currently, it provides a compatibility layer for
- * future vision models.
+ * Adapter that exposes SmolLM as a VisionModelAnalyzer implementation.
+ *
+ * This adapter currently implements a compatibility layer: it loads a regular
+ * text model and, if prepared embeddings are present, replays them into the
+ * model's KV cache so the model can answer image-grounded prompts.
  *
  * @property context Android context for file operations
  * @property smolLM The SmolLM instance to adapt
@@ -106,9 +106,26 @@ class SmolLMVisionAdapter(
             // Different models may need different prompt formats
             val visionPrompt = formatVisionPrompt(prompt, imageFile)
             
-            // For now, use regular text generation as a placeholder
-            // When vision support is added, this will call native vision inference
-            val response = smolLM.getResponse(visionPrompt)
+            // If a prepared embedding exists (Projector.encodeImageToFile wrote .bin + .meta.json),
+            // decode the embeddings into the current llama context without loading mmproj.
+            val embdFile = File(imageFile.parentFile, "${imageFile.nameWithoutExtension}.bin")
+            val metaFile = File(embdFile.absolutePath + ".meta.json")
+            val response: String
+            if (embdFile.exists() && metaFile.exists()) {
+                Log.d(TAG, "Found prepared embeddings, decoding into model: ${embdFile.absolutePath}")
+                val ok = smolLM.decodePreparedEmbeddings(embdFile.absolutePath, metaFile.absolutePath, params.nBatch ?: 1)
+                if (!ok) {
+                    Log.w(TAG, "decodePreparedEmbeddings failed, falling back to text-only prompt")
+                    response = smolLM.getResponse(visionPrompt)
+                } else {
+                    // After embeddings are decoded into KV cache, call getResponse with the prompt
+                    response = smolLM.getResponse(visionPrompt)
+                }
+            } else {
+                // For now, use regular text generation as a placeholder
+                // When vision support is added, this will call native vision inference
+                response = smolLM.getResponse(visionPrompt)
+            }
             
             val duration = System.currentTimeMillis() - startTime
             
@@ -159,11 +176,17 @@ class SmolLMVisionAdapter(
      * Different models may require different formats.
      */
     private fun formatVisionPrompt(prompt: String, imageFile: File): String {
-        // Placeholder prompt format
-        // Real implementation will depend on the specific vision model being used
+        // If the prompt already contains high-level SYSTEM / OCR markers (our augmented prompt)
+        // treat it as a full prompt and return it unchanged to avoid double-wrapping.
+        val normalized = prompt.trimStart()
+        if (normalized.startsWith("SYSTEM:") || normalized.contains("OCR_TEXT_START") || normalized.contains("EXAMPLES:")) {
+            return prompt
+        }
+
+        // Default lightweight wrapper when prompt is a simple user query
         return """
             [Image: ${imageFile.absolutePath}]
-            
+
             User: $prompt
             Assistant:
         """.trimIndent()

@@ -28,11 +28,9 @@ import java.io.File
 import java.io.FileNotFoundException
 
 /**
- * This class interacts with the JNI binding and provides a Kotlin API
- * to infer a GGUF LLM model
+ * Kotlin wrapper for the native LLM runtime. Handles loading models and
+ * providing a simple API for running completions and managing model state.
  */
-
-//TODO: Check if llama.cpp can be compiled to use Vulkan for inference on Android devices (and use the mobile GPU)
 class SmolLM(
     useVulkan: Boolean = true
 ) {
@@ -517,6 +515,37 @@ class SmolLM(
     private external fun getResponseGenerationDurationMicros(modelPtr: Long): Long
 
     private external fun getContextSizeUsed(modelPtr: Long): Int
+
+    // Return native llama_model* pointer for advanced native integrations (do not free)
+    private external fun getNativeModelPtr(modelPtr: Long): Long
+
+    /**
+     * Public helper to return the underlying native llama_model* pointer.
+     * This is intended for advanced integrations (e.g., native projector) and
+     * should NOT be used to free or modify the native model directly.
+     */
+    fun getNativeModelPointer(): Long {
+        verifyHandle()
+        return getNativeModelPtr(nativePtr)
+    }
+
+    // Decode embeddings prepared by the projector (raw floats) without loading mmproj
+    private external fun nativeDecodePreparedEmbeddings(modelPtr: Long, embdPath: String, metaPath: String, nBatch: Int): Boolean
+
+    /**
+     * Decode prepared embeddings previously produced by Projector.encodeImageToFile.
+     * This will replay the required llama.decode steps using the current loaded
+     * model/context so the image embeddings are present in the KV cache for
+     * subsequent generation. Returns true on success.
+     */
+    fun decodePreparedEmbeddings(embdPath: String, metaPath: String, nBatch: Int = 1): Boolean {
+        verifyHandle()
+        return try {
+            nativeDecodePreparedEmbeddings(nativePtr, embdPath, metaPath, nBatch)
+        } catch (e: UnsatisfiedLinkError) {
+            false
+        }
+    }
 
     private external fun close(modelPtr: Long)
 

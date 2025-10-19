@@ -27,6 +27,12 @@ data class VisionParams(
     val maxTokens: Int = 256,
     val temperature: Float = 0.2f,
     val systemPrompt: String? = null
+    ,
+    /**
+     * Number of embeddings per decode batch used when replaying prepared image embeddings.
+     * If null, the adapter will choose a safe default (1).
+     */
+    val nBatch: Int? = null
 )
 
 /**

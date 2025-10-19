@@ -22,42 +22,68 @@ import android.media.ExifInterface
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import java.io.*
 
 /**
- * Utilities for image processing and preprocessing.
+ * Image processing helpers: decoding, scaling, basic OCR-friendly filtering and
+ * file conversions used by the vision example.
  */
 object ImageUtils {
     
     private const val MAX_DIMENSION = 1600
     private const val JPEG_QUALITY = 90
     
-    /**
-     * Convert an ImageSource to a Bitmap.
-     */
-    suspend fun imageToBitmap(context: Context, source: ImageSource): Bitmap = withContext(Dispatchers.IO) {
-        when (source) {
+    /** Convert an ImageSource to a Bitmap. Throws IOException on failure. */
+    private suspend fun <T> safeWithIO(block: suspend () -> T): T {
+        return try {
+            withContext(Dispatchers.IO) {
+                block()
+            }
+        } catch (e: Throwable) {
+            // Some runtime environments can (incorrectly) have Dispatchers.IO == null
+            // which causes a NullPointerException inside withContext. Fall back to
+            // executing the block on the current coroutine dispatcher.
+            if (e is NullPointerException) {
+                block()
+            } else throw e
+        }
+    }
+
+    suspend fun imageToBitmap(context: Context, source: ImageSource): Bitmap = safeWithIO {
+        val bmp: Bitmap? = when (source) {
             is ImageSource.BitmapSource -> source.bitmap
             is ImageSource.FileSource -> BitmapFactory.decodeFile(source.file.absolutePath)
             is ImageSource.UriSource -> {
                 context.contentResolver.openInputStream(source.uri)?.use { stream ->
                     BitmapFactory.decodeStream(stream)
-                } ?: throw IOException("Failed to open URI: ${source.uri}")
+                }
             }
             is ImageSource.ByteArraySource -> {
                 BitmapFactory.decodeByteArray(source.bytes, 0, source.bytes.size)
             }
         }
+
+        if (bmp == null) {
+            val srcDesc = when (source) {
+                is ImageSource.BitmapSource -> "BitmapSource"
+                is ImageSource.FileSource -> "File(${source.file.absolutePath})"
+                is ImageSource.UriSource -> "Uri(${source.uri})"
+                is ImageSource.ByteArraySource -> "ByteArray(len=${source.bytes.size})"
+                else -> "unknown"
+            }
+            throw IOException("Failed to decode image from source: $srcDesc")
+        }
+
+        bmp
     }
     
-    /**
-     * Save an ImageSource to a temporary file.
-     */
+    /** Save an ImageSource to a temporary file. */
     suspend fun imageToFile(
         context: Context,
         source: ImageSource,
         filename: String = "temp_image.jpg"
-    ): File = withContext(Dispatchers.IO) {
+    ): File = safeWithIO {
         val tempFile = File(context.cacheDir, filename)
         
         when (source) {
@@ -81,15 +107,7 @@ object ImageUtils {
         }
     }
     
-    /**
-     * Preprocess an image for OCR or vision models.
-     *
-     * @param bitmap The input bitmap.
-     * @param correctOrientation Apply EXIF orientation correction.
-     * @param maxDimension Maximum width or height.
-     * @param enhance Apply enhancement for OCR (grayscale, contrast).
-     * @return Processed bitmap.
-     */
+    /** Preprocess a bitmap for OCR/vision: scale and optional enhancement. */
     fun preprocessImage(
         bitmap: Bitmap,
         correctOrientation: Boolean = true,
@@ -111,9 +129,7 @@ object ImageUtils {
         return result
     }
     
-    /**
-     * Scale a bitmap to fit within max dimension while maintaining aspect ratio.
-     */
+    /** Scale a bitmap to fit within max dimension while preserving aspect ratio. */
     private fun scaleBitmap(bitmap: Bitmap, maxDimension: Int): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
@@ -134,9 +150,7 @@ object ImageUtils {
         return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
     }
     
-    /**
-     * Enhance image for better OCR results.
-     */
+    /** Enhance image for better OCR results (grayscale + contrast). */
     private fun enhanceForOcr(bitmap: Bitmap): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
@@ -166,9 +180,7 @@ object ImageUtils {
         return grayscale
     }
     
-    /**
-     * Apply EXIF orientation to a bitmap.
-     */
+    /** Apply EXIF orientation correction to a bitmap. */
     fun applyExifOrientation(bitmap: Bitmap, imagePath: String): Bitmap {
         return try {
             val exif = ExifInterface(imagePath)
@@ -193,9 +205,7 @@ object ImageUtils {
         }
     }
 
-    /**
-     * Decode a File into a Bitmap and apply EXIF orientation if possible.
-     */
+    /** Decode a File into a Bitmap and apply EXIF orientation if available. */
     fun fileToBitmap(file: File): Bitmap {
         try {
             val bmp = BitmapFactory.decodeFile(file.absolutePath)
@@ -205,24 +215,20 @@ object ImageUtils {
         }
     }
     
-    /**
-     * Save a bitmap to file.
-     */
+    /** Save a bitmap to a file as JPEG. */
     private fun saveBitmapToFile(bitmap: Bitmap, file: File, quality: Int = JPEG_QUALITY) {
         file.outputStream().use { stream ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
         }
     }
     
-    /**
-     * Convert ImageSource to byte array.
-     */
+    /** Convert an ImageSource to a byte array. */
     suspend fun imageToByteArray(
         context: Context,
         source: ImageSource,
         format: Bitmap.CompressFormat = Bitmap.CompressFormat.JPEG,
         quality: Int = JPEG_QUALITY
-    ): ByteArray = withContext(Dispatchers.IO) {
+    ): ByteArray = safeWithIO {
         when (source) {
             is ImageSource.ByteArraySource -> source.bytes
             is ImageSource.FileSource -> source.file.readBytes()
