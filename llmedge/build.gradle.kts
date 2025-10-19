@@ -103,6 +103,8 @@ dependencies {
     
     // OCR support - Google ML Kit Text Recognition
     implementation("com.google.mlkit:text-recognition:16.0.0")
+    // Image labeling for fast local description
+    implementation("com.google.mlkit:image-labeling:17.0.7")
     // Optional: Additional language support for ML Kit
     // implementation("com.google.mlkit:text-recognition-chinese:16.0.0")
     // implementation("com.google.mlkit:text-recognition-japanese:16.0.0")
