@@ -13,6 +13,8 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 - Run GGUF models directly on Android using llama.cpp (JNI)
 - Download and cache models from Hugging Face
 - Minimal on-device RAG (retrieval-augmented generation) pipeline
+- **OCR Support**: Extract text from images using Google ML Kit
+- **Vision Model Ready**: Architecture prepared for vision-capable LLMs (LLaVA)
 - Built-in memory usage metrics
 - Optional Vulkan acceleration
 
@@ -24,6 +26,8 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 2. [Usage](#usage)  
    - [Downloading Models](#downloading-models)  
    - [Reasoning Controls](#reasoning-controls)  
+   - [Image Text Extraction (OCR)](#image-text-extraction-ocr)
+   - [Vision Models](#vision-models)
    - [On-device RAG](#on-device-rag)  
 3. [Building](#building)  
 4. [Architecture](#architecture)  
@@ -124,6 +128,84 @@ val mode = smol.getThinkingMode()          // inspect the current mode
 
 Setting the budget to `0` always disables thinking, while `-1` leaves it unrestricted. If you omit `reasoningBudget`, the library chooses `0` when the mode is `DISABLED` and `-1` otherwise. The API also injects the `/no_think` tag automatically when thinking is disabled, so you do not need to modify prompts manually.
 
+### Image Text Extraction (OCR)
+
+llmedge uses Google ML Kit Text Recognition for extracting text from images.
+
+#### Quick Start
+
+```kotlin
+import io.aatricks.llmedge.vision.*
+import io.aatricks.llmedge.vision.ocr.*
+
+// Initialize OCR engine
+val mlKitEngine = MlKitOcrEngine(context)
+
+// Create image understanding instance with OCR
+val imageUnderstanding = ImageUnderstanding(
+    visionAnalyzer = null, // Add vision model when available
+    ocrEngines = listOf(mlKitEngine)
+)
+
+// Process an image
+val imageFile = File("/path/to/image.jpg")
+val result = imageUnderstanding.process(
+    image = ImageSource.FileSource(imageFile),
+    mode = VisionMode.AUTO_PREFER_OCR
+)
+
+println("Extracted text: ${result.text}")
+println("Engine used: ${result.engine}")
+```
+
+#### OCR Engines
+
+**Google ML Kit Text Recognition**
+- Fast and lightweight
+- No additional data files needed
+- Good for Latin scripts
+- Add dependency: `implementation("com.google.mlkit:text-recognition:16.0.0")`
+
+#### Processing Modes
+#### Processing Modes
+
+```kotlin
+enum class VisionMode {
+        AUTO_PREFER_VISION,  // Try vision model first, fall back to OCR
+        AUTO_PREFER_OCR,     // Try OCR first (ML Kit)
+        FORCE_VISION,        // Vision model only (error if unavailable)
+        FORCE_MLKIT          // ML Kit OCR only
+}
+```
+
+### Vision Models
+
+The library architecture supports vision-capable language models (like LLaVA), though native vision support in llama.cpp is still being integrated.
+
+#### Prepared Architecture
+
+```kotlin
+// Future usage when vision models are fully supported
+val visionAdapter = SmolLMVisionAdapter(context, smolLM)
+visionAdapter.loadVisionModel(
+    modelPath = "/path/to/llava.gguf",
+    mmprojPath = "/path/to/mmproj.bin"
+)
+
+val imageUnderstanding = ImageUnderstanding(
+    visionAnalyzer = visionAdapter,
+    ocrEngines = listOf(mlKitEngine) // Fallback
+)
+
+val result = imageUnderstanding.process(
+    image = ImageSource.FileSource(imageFile),
+    mode = VisionMode.AUTO_PREFER_VISION,
+    prompt = "Describe what you see in this image."
+)
+```
+
+Vision model support will be enabled once llama.cpp's multimodal capabilities are integrated into the Android build.
+
 ### On-device RAG
 
 The library includes a minimal on-device RAG pipeline, similar to Android-Doc-QA, built with:
@@ -216,6 +298,29 @@ Monitor `nativePssKb` closely during model loading and inference to understand L
 
 - Vulkan SDK may be required; set the `VULKAN_SDK` environment variable when building with Vulkan.
 - Vulkan acceleration can be checked via `SmolLM.isVulkanEnabled()`.
+
+### ProGuard/R8 Configuration
+
+The library includes consumer ProGuard rules. If you need to add custom rules:
+
+```proguard
+# Keep OCR engines
+-keep class io.aatricks.llmedge.vision.** { *; }
+-keep class org.bytedeco.** { *; }
+-keep class com.google.mlkit.** { *; }
+
+# Suppress warnings for optional dependencies
+-dontwarn org.bytedeco.**
+-dontwarn com.google.mlkit.**
+```
+
+### Licenses
+
+- **llmedge**: Apache 2.0
+- **llama.cpp**: MIT
+- **Leptonica**: Custom (BSD-like)
+- **Google ML Kit**: Proprietary (see ML Kit terms)
+- **JavaCPP**: Apache 2.0
 
 ## License and Credits
 

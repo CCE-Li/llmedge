@@ -66,6 +66,11 @@ set(SMOLLM_SOURCES
 
         LLMInference.cpp
         smollm.cpp
+        # libmtmd (multimodal projector) from llama.cpp
+        ${LLAMA_DIR}/tools/mtmd/mtmd.cpp
+        ${LLAMA_DIR}/tools/mtmd/mtmd-helper.cpp
+        ${LLAMA_DIR}/tools/mtmd/mtmd-audio.cpp
+        ${LLAMA_DIR}/tools/mtmd/clip.cpp
 )
 
 set(VULKAN_ENABLED ON CACHE BOOL "Enable Vulkan support")
@@ -116,6 +121,7 @@ function(build_library target_name)
             ${GGML_DIR}/src
             ${GGML_DIR}/src/ggml-cpu
             ${LLAMA_DIR}/include
+            ${LLAMA_DIR}/tools/mtmd
             ${VENDOR_DIR}
     )
 

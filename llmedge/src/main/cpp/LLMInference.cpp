@@ -299,3 +299,12 @@ LLMInference::~LLMInference() {
     delete _batch;
     llama_sampler_free(_sampler);
 }
+
+// Safe accessors used by JNI/native glue. Return internal pointers; caller must not free.
+llama_model* LLMInference::getModel() {
+    return _model;
+}
+
+llama_context* LLMInference::getContext() {
+    return _ctx;
+}

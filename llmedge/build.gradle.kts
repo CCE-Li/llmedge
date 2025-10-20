@@ -66,6 +66,19 @@ android {
             version = "3.22.1"
         }
     }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // Handle duplicate files from JavaCPP
+            pickFirsts += "META-INF/native-image/**"
+            pickFirsts += "META-INF/maven/**"
+            pickFirsts += "META-INF/INDEX.LIST"
+            pickFirsts += "META-INF/LICENSE"
+            pickFirsts += "META-INF/LICENSE.txt"
+            pickFirsts += "META-INF/NOTICE"
+            pickFirsts += "META-INF/NOTICE.txt"
+        }
+    }
 }
 
 dependencies {
@@ -85,6 +98,20 @@ dependencies {
 
     // JSON serialization (for simple local embedding index persistence)
     implementation("com.google.code.gson:gson:2.11.0")
+    
+    // OCR support - Google ML Kit Text Recognition (Tesseract removed)
+    
+    // OCR support - Google ML Kit Text Recognition
+    implementation("com.google.mlkit:text-recognition:16.0.0")
+    // Image labeling for fast local description
+    implementation("com.google.mlkit:image-labeling:17.0.7")
+    // Optional: Additional language support for ML Kit
+    // implementation("com.google.mlkit:text-recognition-chinese:16.0.0")
+    // implementation("com.google.mlkit:text-recognition-japanese:16.0.0")
+    // implementation("com.google.mlkit:text-recognition-korean:16.0.0")
+    
+    // Coroutines support for ML Kit
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.1")
 
     testImplementation(libs.junit)
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")

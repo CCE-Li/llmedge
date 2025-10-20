@@ -65,4 +65,9 @@ class LLMInference {
     void setReasoningOptions(bool disableThinking, int reasoningBudget);
 
     ~LLMInference();
+
+    // Expose internal model/context for JNI integrations (safe accessor)
+    // These return the raw pointers managed by this instance. Caller must not free them.
+    llama_model* getModel();
+    llama_context* getContext();
 };
