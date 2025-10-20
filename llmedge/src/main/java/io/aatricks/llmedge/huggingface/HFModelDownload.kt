@@ -12,6 +12,7 @@ import io.ktor.http.isSuccess
 import io.ktor.http.path
 import io.ktor.utils.io.errors.IOException
 import io.ktor.utils.io.readAvailable
+import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -56,27 +57,35 @@ internal class HFModelDownload(
         val channel = response.bodyAsChannel()
 
         try {
+            // Use InputStream adapter to avoid Ktor allocating large ByteBuffer objects on the JVM heap
+            val inputStream = channel.toInputStream()
             withContext(Dispatchers.IO) {
-                tempFile.outputStream().use { outputStream ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var downloaded = 0L
-                    while (!channel.isClosedForRead) {
-                        val read = channel.readAvailable(buffer)
-                        if (read == -1) break
-                        if (read == 0) continue
-                        outputStream.write(buffer, 0, read)
-                        downloaded += read
-                        onProgress?.invoke(downloaded, expectedLength)
+                inputStream.use { ins ->
+                    tempFile.outputStream().use { outputStream ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var downloaded = 0L
+                        while (true) {
+                            val read = ins.read(buffer)
+                            if (read <= 0) break
+                            outputStream.write(buffer, 0, read)
+                            downloaded += read
+                            onProgress?.invoke(downloaded, expectedLength)
+                        }
+                        outputStream.flush()
                     }
-                    outputStream.flush()
                 }
             }
+        } catch (oom: OutOfMemoryError) {
+            // Attempt graceful cleanup and rethrow to avoid leaving partial files behind
+            try { channel.cancel(cause = oom) } catch (_: Throwable) {}
+            tempFile.delete()
+            throw oom
         } catch (ioe: IOException) {
-            channel.cancel(cause = ioe)
+            try { channel.cancel(cause = ioe) } catch (_: Throwable) {}
             tempFile.delete()
             throw ioe
         } finally {
-            channel.cancel(cause = null)
+            try { channel.cancel(cause = null) } catch (_: Throwable) {}
         }
 
         if (tempFile.renameTo(destination).not()) {
@@ -105,6 +114,6 @@ internal class HFModelDownload(
     }
 
     companion object {
-        private const val DEFAULT_BUFFER_SIZE = 8 * 1024
+        private const val DEFAULT_BUFFER_SIZE = 2 * 1024
     }
 }

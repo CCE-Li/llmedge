@@ -163,6 +163,142 @@ object HuggingFaceHub {
         )
     }
 
+    /**
+     * Ensure an arbitrary file from a Hugging Face model repo is present on disk.
+     * This is useful for files that are not GGUF models (for example VAE safetensors
+     * or other checkpoints) where we want to specify an explicit filename or
+     * fall back to a heuristic (largest file with allowed extensions).
+     */
+    suspend fun ensureRepoFileOnDisk(
+        context: Context,
+        modelId: String,
+        revision: String = "main",
+        filename: String? = null,
+        allowedExtensions: List<String> = listOf(".safetensors", ".pt", ".ckpt", ".gguf", ".bin"),
+        token: String? = null,
+        forceDownload: Boolean = false,
+        preferSystemDownloader: Boolean = false,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+    ): ModelDownloadResult = withContext(Dispatchers.IO) {
+        val destinationRoot = File(context.filesDir, DEFAULT_MODELS_DIRECTORY)
+        ensureRepoFileOnDisk(
+            destinationRoot = destinationRoot,
+            modelId = modelId,
+            revision = revision,
+            filename = filename,
+            allowedExtensions = allowedExtensions,
+            token = token,
+            forceDownload = forceDownload,
+            preferSystemDownloader = preferSystemDownloader,
+            systemDownloadContext = if (preferSystemDownloader) context else null,
+            onProgress = onProgress,
+        )
+    }
+
+    suspend fun ensureRepoFileOnDisk(
+        destinationRoot: File,
+        modelId: String,
+        revision: String = "main",
+        filename: String? = null,
+        allowedExtensions: List<String> = listOf(".safetensors", ".pt", ".ckpt", ".gguf", ".bin"),
+        token: String? = null,
+        forceDownload: Boolean = false,
+        preferSystemDownloader: Boolean = false,
+        systemDownloadContext: Context? = null,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+    ): ModelDownloadResult {
+        val resolved = resolveModelReference(modelId, revision)
+        val treeClient = HFModels.tree()
+        val files = treeClient.getModelFileTree(resolved.modelId, resolved.revision, token)
+
+        // If a filename is provided, try to find it (exact or suffix match).
+        val fileMatch = if (!filename.isNullOrEmpty()) {
+            files.firstOrNull { it.type == "file" && (it.path.equals(filename, ignoreCase = true) || it.path.endsWith(filename, ignoreCase = true)) }
+        } else null
+
+        val candidate = fileMatch ?: run {
+            // Choose the largest file that ends with one of the allowed extensions
+            val candidates = files.filter { it.type == "file" && allowedExtensions.any { ext -> it.path.endsWith(ext, ignoreCase = true) } }
+            candidates.maxByOrNull { it.lfs?.size ?: it.size }
+        }
+
+        val modelFile = candidate ?: throw IllegalArgumentException("No file found for '$modelId' matching ${filename ?: allowedExtensions}")
+
+        val sanitizedModelId = sanitize(resolved.modelId)
+        val revisionDir = File(destinationRoot, "${sanitizedModelId}/${resolved.revision}")
+        val targetName = modelFile.path.substringAfterLast('/')
+        val targetFile = File(revisionDir, targetName)
+        val expectedSize = modelFile.lfs?.size ?: modelFile.size
+
+        if (!forceDownload && targetFile.exists() && targetFile.length() == expectedSize) {
+            return ModelDownloadResult(
+                requestedModelId = modelId,
+                requestedRevision = revision,
+                modelId = resolved.modelId,
+                revision = resolved.revision,
+                file = targetFile,
+                fileInfo = modelFile.toMetadata(),
+                fromCache = true,
+                aliasApplied = resolved.aliasApplied,
+            )
+        }
+
+        revisionDir.mkdirs()
+        val downloadUrl = HFEndpoints.fileDownloadEndpoint(resolved.modelId, resolved.revision, modelFile.path)
+
+        val useSystemDownloader = preferSystemDownloader && systemDownloadContext != null
+
+        if (useSystemDownloader) {
+            val tempDir = systemDownloadContext?.getExternalFilesDir("hf-downloads")
+            if (tempDir == null) {
+                Log.w(LOG_TAG, "External downloads directory unavailable; falling back to in-app streaming")
+            } else {
+                val tempFile = File(tempDir, "${sanitize(resolved.modelId)}-${System.currentTimeMillis()}.tmp")
+                val downloaded = SystemDownload.download(
+                    context = systemDownloadContext!!,
+                    url = downloadUrl,
+                    token = token,
+                    destination = tempFile,
+                    displayName = targetName,
+                    onProgress = onProgress,
+                )
+                if (targetFile.exists()) {
+                    targetFile.delete()
+                }
+                downloaded.copyTo(targetFile, overwrite = true)
+                downloaded.delete()
+            }
+        }
+
+        if (!targetFile.exists()) {
+            val downloader = HFModels.download()
+            downloader.downloadModelFile(
+                modelId = resolved.modelId,
+                revision = resolved.revision,
+                filePath = modelFile.path,
+                destination = targetFile,
+                token = token,
+                onProgress = onProgress,
+            )
+        }
+
+        if (expectedSize > 0 && targetFile.length() != expectedSize) {
+            targetFile.delete()
+            throw IllegalStateException("Downloaded file size mismatch for ${modelFile.path}")
+        }
+
+        return ModelDownloadResult(
+            requestedModelId = modelId,
+            requestedRevision = revision,
+            modelId = resolved.modelId,
+            revision = resolved.revision,
+            file = targetFile,
+            fileInfo = modelFile.toMetadata(),
+            fromCache = false,
+            aliasApplied = resolved.aliasApplied,
+        )
+    }
+
     fun sanitize(modelId: String): String = modelId.replace("/", "_")
 
     private fun resolveModelReference(modelId: String, revision: String): ResolvedModel {
