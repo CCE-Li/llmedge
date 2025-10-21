@@ -208,6 +208,81 @@ val result = imageUnderstanding.process(
 
 Vision model support will be enabled once llama.cpp's multimodal capabilities are integrated into the Android build.
 
+
+### Stable Diffusion (image generation)
+
+llmedge now includes a Stable Diffusion integration for on-device image generation via the `StableDiffusion` Kotlin API. The examples app (`llmedge-examples`) contains a working demo at `StableDiffusionActivity.kt` that demonstrates downloading required assets from Hugging Face, loading the model, and generating images safely on memory-constrained devices.
+
+Key points:
+- The library can download model weights and auxiliary files (for example a VAE) from Hugging Face and cache them under the app files directory.
+- Large files should be downloaded using the system downloader (`preferSystemDownloader = true`) to avoid allocating large buffers on the app heap which can lead to OOMs.
+- Stable Diffusion models are memory intensive. Use conservative image resolutions and enable CPU offloading when necessary (see example below).
+
+Quick Kotlin example (adapted from `StableDiffusionActivity`):
+
+```kotlin
+// Ensure a VAE safetensors file is present (optional depending on the model repo)
+val vaeDownload = io.aatricks.llmedge.huggingface.HuggingFaceHub.ensureRepoFileOnDisk(
+    context = this,
+    modelId = "Meina/MeinaMix",
+    filename = "MeinaPastel - baked VAE.safetensors",
+    token = null,
+    forceDownload = false,
+    preferSystemDownloader = true,
+    onProgress = null
+)
+
+val sd = StableDiffusion.load(
+    context = this,
+    modelId = "Meina/MeinaMix",
+    filename = "MeinaPastel - baked VAE.safetensors", // let the loader pick the gguf in the repo
+    nThreads = Runtime.getRuntime().availableProcessors(),
+    offloadToCpu = true,     // reduce native memory pressure by offloading some tensors to CPU
+    keepClipOnCpu = true,    // keep CLIP on CPU if device GPU/ram is constrained
+    keepVaeOnCpu = false,    // VAE can be kept on GPU when available, choose based on device
+    vaePath = vaeDownload.file.absolutePath
+)
+
+val bmp = sd.txt2img(
+    StableDiffusion.GenerateParams(
+        prompt = "a cute pastel anime cat, soft colors, high quality",
+        steps = 20,
+        cfgScale = 7.0f,
+        width = 128,
+        height = 128,
+        seed = 42L
+    )
+)
+
+imageView.setImageBitmap(bmp)
+sd.close()
+```
+
+Memory & troubleshooting:
+- If you encounter OutOfMemoryError during generation, reduce width/height and number of steps, or enable more aggressive CPU offloading.
+- The example app falls back to a smaller resolution when a generation OOM occurs; you should do the same in production code.
+
+Running the example app:
+1. Build the library AAR and copy it into the example app (from the repo root):
+
+```bash
+./gradlew :llmedge:assembleRelease
+cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/llmedge-release.aar
+```
+
+2. Build and install the example app:
+
+```bash
+cd llmedge-examples
+../gradlew :app:assembleDebug
+../gradlew :app:installDebug
+```
+
+3. Open the app on device and pick the "Stable Diffusion" demo from the launcher. The demo downloads any missing files from Hugging Face and runs a quick txt2img generation.
+
+Notes:
+- The example explicitly downloads a VAE safetensors file for the `Meina/MeinaMix` demo; many repos include VAE files, but some GGUF model repos bundle everything you need. If the repo lacks a GGUF model file you'll get an obvious IllegalArgumentException — provide a `filename` or choose a different repo in that case.
+- Use the system downloader for large safetensors/gguf files to avoid heap pressure on Android.
 ### On-device RAG
 
 The library includes a minimal on-device RAG pipeline, similar to Android-Doc-QA, built with:
@@ -320,6 +395,7 @@ The library includes consumer ProGuard rules. If you need to add custom rules:
 
 - **llmedge**: Apache 2.0
 - **llama.cpp**: MIT
+- **stable-diffusion.cpp**: MIT
 - **Leptonica**: Custom (BSD-like)
 - **Google ML Kit**: Proprietary (see ML Kit terms)
 - **JavaCPP**: Apache 2.0
