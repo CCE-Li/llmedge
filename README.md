@@ -39,12 +39,14 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 
 ## Installation
 
-Clone the repository along with the `llama.cpp` submodule:
+Clone the repository along with the `llama.cpp` and `stable-diffusion.cpp` submodule:
 
 ```bash
 git clone --depth=1 https://github.com/Aatricks/llmedge
 cd llmedge
 git submodule update --init --recursive
+# cd stable-diffusion.cpp
+# git submodule update --init --recursive
 ```
 
 Open the project in Android Studio. If it does not build automatically, use ***Build > Rebuild Project.***

@@ -37,6 +37,7 @@ android {
                 // https://developer.android.com/guide/practices/page-sizes#compile-r27
                 arguments += listOf("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
                 arguments += "-DCMAKE_BUILD_TYPE=Release"
+                arguments += "-DSD_VULKAN=ON"
                 arguments += "-DGGML_VULKAN=ON"
 
                 // (debugging) uncomment the following line to enable debug builds
