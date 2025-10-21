@@ -44,6 +44,12 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
 
     sd_set_log_callback(sd_android_log_cb, nullptr);
 
+    ALOGI("Initializing Stable Diffusion with:");
+    ALOGI("  offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s",
+          offloadToCpu ? "true" : "false",
+          keepClipOnCpu ? "true" : "false",
+          keepVaeOnCpu ? "true" : "false");
+
     sd_ctx_params_t p{};
     sd_ctx_params_init(&p);
     p.model_path = modelPath ? modelPath : "";
