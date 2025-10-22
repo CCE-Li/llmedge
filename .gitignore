@@ -29,7 +29,6 @@ replay_pid*
 .idea/
 .vscode/
 build/
-llama.cpp/
 *.iml
 .gradle/
 /local.properties
