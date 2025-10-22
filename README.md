@@ -324,6 +324,49 @@ llmedge/src/main/assets/embeddings/all-minilm-l6-v2/tokenizer.json
     }
 ```
 
+## Building
+
+Building with Vulkan enabled
+---------------------------
+
+If you want to enable Vulkan acceleration for the native inference backend, follow these additional notes and requirements. The project supports building the Vulkan backend for Android but the runtime device must also support Vulkan 1.2.
+
+Prerequisites
+- Android NDK r27 or newer (NDK r27 used in development; NDK provides the Vulkan C headers). Ensure your NDK matches the version used by your build environment.
+- CMake 3.22+ and Ninja (the Android Gradle plugin will pick up CMake when configured).
+- Gradle (use the wrapper: `./gradlew`).
+- Android API (minSdk) 30 or higher when enabling the Vulkan backend — ggml-vulkan requires Vulkan 1.2 which is guaranteed on Android 11+ devices.
+- (Optional) VULKAN_SDK set in environment if you build shaders or use Vulkan SDK tools on the host. The build will fetch a matching `vulkan.hpp` header if needed.
+
+Build flags
+- Enable Vulkan at CMake configure time using Gradle external native build arguments. For example (bash/fish):
+
+```bash
+./gradlew :llmedge:assembleRelease -Pandroid.injected.build.api=30 -Pandroid.jniCmakeArgs="-DSD_VULKAN=ON -DGGML_VULKAN=ON"
+```
+
+Alternatively, set these flags in `llmedge/src/main/cpp/CMakeLists.txt` or in your Android Studio CMake configuration. The important flags are `-DSD_VULKAN=ON` and `-DGGML_VULKAN=ON` so ggml's Vulkan backend and the Stable Diffusion integration compile with Vulkan support.
+
+Notes about headers and toolchain
+- The build fetches `Vulkan-Hpp` (`vulkan.hpp`) and pins it to the NDK's Vulkan headers to avoid API mismatch. If you have a local `VULKAN_SDK` you can point to it, otherwise the project will use the fetched headers.
+- The repository also builds a small host toolchain to generate SPIR-V shaders at build time; ensure your build host has a working C++ toolchain (clang/gcc) and CMake configured.
+
+Runtime verification
+- The AAR will include native libraries that link against `libvulkan.so` when Vulkan is enabled. To verify Vulkan is actually being used at runtime:
+    - Run the app on a device with Android 11+ and a Vulkan 1.2-capable GPU.
+    - Use the Kotlin API `SmolLM.isVulkanEnabled()` to check whether the library thinks Vulkan is available.
+    - Inspect runtime logs: filter logcat for the `SmolSD` tag (the native logger) and look for backend initialization messages. Example:
+
+```bash
+adb logcat -s SmolSD:* | sed -n '1,200p'
+```
+
+    Look for messages indicating successful Vulkan initialization. Note: some builds logged "Using Vulkan backend" before initialization completed — make sure you see no subsequent "Failed to initialize Vulkan backend" or "Using CPU backend" messages.
+
+Troubleshooting
+- If you see "Vulkan 1.2 required" or linker errors for Vulkan symbols, confirm `minSdk` is set to 30 or higher in `llmedge/build.gradle.kts` and that your NDK provides the expected Vulkan headers.
+- If your device lacks Vulkan 1.2 support, the native code will fall back to the CPU backend. Use a modern device (Android 11+) or an emulator/image with Vulkan 1.2 support.
+
 #### Notes:
 
 - Uses `com.tom-roush:pdfbox-android` for PDF parsing.
@@ -334,9 +377,10 @@ llmedge/src/main/assets/embeddings/all-minilm-l6-v2/tokenizer.json
 ## Architecture
 
 1. llama.cpp (C/C++) provides the core inference engine, built via the Android NDK.
-2. `LLMInference.cpp` wraps the llama.cpp C API.
-3. `smollm.cpp` exposes JNI bindings for Kotlin.
-4. The `SmolLM` Kotlin class provides a high-level API for model loading and inference.
+2. Stable Diffusion (C/C++) provides the image generation backend, built via the Android NDK.
+3. `LLMInference.cpp` wraps the llama.cpp C API.
+4. `smollm.cpp` exposes JNI bindings for Kotlin.
+5. The `SmolLM` Kotlin class provides a high-level API for model loading and inference.
 
 ## Technologies
 
