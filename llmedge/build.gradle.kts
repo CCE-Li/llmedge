@@ -27,7 +27,7 @@ android {
     ndkVersion = "27.2.12479018"
 
     defaultConfig {
-        minSdk = 26
+        minSdk = 30  // Vulkan 1.2 requires API 30+ (Android 11)
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
         externalNativeBuild {
@@ -37,6 +37,7 @@ android {
                 // https://developer.android.com/guide/practices/page-sizes#compile-r27
                 arguments += listOf("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
                 arguments += "-DCMAKE_BUILD_TYPE=Release"
+                arguments += "-DSD_VULKAN=ON"
                 arguments += "-DGGML_VULKAN=ON"
 
                 // (debugging) uncomment the following line to enable debug builds

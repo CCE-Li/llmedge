@@ -39,12 +39,14 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 
 ## Installation
 
-Clone the repository along with the `llama.cpp` submodule:
+Clone the repository along with the `llama.cpp` and `stable-diffusion.cpp` submodule:
 
 ```bash
 git clone --depth=1 https://github.com/Aatricks/llmedge
 cd llmedge
 git submodule update --init --recursive
+# cd stable-diffusion.cpp
+# git submodule update --init --recursive
 ```
 
 Open the project in Android Studio. If it does not build automatically, use ***Build > Rebuild Project.***
@@ -206,6 +208,81 @@ val result = imageUnderstanding.process(
 
 Vision model support will be enabled once llama.cpp's multimodal capabilities are integrated into the Android build.
 
+
+### Stable Diffusion (image generation)
+
+llmedge now includes a Stable Diffusion integration for on-device image generation via the `StableDiffusion` Kotlin API. The examples app (`llmedge-examples`) contains a working demo at `StableDiffusionActivity.kt` that demonstrates downloading required assets from Hugging Face, loading the model, and generating images safely on memory-constrained devices.
+
+Key points:
+- The library can download model weights and auxiliary files (for example a VAE) from Hugging Face and cache them under the app files directory.
+- Large files should be downloaded using the system downloader (`preferSystemDownloader = true`) to avoid allocating large buffers on the app heap which can lead to OOMs.
+- Stable Diffusion models are memory intensive. Use conservative image resolutions and enable CPU offloading when necessary (see example below).
+
+Quick Kotlin example (adapted from `StableDiffusionActivity`):
+
+```kotlin
+// Ensure a VAE safetensors file is present (optional depending on the model repo)
+val vaeDownload = io.aatricks.llmedge.huggingface.HuggingFaceHub.ensureRepoFileOnDisk(
+    context = this,
+    modelId = "Meina/MeinaMix",
+    filename = "MeinaPastel - baked VAE.safetensors",
+    token = null,
+    forceDownload = false,
+    preferSystemDownloader = true,
+    onProgress = null
+)
+
+val sd = StableDiffusion.load(
+    context = this,
+    modelId = "Meina/MeinaMix",
+    filename = "MeinaPastel - baked VAE.safetensors", // let the loader pick the gguf in the repo
+    nThreads = Runtime.getRuntime().availableProcessors(),
+    offloadToCpu = true,     // reduce native memory pressure by offloading some tensors to CPU
+    keepClipOnCpu = true,    // keep CLIP on CPU if device GPU/ram is constrained
+    keepVaeOnCpu = false,    // VAE can be kept on GPU when available, choose based on device
+    vaePath = vaeDownload.file.absolutePath
+)
+
+val bmp = sd.txt2img(
+    StableDiffusion.GenerateParams(
+        prompt = "a cute pastel anime cat, soft colors, high quality",
+        steps = 20,
+        cfgScale = 7.0f,
+        width = 128,
+        height = 128,
+        seed = 42L
+    )
+)
+
+imageView.setImageBitmap(bmp)
+sd.close()
+```
+
+Memory & troubleshooting:
+- If you encounter OutOfMemoryError during generation, reduce width/height and number of steps, or enable more aggressive CPU offloading.
+- The example app falls back to a smaller resolution when a generation OOM occurs; you should do the same in production code.
+
+Running the example app:
+1. Build the library AAR and copy it into the example app (from the repo root):
+
+```bash
+./gradlew :llmedge:assembleRelease
+cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/llmedge-release.aar
+```
+
+2. Build and install the example app:
+
+```bash
+cd llmedge-examples
+../gradlew :app:assembleDebug
+../gradlew :app:installDebug
+```
+
+3. Open the app on device and pick the "Stable Diffusion" demo from the launcher. The demo downloads any missing files from Hugging Face and runs a quick txt2img generation.
+
+Notes:
+- The example explicitly downloads a VAE safetensors file for the `Meina/MeinaMix` demo; many repos include VAE files, but some GGUF model repos bundle everything you need. If the repo lacks a GGUF model file you'll get an obvious IllegalArgumentException — provide a `filename` or choose a different repo in that case.
+- Use the system downloader for large safetensors/gguf files to avoid heap pressure on Android.
 ### On-device RAG
 
 The library includes a minimal on-device RAG pipeline, similar to Android-Doc-QA, built with:
@@ -247,6 +324,49 @@ llmedge/src/main/assets/embeddings/all-minilm-l6-v2/tokenizer.json
     }
 ```
 
+## Building
+
+Building with Vulkan enabled
+---------------------------
+
+If you want to enable Vulkan acceleration for the native inference backend, follow these additional notes and requirements. The project supports building the Vulkan backend for Android but the runtime device must also support Vulkan 1.2.
+
+Prerequisites
+- Android NDK r27 or newer (NDK r27 used in development; NDK provides the Vulkan C headers). Ensure your NDK matches the version used by your build environment.
+- CMake 3.22+ and Ninja (the Android Gradle plugin will pick up CMake when configured).
+- Gradle (use the wrapper: `./gradlew`).
+- Android API (minSdk) 30 or higher when enabling the Vulkan backend — ggml-vulkan requires Vulkan 1.2 which is guaranteed on Android 11+ devices.
+- (Optional) VULKAN_SDK set in environment if you build shaders or use Vulkan SDK tools on the host. The build will fetch a matching `vulkan.hpp` header if needed.
+
+Build flags
+- Enable Vulkan at CMake configure time using Gradle external native build arguments. For example (bash/fish):
+
+```bash
+./gradlew :llmedge:assembleRelease -Pandroid.injected.build.api=30 -Pandroid.jniCmakeArgs="-DSD_VULKAN=ON -DGGML_VULKAN=ON"
+```
+
+Alternatively, set these flags in `llmedge/src/main/cpp/CMakeLists.txt` or in your Android Studio CMake configuration. The important flags are `-DSD_VULKAN=ON` and `-DGGML_VULKAN=ON` so ggml's Vulkan backend and the Stable Diffusion integration compile with Vulkan support.
+
+Notes about headers and toolchain
+- The build fetches `Vulkan-Hpp` (`vulkan.hpp`) and pins it to the NDK's Vulkan headers to avoid API mismatch. If you have a local `VULKAN_SDK` you can point to it, otherwise the project will use the fetched headers.
+- The repository also builds a small host toolchain to generate SPIR-V shaders at build time; ensure your build host has a working C++ toolchain (clang/gcc) and CMake configured.
+
+Runtime verification
+- The AAR will include native libraries that link against `libvulkan.so` when Vulkan is enabled. To verify Vulkan is actually being used at runtime:
+    - Run the app on a device with Android 11+ and a Vulkan 1.2-capable GPU.
+    - Use the Kotlin API `SmolLM.isVulkanEnabled()` to check whether the library thinks Vulkan is available.
+    - Inspect runtime logs: filter logcat for the `SmolSD` tag (the native logger) and look for backend initialization messages. Example:
+
+```bash
+adb logcat -s SmolSD:* | sed -n '1,200p'
+```
+
+    Look for messages indicating successful Vulkan initialization. Note: some builds logged "Using Vulkan backend" before initialization completed — make sure you see no subsequent "Failed to initialize Vulkan backend" or "Using CPU backend" messages.
+
+Troubleshooting
+- If you see "Vulkan 1.2 required" or linker errors for Vulkan symbols, confirm `minSdk` is set to 30 or higher in `llmedge/build.gradle.kts` and that your NDK provides the expected Vulkan headers.
+- If your device lacks Vulkan 1.2 support, the native code will fall back to the CPU backend. Use a modern device (Android 11+) or an emulator/image with Vulkan 1.2 support.
+
 #### Notes:
 
 - Uses `com.tom-roush:pdfbox-android` for PDF parsing.
@@ -257,9 +377,10 @@ llmedge/src/main/assets/embeddings/all-minilm-l6-v2/tokenizer.json
 ## Architecture
 
 1. llama.cpp (C/C++) provides the core inference engine, built via the Android NDK.
-2. `LLMInference.cpp` wraps the llama.cpp C API.
-3. `smollm.cpp` exposes JNI bindings for Kotlin.
-4. The `SmolLM` Kotlin class provides a high-level API for model loading and inference.
+2. Stable Diffusion (C/C++) provides the image generation backend, built via the Android NDK.
+3. `LLMInference.cpp` wraps the llama.cpp C API.
+4. `smollm.cpp` exposes JNI bindings for Kotlin.
+5. The `SmolLM` Kotlin class provides a high-level API for model loading and inference.
 
 ## Technologies
 
@@ -318,6 +439,7 @@ The library includes consumer ProGuard rules. If you need to add custom rules:
 
 - **llmedge**: Apache 2.0
 - **llama.cpp**: MIT
+- **stable-diffusion.cpp**: MIT
 - **Leptonica**: Custom (BSD-like)
 - **Google ML Kit**: Proprietary (see ML Kit terms)
 - **JavaCPP**: Apache 2.0
