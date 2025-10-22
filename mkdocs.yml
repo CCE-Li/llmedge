@@ -1,0 +1,51 @@
+site_name: "llmedge"
+site_url: "https://github.com/Aatricks/llmedge"
+site_description: "Lightweight on-device LLM inference and multimodal toolkit for Android/native"
+site_author: "Aatricks"
+dev_addr: "127.0.0.1:8080"
+repo_url: "https://github.com/Aatricks/llmedge"
+theme:
+  name: shadcn
+  icon: null
+  pygments_style:
+    light: shadcn-light
+    dark: github-dark
+  katex_options:
+    macros:
+      "\\dx": "\\mathrm{d}x"
+  # show_datetime: true
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Usage: usage.md
+  - Examples: examples.md
+  - Architecture: architecture.md
+  - Quirks & Troubleshooting: quirks.md
+  - FAQ: faq.md
+  - Contributing: contributing.md
+
+plugins:
+  - search
+  - excalidraw
+  - mkdocstrings
+
+markdown_extensions:
+  admonition:
+  codehilite:
+  fenced_code:
+  footnotes:
+  extra:
+  pymdownx.blocks.details:
+  pymdownx.tabbed:
+  pymdownx.blocks.tab:
+    combine_header_slug: true
+    separator: ___
+  pymdownx.progressbar:
+  pymdownx.snippets:
+  pymdownx.arithmatex:
+    generic: true
+  shadcn.extensions.echarts.alpha:
+  shadcn.extensions.codexec:
+  shadcn.extensions.iconify:
+  pymdownx.blocks.caption:
