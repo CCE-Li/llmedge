@@ -1,5 +1,9 @@
 site_name: "llmedge"
-site_url: "https://github.com/Aatricks/llmedge"
+# When deploying to GitHub Pages (project page), set site_url to the pages URL
+# so absolute links and sitemap entries are correct. Also disable directory-style
+# URLs to generate .html filenames which avoids 404s on some static hosts.
+site_url: "https://aatricks.github.io/llmedge"
+use_directory_urls: false
 site_description: "Lightweight on-device LLM inference and multimodal toolkit for Android/native"
 site_author: "Aatricks"
 dev_addr: "127.0.0.1:8080"

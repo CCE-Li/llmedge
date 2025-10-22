@@ -6,6 +6,9 @@ See the [examples repository](https://github.com/Aatricks/llmedge-examples) for 
 
 Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS.md`](./CREDITS.md).
 
+> [!NOTE]
+> This library is in early development and may change significantly.
+
 ---
 
 ## Features
@@ -38,6 +41,9 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 ---
 
 ## Installation
+
+> [!WARNING]
+> For development, it is strongly recommended to work on linux due to Vulkan backend build for Stable Diffusion not working on Windows.
 
 Clone the repository along with the `llama.cpp` and `stable-diffusion.cpp` submodule:
 
