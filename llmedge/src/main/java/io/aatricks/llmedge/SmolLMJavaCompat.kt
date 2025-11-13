@@ -48,7 +48,7 @@ object SmolLMJavaCompat {
                 modelId = modelId,
                 revision = revision,
                 token = token,
-                params = params
+                params = params ?: SmolLM.InferenceParams()
             )
         }
     }

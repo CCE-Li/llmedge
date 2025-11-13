@@ -41,8 +41,8 @@ set(SMOLLM_SOURCES
         ${LLAMA_DIR}/src/llama-mmap.cpp
         ${LLAMA_DIR}/src/llama-hparams.cpp
         ${LLAMA_DIR}/src/llama-hparams.cpp
-        ${LLAMA_DIR}/src/llama-kv-cache-unified-iswa.cpp
-        ${LLAMA_DIR}/src/llama-kv-cache-unified.cpp
+        ${LLAMA_DIR}/src/llama-kv-cache-iswa.cpp
+        ${LLAMA_DIR}/src/llama-kv-cache.cpp
         ${LLAMA_DIR}/src/llama-batch.cpp
         ${LLAMA_DIR}/src/llama-arch.cpp
         ${LLAMA_DIR}/src/llama-adapter.cpp
@@ -208,8 +208,10 @@ if (${ANDROID_ABI} STREQUAL "arm64-v8a")
     # Targets for Arm-v8.4a
     build_library_arm64("smollm_v8_4_fp16_dotprod" "-march=armv8.4-a+fp16+dotprod")
     build_library_arm64("smollm_v8_4_fp16_dotprod_sve" "-march=armv8.4-a+fp16+dotprod+sve")
+    target_compile_definitions(smollm_v8_4_fp16_dotprod_sve PRIVATE GGML_F32_STEP=32)
     build_library_arm64("smollm_v8_4_fp16_dotprod_i8mm" "-march=armv8.4-a+fp16+dotprod+i8mm")
     build_library_arm64("smollm_v8_4_fp16_dotprod_i8mm_sve" "-march=armv8.4-a+fp16+dotprod+i8mm+sve")
+    target_compile_definitions(smollm_v8_4_fp16_dotprod_i8mm_sve PRIVATE GGML_F32_STEP=32)
 endif()
 
 # library target for GGUFReader
@@ -310,12 +312,19 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(vulkan_hpp)
 
-# Configure Vulkan for stable-diffusion's ggml-vulkan
+# Configure Vulkan for both llama.cpp and stable-diffusion.cpp ggml-vulkan
 set(Vulkan_INCLUDE_DIRS "${Vulkan_INCLUDE_DIR};${vulkan_hpp_SOURCE_DIR}")
 set(Vulkan_LIBRARIES "${VULKAN_LIB}")
 set(Vulkan_FOUND ON)
 set(Vulkan_INCLUDE_DIR "${Vulkan_INCLUDE_DIR}" CACHE PATH "Vulkan include directory" FORCE)
 set(Vulkan_LIBRARY "${VULKAN_LIB}" CACHE FILEPATH "Vulkan library" FORCE)
+
+# Find glslc compiler for Vulkan shader compilation
+find_program(Vulkan_GLSLC_EXECUTABLE NAMES glslc HINTS $ENV{VULKAN_SDK}/bin)
+if(Vulkan_GLSLC_EXECUTABLE)
+    set(Vulkan_glslc_FOUND ON)
+    set(Vulkan_glslc_EXECUTABLE "${Vulkan_GLSLC_EXECUTABLE}")
+endif()
 
 add_subdirectory(${SD_DIR} ${CMAKE_CURRENT_BINARY_DIR}/stable-diffusion.cpp)
 
