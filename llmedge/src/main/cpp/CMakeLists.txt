@@ -352,6 +352,12 @@ target_link_options(
 set(SD_DIR_RELATIVE "../../../../stable-diffusion.cpp")
 get_filename_component(SD_DIR ${SD_DIR_RELATIVE} ABSOLUTE)
 
+if (NOT EXISTS "${SD_DIR}/wan.hpp")
+        message(FATAL_ERROR "stable-diffusion.cpp Wan headers not found. Run git submodule update --init --recursive.")
+endif()
+
+option(WAN_SUPPORT "Enable Wan video generation support" ON)
+
 # Configure stable-diffusion.cpp build options before adding the subdirectory
 set(SD_BUILD_EXAMPLES OFF CACHE BOOL "sd: build examples" FORCE)
 set(SD_BUILD_SHARED_LIBS OFF CACHE BOOL "sd: build shared libs" FORCE)
@@ -394,6 +400,7 @@ if (CMAKE_MAKE_PROGRAM)
 endif()
 # Enable ggml Vulkan for stable-diffusion's ggml
 set(GGML_VULKAN ON CACHE BOOL "ggml: vulkan" FORCE)
+message(STATUS "Stable Diffusion Vulkan=${SD_VULKAN}; GGML Vulkan=${GGML_VULKAN}")
 
 # Provide Vulkan library and include path for Android NDK
 find_library(VULKAN_LIB vulkan REQUIRED)
@@ -451,6 +458,11 @@ target_link_libraries(sdcpp
 )
 if(SD_VULKAN)
         target_link_libraries(sdcpp vulkan)
+endif()
+
+if (WAN_SUPPORT)
+        target_compile_definitions(sdcpp PRIVATE WAN_SUPPORT=1)
+        message(STATUS "Wan video support is enabled for sdcpp")
 endif()
 
 target_link_options(sdcpp PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)

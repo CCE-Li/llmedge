@@ -1,0 +1,34 @@
+# Ignore VCS and tooling metadata
+.git
+.gitmodules
+.github/
+.idea/
+.vscode/
+.gradle/
+
+# Build artifacts
+build/
+llmedge/build/
+llmedge-examples/build/
+llama.cpp/build/
+stable-diffusion.cpp/build/
+external/
+out/
+dist/
+node_modules/
+
+# Native build directories
+.cxx/
+.externalNativeBuild/
+
+# Logs and environment files
+*.log
+*.tmp
+*.swp
+.env*
+coverage/
+
+# Gradle wrappers and local overrides
+gradlew
+gradlew.bat
+local.properties

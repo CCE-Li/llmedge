@@ -2,7 +2,6 @@ package io.aatricks.llmedge
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.os.Build
 import android.util.Log
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
@@ -24,6 +23,7 @@ class StableDiffusion private constructor(
             // Reuse SmolLM CPU feature detection to choose the best lib variant if needed later.
             try {
                 System.loadLibrary("sdcpp")
+                check(nativeCheckBindings()) { "Failed to link StableDiffusion JNI bindings" }
             } catch (e: UnsatisfiedLinkError) {
                 Log.e(LOG_TAG, "Failed to load sdcpp native library", e)
                 throw e
@@ -41,6 +41,9 @@ class StableDiffusion private constructor(
             keepClipOnCpu: Boolean,
             keepVaeOnCpu: Boolean,
         ): Long
+
+        @JvmStatic
+        private external fun nativeCheckBindings(): Boolean
 
         suspend fun load(
             context: Context,
@@ -125,6 +128,76 @@ class StableDiffusion private constructor(
         val seed: Long = 42L
     )
 
+    enum class Scheduler {
+        EULER_A,
+        DDIM,
+        DDPM,
+        LCM,
+    }
+
+    data class VideoGenerateParams(
+        val prompt: String,
+        val negative: String = "",
+        val width: Int = 512,
+        val height: Int = 512,
+        val videoFrames: Int = 16,
+        val steps: Int = 20,
+        val cfgScale: Float = 7.0f,
+        val seed: Long = -1L,
+        val initImage: Bitmap? = null,
+        val strength: Float = 0.8f,
+        val scheduler: Scheduler = Scheduler.EULER_A,
+    ) {
+        fun validate(): Result<Unit> = runCatching {
+            require(prompt.isNotBlank()) { "Prompt cannot be blank" }
+            require(width % 64 == 0 && width in 256..960) {
+                "Width must be a multiple of 64 in range 256..960"
+            }
+            require(height % 64 == 0 && height in 256..960) {
+                "Height must be a multiple of 64 in range 256..960"
+            }
+            require(videoFrames in 4..64) { "Frame count must be between 4 and 64" }
+            require(steps in 10..50) { "Steps must be between 10 and 50" }
+            require(cfgScale in 1.0f..15.0f) { "CFG scale must be between 1.0 and 15.0" }
+            require(strength in 0.0f..1.0f) { "Strength must be between 0.0 and 1.0" }
+        }
+
+        fun withPrompt(prompt: String): VideoGenerateParams = copy(prompt = prompt)
+
+        companion object {
+            fun default(prompt: String = "") = VideoGenerateParams(prompt = prompt)
+        }
+    }
+
+    data class GenerationMetrics(
+        val totalTimeSeconds: Float,
+        val framesPerSecond: Float,
+        val timePerStep: Float,
+        val peakMemoryUsageMb: Long,
+        val vulkanEnabled: Boolean,
+        val modelLoadTimeSeconds: Float = 0f,
+        val frameConversionTimeSeconds: Float = 0f,
+    ) {
+        val averageFrameTime: Float
+            get() = if (framesPerSecond > 0f) 1f / framesPerSecond else 0f
+
+        val stepsPerSecond: Float
+            get() = if (timePerStep > 0f) 1f / timePerStep else 0f
+
+        val throughput: String
+            get() = String.format("%.2f fps", framesPerSecond)
+    }
+
+    fun interface VideoProgressCallback {
+        fun onProgress(
+            step: Int,
+            totalSteps: Int,
+            currentFrame: Int,
+            totalFrames: Int,
+            timePerStep: Float,
+        )
+    }
+
     suspend fun txt2img(params: GenerateParams): Bitmap = withContext(Dispatchers.Default) {
         val bytes = generationMutex.withLock {
             nativeTxt2Img(
@@ -171,4 +244,26 @@ class StableDiffusion private constructor(
         cfg: Float,
         seed: Long,
     ): ByteArray?
+
+    private external fun nativeTxt2Vid(
+        handle: Long,
+        prompt: String,
+        negative: String,
+        width: Int,
+        height: Int,
+        videoFrames: Int,
+        steps: Int,
+        cfg: Float,
+        seed: Long,
+        initImage: ByteArray?,
+        initWidth: Int,
+        initHeight: Int,
+    ): Array<ByteArray>?
+
+    private external fun nativeSetProgressCallback(
+        handle: Long,
+        callback: VideoProgressCallback?,
+    )
+
+    private external fun nativeCancelGeneration(handle: Long)
 }

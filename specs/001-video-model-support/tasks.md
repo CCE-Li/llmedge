@@ -24,11 +24,11 @@
 
 **Duration**: ~2 hours
 
-- [ ] T001 Update stable-diffusion.cpp submodule to latest commit with Wan model support in `stable-diffusion.cpp/` (checkout latest main branch, verify `wan.hpp` exists)
-- [ ] T002 [P] Verify CMake builds stable-diffusion.cpp with Wan support by checking for `generate_video` symbol in compiled library (run `nm -D` on .so file)
-- [ ] T003 [P] Create test model directory structure `llmedge/src/androidTest/assets/test-models/` for small test GGUF files
-- [ ] T004 [P] Setup JUnit 4 test dependencies in `llmedge/build.gradle.kts` (androidx.test, kotlinx-coroutines-test, mockk if needed)
-- [ ] T005 Document build verification steps in `specs/001-video-model-support/build-verification.md` (how to verify Wan support is compiled)
+- [X] T001 Update stable-diffusion.cpp submodule to latest commit with Wan model support in `stable-diffusion.cpp/` (checkout latest main branch, verify `wan.hpp` exists)
+- [X] T002 [P] Verify CMake builds stable-diffusion.cpp with Wan support by checking for `generate_video` symbol in compiled library (run `nm -D` on .so file)
+- [X] T003 [P] Create test model directory structure `llmedge/src/androidTest/assets/test-models/` for small test GGUF files
+- [X] T004 [P] Setup JUnit 4 test dependencies in `llmedge/build.gradle.kts` (androidx.test, kotlinx-coroutines-test, mockk if needed)
+- [X] T005 Document build verification steps in `specs/001-video-model-support/build-verification.md` (how to verify Wan support is compiled)
 
 **Checkpoint**: Submodule updated, build system verified, test infrastructure ready
 
@@ -44,25 +44,25 @@
 
 ### JNI Layer (Native C++)
 
-- [ ] T006 Extend `SdHandle` struct in `llmedge/src/main/cpp/sdcpp_jni.cpp` with video generation state fields (JavaVM*, progressCallbackGlobalRef, cancellationRequested atomic flag, currentFrame, totalFrames)
-- [ ] T007 Implement `Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid` JNI function in `llmedge/src/main/cpp/sdcpp_jni.cpp` (signature per contracts/jni-api.md, returns `jobjectArray` of `jbyteArray`)
-- [ ] T008 [P] Implement `Java_io_aatricks_llmedge_StableDiffusion_nativeSetProgressCallback` JNI function in `llmedge/src/main/cpp/sdcpp_jni.cpp` (manages global ref lifecycle)
-- [ ] T009 [P] Implement `Java_io_aatricks_llmedge_StableDiffusion_nativeCancelGeneration` JNI function in `llmedge/src/main/cpp/sdcpp_jni.cpp` (sets atomic cancellation flag)
-- [ ] T010 Implement `sd_video_progress_wrapper` C++ callback bridge in `llmedge/src/main/cpp/sdcpp_jni.cpp` (attaches thread, invokes Java callback, checks cancellation flag)
-- [ ] T011 Add memory management for video frames in `nativeTxt2Vid` (convert `sd_image_t*` array to `jobjectArray`, free native memory immediately after copy, use DeleteLocalRef in loop)
-- [ ] T012 Add JNI exception throwing for error cases in all video JNI methods (IllegalStateException, IllegalArgumentException, RuntimeException, OutOfMemoryError per contracts/jni-api.md)
+- [X] T006 Extend `SdHandle` struct in `llmedge/src/main/cpp/sdcpp_jni.cpp` with video generation state fields (JavaVM*, progressCallbackGlobalRef, cancellationRequested atomic flag, currentFrame, totalFrames)
+- [X] T007 Implement `Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid` JNI function in `llmedge/src/main/cpp/sdcpp_jni.cpp` (signature per contracts/jni-api.md, returns `jobjectArray` of `jbyteArray`)
+- [X] T008 [P] Implement `Java_io_aatricks_llmedge_StableDiffusion_nativeSetProgressCallback` JNI function in `llmedge/src/main/cpp/sdcpp_jni.cpp` (manages global ref lifecycle)
+- [X] T009 [P] Implement `Java_io_aatricks_llmedge_StableDiffusion_nativeCancelGeneration` JNI function in `llmedge/src/main/cpp/sdcpp_jni.cpp` (sets atomic cancellation flag)
+- [X] T010 Implement `sd_video_progress_wrapper` C++ callback bridge in `llmedge/src/main/cpp/sdcpp_jni.cpp` (attaches thread, invokes Java callback, checks cancellation flag)
+- [X] T011 Add memory management for video frames in `nativeTxt2Vid` (convert `sd_image_t*` array to `jobjectArray`, free native memory immediately after copy, use DeleteLocalRef in loop)
+- [X] T012 Add JNI exception throwing for error cases in all video JNI methods (IllegalStateException, IllegalArgumentException, RuntimeException, OutOfMemoryError per contracts/jni-api.md)
 
 ### Kotlin Data Model
 
-- [ ] T013 [P] Create `VideoGenerateParams` data class in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (11 properties per data-model.md with validation)
-- [ ] T014 [P] Create `GenerationMetrics` data class in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (7 properties per data-model.md)
-- [ ] T015 [P] Create `VideoProgressCallback` interface in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (onProgress method with 5 params per contracts/kotlin-api.md)
-- [ ] T016 Implement `VideoGenerateParams.validate()` method with comprehensive parameter validation (dimensions multiple of 64, frame count 4-64, steps 10-50, cfg 1.0-15.0, strength 0.0-1.0)
+- [X] T013 [P] Create `VideoGenerateParams` data class in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (11 properties per data-model.md with validation)
+- [X] T014 [P] Create `GenerationMetrics` data class in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (7 properties per data-model.md)
+- [X] T015 [P] Create `VideoProgressCallback` interface in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (onProgress method with 5 params per contracts/kotlin-api.md)
+- [X] T016 Implement `VideoGenerateParams.validate()` method with comprehensive parameter validation (dimensions multiple of 64, frame count 4-64, steps 10-50, cfg 1.0-15.0, strength 0.0-1.0)
 
 ### Native Method Declarations
 
-- [ ] T017 Add native method declarations in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (external fun nativeTxt2Vid, nativeSetProgressCallback, nativeCancelGeneration per contracts/kotlin-api.md)
-- [ ] T018 Add native method registration verification in `StableDiffusion` companion object (check JNI library loaded, verify method linkage)
+- [X] T017 Add native method declarations in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (external fun nativeTxt2Vid, nativeSetProgressCallback, nativeCancelGeneration per contracts/kotlin-api.md)
+- [X] T018 Add native method registration verification in `StableDiffusion` companion object (check JNI library loaded, verify method linkage)
 
 **Checkpoint**: Foundation complete - JNI layer functional, data model defined, native methods declared
 
@@ -78,23 +78,23 @@
 
 ### Build System Configuration
 
-- [ ] T019 [US5] Verify CMakeLists.txt in `llmedge/src/main/cpp/CMakeLists.txt` includes stable-diffusion.cpp sources (stable-diffusion.cpp, wan.hpp, related files)
-- [ ] T020 [US5] Add CMake compile definitions for Wan support in `llmedge/build.gradle.kts` externalNativeBuild block (if needed - e.g., -DWAN_SUPPORT=ON)
-- [ ] T021 [US5] Verify Vulkan support flags in CMakeLists.txt (GGML_VULKAN=ON, SD_VULKAN=ON) for GPU acceleration
+- [X] T019 [US5] Verify CMakeLists.txt in `llmedge/src/main/cpp/CMakeLists.txt` includes stable-diffusion.cpp sources (stable-diffusion.cpp, wan.hpp, related files)
+- [X] T020 [US5] Add CMake compile definitions for Wan support in `llmedge/build.gradle.kts` externalNativeBuild block (if needed - e.g., -DWAN_SUPPORT=ON)
+- [X] T021 [US5] Verify Vulkan support flags in CMakeLists.txt (GGML_VULKAN=ON, SD_VULKAN=ON) for GPU acceleration
 
 ### Native Library Testing (Outside Android)
 
-- [ ] T022 [P] [US5] Create C++ unit test for nativeTxt2Vid in `llmedge/src/test/cpp/test_video_jni.cpp` (mock JNI environment, verify memory management)
-- [ ] T023 [P] [US5] Create C++ unit test for progress callback bridge in `llmedge/src/test/cpp/test_video_jni.cpp` (verify thread attach/detach, cancellation)
-- [ ] T024 [US5] Build native tests with CMake standalone configuration (separate from Android build for fast iteration)
-- [ ] T025 [US5] Run native unit tests on development machine (Linux) with test GGUF model to verify JNI layer works
+- [X] T022 [P] [US5] Create C++ unit test for nativeTxt2Vid in `llmedge/src/test/cpp/test_video_jni.cpp` (mock JNI environment, verify memory management)
+- [X] T023 [P] [US5] Create C++ unit test for progress callback bridge in `llmedge/src/test/cpp/test_video_jni.cpp` (verify thread attach/detach, cancellation)
+- [X] T024 [US5] Build native tests with CMake standalone configuration (separate from Android build for fast iteration)
+- [X] T025 [US5] Run native unit tests on development machine (Linux) with test GGUF model to verify JNI layer works
 
 ### Build Verification
 
-- [ ] T026 [US5] Build llmedge library AAR with `./gradlew :llmedge:assembleRelease` from repo root
-- [ ] T027 [US5] Verify AAR contains native libraries for all ABIs (arm64-v8a, armeabi-v7a, x86_64) with video generation symbols
-- [ ] T028 [US5] Copy AAR to examples app `cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/` for integration testing
-- [ ] T029 [US5] Update examples app dependency in `llmedge-examples/app/build.gradle.kts` to use local AAR (implementation(files("libs/llmedge-release.aar")))
+- [X] T026 [US5] Build llmedge library AAR with `./gradlew :llmedge:assembleRelease` from repo root
+- [X] T027 [US5] Verify AAR contains native libraries for all ABIs (arm64-v8a, armeabi-v7a, x86_64) with video generation symbols
+- [X] T028 [US5] Copy AAR to examples app `cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/` for integration testing
+- [X] T029 [US5] Update examples app dependency in `llmedge-examples/app/build.gradle.kts` to use local AAR (implementation(files("libs/llmedge-release.aar")))
 
 **Checkpoint**: Native library builds successfully, AAR generated, JNI methods available
 

@@ -42,3 +42,19 @@ local.properties
 .kotlin
 ktlint
 ktlint.bat
+# Kotlin / Android extras
+out/
+.env*
+
+# Native/C++ artifacts
+bin/
+obj/
+*.o
+*.so
+*.a
+*.exe
+*.dll
+
+# Node/JS tooling
+node_modules/
+dist/

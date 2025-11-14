@@ -39,6 +39,7 @@ android {
                 arguments += "-DCMAKE_BUILD_TYPE=Release"
                 arguments += "-DSD_VULKAN=ON"
                 arguments += "-DGGML_VULKAN=ON"
+                arguments += "-DWAN_SUPPORT=ON"
 
                 // (debugging) uncomment the following line to enable debug builds
                 // and attach hardware-assisted address sanitizer
@@ -115,7 +116,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.1")
 
     testImplementation(libs.junit)
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
+    testImplementation("io.mockk:mockk:1.13.12")
+
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation("io.mockk:mockk-android:1.13.12")
 }
