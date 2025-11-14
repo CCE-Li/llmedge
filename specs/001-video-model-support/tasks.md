@@ -24,11 +24,11 @@
 
 **Duration**: ~2 hours
 
-- [X] T001 Update stable-diffusion.cpp submodule to latest commit with Wan model support in `stable-diffusion.cpp/` (checkout latest main branch, verify `wan.hpp` exists)
-- [X] T002 [P] Verify CMake builds stable-diffusion.cpp with Wan support by checking for `generate_video` symbol in compiled library (run `nm -D` on .so file)
-- [X] T003 [P] Create test model directory structure `llmedge/src/androidTest/assets/test-models/` for small test GGUF files
-- [X] T004 [P] Setup JUnit 4 test dependencies in `llmedge/build.gradle.kts` (androidx.test, kotlinx-coroutines-test, mockk if needed)
-- [X] T005 Document build verification steps in `specs/001-video-model-support/build-verification.md` (how to verify Wan support is compiled)
+- [ ] T001 Update stable-diffusion.cpp submodule to latest commit with Wan model support in `stable-diffusion.cpp/` (checkout latest main branch, verify `wan.hpp` exists)
+- [ ] T002 [P] Verify CMake builds stable-diffusion.cpp with Wan support by checking for `generate_video` symbol in compiled library (run `nm -D` on .so file)
+- [ ] T003 [P] Create test model directory structure `llmedge/src/androidTest/assets/test-models/` for small test GGUF files
+- [ ] T004 [P] Setup JUnit 4 test dependencies in `llmedge/build.gradle.kts` (androidx.test, kotlinx-coroutines-test, mockk if needed)
+- [ ] T005 Document build verification steps in `specs/001-video-model-support/build-verification.md` (how to verify Wan support is compiled)
 
 **Checkpoint**: Submodule updated, build system verified, test infrastructure ready
 
@@ -44,25 +44,25 @@
 
 ### JNI Layer (Native C++)
 
-- [X] T006 Extend `SdHandle` struct in `llmedge/src/main/cpp/sdcpp_jni.cpp` with video generation state fields (JavaVM*, progressCallbackGlobalRef, cancellationRequested atomic flag, currentFrame, totalFrames)
-- [X] T007 Implement `Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid` JNI function in `llmedge/src/main/cpp/sdcpp_jni.cpp` (signature per contracts/jni-api.md, returns `jobjectArray` of `jbyteArray`)
-- [X] T008 [P] Implement `Java_io_aatricks_llmedge_StableDiffusion_nativeSetProgressCallback` JNI function in `llmedge/src/main/cpp/sdcpp_jni.cpp` (manages global ref lifecycle)
-- [X] T009 [P] Implement `Java_io_aatricks_llmedge_StableDiffusion_nativeCancelGeneration` JNI function in `llmedge/src/main/cpp/sdcpp_jni.cpp` (sets atomic cancellation flag)
-- [X] T010 Implement `sd_video_progress_wrapper` C++ callback bridge in `llmedge/src/main/cpp/sdcpp_jni.cpp` (attaches thread, invokes Java callback, checks cancellation flag)
-- [X] T011 Add memory management for video frames in `nativeTxt2Vid` (convert `sd_image_t*` array to `jobjectArray`, free native memory immediately after copy, use DeleteLocalRef in loop)
-- [X] T012 Add JNI exception throwing for error cases in all video JNI methods (IllegalStateException, IllegalArgumentException, RuntimeException, OutOfMemoryError per contracts/jni-api.md)
+- [ ] T006 Extend `SdHandle` struct in `llmedge/src/main/cpp/sdcpp_jni.cpp` with video generation state fields (JavaVM*, progressCallbackGlobalRef, cancellationRequested atomic flag, currentFrame, totalFrames)
+- [ ] T007 Implement `Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid` JNI function in `llmedge/src/main/cpp/sdcpp_jni.cpp` (signature per contracts/jni-api.md, returns `jobjectArray` of `jbyteArray`)
+- [ ] T008 [P] Implement `Java_io_aatricks_llmedge_StableDiffusion_nativeSetProgressCallback` JNI function in `llmedge/src/main/cpp/sdcpp_jni.cpp` (manages global ref lifecycle)
+- [ ] T009 [P] Implement `Java_io_aatricks_llmedge_StableDiffusion_nativeCancelGeneration` JNI function in `llmedge/src/main/cpp/sdcpp_jni.cpp` (sets atomic cancellation flag)
+- [ ] T010 Implement `sd_video_progress_wrapper` C++ callback bridge in `llmedge/src/main/cpp/sdcpp_jni.cpp` (attaches thread, invokes Java callback, checks cancellation flag)
+- [ ] T011 Add memory management for video frames in `nativeTxt2Vid` (convert `sd_image_t*` array to `jobjectArray`, free native memory immediately after copy, use DeleteLocalRef in loop)
+- [ ] T012 Add JNI exception throwing for error cases in all video JNI methods (IllegalStateException, IllegalArgumentException, RuntimeException, OutOfMemoryError per contracts/jni-api.md)
 
 ### Kotlin Data Model
 
-- [X] T013 [P] Create `VideoGenerateParams` data class in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (11 properties per data-model.md with validation)
-- [X] T014 [P] Create `GenerationMetrics` data class in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (7 properties per data-model.md)
-- [X] T015 [P] Create `VideoProgressCallback` interface in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (onProgress method with 5 params per contracts/kotlin-api.md)
-- [X] T016 Implement `VideoGenerateParams.validate()` method with comprehensive parameter validation (dimensions multiple of 64, frame count 4-64, steps 10-50, cfg 1.0-15.0, strength 0.0-1.0)
+- [ ] T013 [P] Create `VideoGenerateParams` data class in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (11 properties per data-model.md with validation)
+- [ ] T014 [P] Create `GenerationMetrics` data class in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (7 properties per data-model.md)
+- [ ] T015 [P] Create `VideoProgressCallback` interface in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (onProgress method with 5 params per contracts/kotlin-api.md)
+- [ ] T016 Implement `VideoGenerateParams.validate()` method with comprehensive parameter validation (dimensions multiple of 64, frame count 4-64, steps 10-50, cfg 1.0-15.0, strength 0.0-1.0)
 
 ### Native Method Declarations
 
-- [X] T017 Add native method declarations in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (external fun nativeTxt2Vid, nativeSetProgressCallback, nativeCancelGeneration per contracts/kotlin-api.md)
-- [X] T018 Add native method registration verification in `StableDiffusion` companion object (check JNI library loaded, verify method linkage)
+- [ ] T017 Add native method declarations in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (external fun nativeTxt2Vid, nativeSetProgressCallback, nativeCancelGeneration per contracts/kotlin-api.md)
+- [ ] T018 Add native method registration verification in `StableDiffusion` companion object (check JNI library loaded, verify method linkage)
 
 **Checkpoint**: Foundation complete - JNI layer functional, data model defined, native methods declared
 
@@ -78,9 +78,9 @@
 
 ### Build System Configuration
 
-- [X] T019 [US5] Verify CMakeLists.txt in `llmedge/src/main/cpp/CMakeLists.txt` includes stable-diffusion.cpp sources (stable-diffusion.cpp, wan.hpp, related files)
-- [X] T020 [US5] Add CMake compile definitions for Wan support in `llmedge/build.gradle.kts` externalNativeBuild block (if needed - e.g., -DWAN_SUPPORT=ON)
-- [X] T021 [US5] Verify Vulkan support flags in CMakeLists.txt (GGML_VULKAN=ON, SD_VULKAN=ON) for GPU acceleration
+- [ ] T019 [US5] Verify CMakeLists.txt in `llmedge/src/main/cpp/CMakeLists.txt` includes stable-diffusion.cpp sources (stable-diffusion.cpp, wan.hpp, related files)
+- [ ] T020 [US5] Add CMake compile definitions for Wan support in `llmedge/build.gradle.kts` externalNativeBuild block (if needed - e.g., -DWAN_SUPPORT=ON)
+- [ ] T021 [US5] Verify Vulkan support flags in CMakeLists.txt (GGML_VULKAN=ON, SD_VULKAN=ON) for GPU acceleration
 
 ### Native Library Testing (Outside Android)
 
@@ -91,10 +91,10 @@
 
 ### Build Verification
 
-- [X] T026 [US5] Build llmedge library AAR with `./gradlew :llmedge:assembleRelease` from repo root
-- [X] T027 [US5] Verify AAR contains native libraries for all ABIs (arm64-v8a, armeabi-v7a, x86_64) with video generation symbols
-- [X] T028 [US5] Copy AAR to examples app `cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/` for integration testing
-- [X] T029 [US5] Update examples app dependency in `llmedge-examples/app/build.gradle.kts` to use local AAR (implementation(files("libs/llmedge-release.aar")))
+- [ ] T026 [US5] Build llmedge library AAR with `./gradlew :llmedge:assembleRelease` from repo root
+- [ ] T027 [US5] Verify AAR contains native libraries for all ABIs (arm64-v8a, armeabi-v7a, x86_64) with video generation symbols
+- [ ] T028 [US5] Copy AAR to examples app `cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/` for integration testing
+- [ ] T029 [US5] Update examples app dependency in `llmedge-examples/app/build.gradle.kts` to use local AAR (implementation(files("libs/llmedge-release.aar")))
 
 **Checkpoint**: Native library builds successfully, AAR generated, JNI methods available
 
@@ -110,46 +110,46 @@
 
 ### Kotlin Public API (Unit Tests First)
 
-- [X] T030 [P] [US1] Create `VideoGenerateParamsTest.kt` in `llmedge/src/test/java/io/aatricks/llmedge/` (test validation rules: valid params pass, invalid dimensions/frames/cfg/steps fail)
-- [X] T031 [P] [US1] Create `StableDiffusionVideoTest.kt` in `llmedge/src/test/java/io/aatricks/llmedge/` (test isVideoModel() detection, model loading, error handling)
-- [X] T032 [US1] Run unit tests with `./gradlew :llmedge:testDebugUnitTest` - verify tests PASS (TDD)
+- [ ] T030 [P] [US1] Create `VideoGenerateParamsTest.kt` in `llmedge/src/test/java/io/aatricks/llmedge/` (test validation rules: valid params pass, invalid dimensions/frames/cfg/steps fail)
+- [ ] T031 [P] [US1] Create `StableDiffusionVideoTest.kt` in `llmedge/src/test/java/io/aatricks/llmedge/` (test isVideoModel() detection, model loading, error handling)
+- [ ] T032 [US1] Run unit tests with `./gradlew :llmedge:testDebugUnitTest` - verify tests PASS (TDD)
 
 ### Kotlin Public API Implementation
 
-- [X] T033 [US1] Implement `txt2vid()` suspending function in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (calls nativeTxt2Vid, converts Array<ByteArray> to List<Bitmap>, wraps exceptions per contracts/kotlin-api.md)
-- [X] T034 [US1] Implement `setProgressCallback()` method in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (stores callback ref, calls nativeSetProgressCallback)
-- [X] T035 [US1] Implement `cancelGeneration()` method in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (calls nativeCancelGeneration, throws CancellationException)
-- [X] T036 [US1] Implement `isVideoModel()` method in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (checks model metadata for video model type detection)
-- [X] T037 [US1] Implement `getLastGenerationMetrics()` method in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (returns GenerationMetrics from last generation)
-- [X] T038 [US1] Add proper Kotlin coroutine context handling (withContext(Dispatchers.IO), ensure txt2vid never blocks main thread)
+- [ ] T033 [US1] Implement `txt2vid()` suspending function in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (calls nativeTxt2Vid, converts Array<ByteArray> to List<Bitmap>, wraps exceptions per contracts/kotlin-api.md)
+- [ ] T034 [US1] Implement `setProgressCallback()` method in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (stores callback ref, calls nativeSetProgressCallback)
+- [ ] T035 [US1] Implement `cancelGeneration()` method in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (calls nativeCancelGeneration, throws CancellationException)
+- [ ] T036 [US1] Implement `isVideoModel()` method in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (checks model metadata for video model type detection)
+- [ ] T037 [US1] Implement `getLastGenerationMetrics()` method in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (returns GenerationMetrics from last generation)
+- [ ] T038 [US1] Add proper Kotlin coroutine context handling (withContext(Dispatchers.IO), ensure txt2vid never blocks main thread)
 
 ### Bitmap Conversion & Memory Management
 
-- [X] T039 [US1] Implement RGB byte array to Bitmap conversion in txt2vid() (decode RGB888 format, create mutable Bitmap, copy pixels efficiently)
-- [X] T040 [US1] Add memory pressure monitoring in txt2vid() (check heap before generation, log warnings if low memory)
-- [X] T041 [US1] Implement frame batching strategy for large frame counts (process in chunks of 4-8 frames to avoid OOM)
+- [ ] T039 [US1] Implement RGB byte array to Bitmap conversion in txt2vid() (decode RGB888 format, create mutable Bitmap, copy pixels efficiently)
+- [ ] T040 [US1] Add memory pressure monitoring in txt2vid() (check heap before generation, log warnings if low memory)
+- [ ] T041 [US1] Implement frame batching strategy for large frame counts (process in chunks of 4-8 frames to avoid OOM)
 
 ### Unit Testing (Re-run)
 
-- [X] T042 [US1] Re-run unit tests with `./gradlew :llmedge:testDebugUnitTest` - verify tests PASS after implementation
-- [X] T043 [US1] Add additional unit tests for edge cases (zero frames, invalid seed, null callback, cancellation mid-generation)
-- [X] T044 [US1] Measure code coverage with JaCoCo - verify ≥80% coverage for StableDiffusion video methods
+- [ ] T042 [US1] Re-run unit tests with `./gradlew :llmedge:testDebugUnitTest` - verify tests PASS after implementation
+- [ ] T043 [US1] Add additional unit tests for edge cases (zero frames, invalid seed, null callback, cancellation mid-generation)
+- [ ] T044 [US1] Measure code coverage with JaCoCo - verify ≥80% coverage for StableDiffusion video methods
 
 ### Integration Testing (Real Device)
 
-- [X] T045 [US1] Create integration test in `llmedge/src/androidTest/java/io/aatricks/llmedge/VideoGenerationTest.kt` (loads small test model, generates 4 frames @ 256x256, verifies output)
-- [X] T046 [US1] Add test for progress callbacks in `llmedge/src/androidTest/java/io/aatricks/llmedge/VideoProgressCallbackTest.kt` (verify onProgress called multiple times, final progress 100%)
-- [X] T047 [US1] Add test for cancellation in integration test (start generation, call cancelGeneration after 2 seconds, verify CancellationException)
-- [X] T048 [US1] Build debug APK with `./gradlew :llmedge:assembleDebugAndroidTest` and run tests on real device (API 30+ with 4GB+ RAM)
-- [X] T049 [US1] Verify no memory leaks with Android Profiler (monitor native memory before/after 5 consecutive generations, verify stable)
+- [ ] T045 [US1] Create integration test in `llmedge/src/androidTest/java/io/aatricks/llmedge/VideoGenerationTest.kt` (loads small test model, generates 4 frames @ 256x256, verifies output)
+- [ ] T046 [US1] Add test for progress callbacks in `llmedge/src/androidTest/java/io/aatricks/llmedge/VideoProgressCallbackTest.kt` (verify onProgress called multiple times, final progress 100%)
+- [ ] T047 [US1] Add test for cancellation in integration test (start generation, call cancelGeneration after 2 seconds, verify CancellationException)
+- [ ] T048 [US1] Build debug APK with `./gradlew :llmedge:assembleDebugAndroidTest` and run tests on real device (API 30+ with 4GB+ RAM)
+- [ ] T049 [US1] Verify no memory leaks with Android Profiler (monitor native memory before/after 5 consecutive generations, verify stable)
 
 ### Example App Demo
 
-- [X] T050 [US1] Create `VideoGenerationActivity.kt` in `llmedge-examples/app/src/main/java/io/aatricks/llmedge/VideoGenerationActivity.kt` (UI with text input, generate button, progress bar, frame preview ImageView)
-- [X] T051 [US1] Implement basic video generation in example activity (hardcode Wan 1.3B model ID, call txt2vid with user prompt, display first frame)
-- [X] T052 [US1] Add progress UI updates in example activity (update ProgressBar and TextView from onProgress callback)
-- [X] T053 [US1] Build example app with `cd llmedge-examples && ./gradlew :app:assembleDebug` and install on test device
-- [X] T054 [US1] Manual test on real device: generate video with prompt "a cat walking", verify 16 frames generated in ~60 seconds
+- [ ] T050 [US1] Create `VideoGenerationActivity.kt` in `llmedge-examples/app/src/main/java/io/aatricks/llmedge/VideoGenerationActivity.kt` (UI with text input, generate button, progress bar, frame preview ImageView)
+- [ ] T051 [US1] Implement basic video generation in example activity (hardcode Wan 1.3B model ID, call txt2vid with user prompt, display first frame)
+- [ ] T052 [US1] Add progress UI updates in example activity (update ProgressBar and TextView from onProgress callback)
+- [ ] T053 [US1] Build example app with `cd llmedge-examples && ./gradlew :app:assembleDebug` and install on test device
+- [ ] T054 [US1] Manual test on real device: generate video with prompt "a cat walking", verify 16 frames generated in ~60 seconds
 
 **Checkpoint**: Basic text-to-video generation fully functional, tested, and demonstrated
 
@@ -165,40 +165,40 @@
 
 ### Model Detection & Registry
 
-- [X] T055 [P] [US2] Create model registry JSON in `llmedge/src/main/assets/wan-models/model-registry.json` (catalog of known Wan model IDs, filenames, quantization levels, parameter counts)
-- [X] T056 [P] [US2] Implement model registry parser in `llmedge/src/main/java/io/aatricks/llmedge/huggingface/WanModelRegistry.kt` (loads JSON, provides lookup by model ID)
-- [X] T057 [US2] Add Wan model detection logic in `llmedge/src/main/java/io/aatricks/llmedge/huggingface/HuggingFaceHub.kt` (check filename patterns: "wan", "hunyuan_video", version detection)
+- [ ] T055 [P] [US2] Create model registry JSON in `llmedge/src/main/assets/wan-models/model-registry.json` (catalog of known Wan model IDs, filenames, quantization levels, parameter counts)
+- [ ] T056 [P] [US2] Implement model registry parser in `llmedge/src/main/java/io/aatricks/llmedge/huggingface/WanModelRegistry.kt` (loads JSON, provides lookup by model ID)
+- [ ] T057 [US2] Add Wan model detection logic in `llmedge/src/main/java/io/aatricks/llmedge/huggingface/HuggingFaceHub.kt` (check filename patterns: "wan", "hunyuan_video", version detection)
 
 ### Download Implementation (Unit Tests First)
 
-- [X] T058 [P] [US2] Create `HuggingFaceHubVideoTest.kt` in `llmedge/src/test/java/io/aatricks/llmedge/huggingface/` (test Wan model detection, cache path generation, download URL construction)
-- [X] T059 [US2] Run tests with `./gradlew :llmedge:testDebugUnitTest` - verify tests FAIL
+- [ ] T058 [P] [US2] Create `HuggingFaceHubVideoTest.kt` in `llmedge/src/test/java/io/aatricks/llmedge/huggingface/` (test Wan model detection, cache path generation, download URL construction)
+- [ ] T059 [US2] Run tests with `./gradlew :llmedge:testDebugUnitTest` - verify tests FAIL
 
 ### Download Implementation
 
-- [X] T060 [US2] Extend `HuggingFaceHub.download()` method in `llmedge/src/main/java/io/aatricks/llmedge/huggingface/HuggingFaceHub.kt` to support video model detection (check model type, set appropriate cache subdirectory)
-- [X] T061 [US2] Implement large file download using Android DownloadManager in `HuggingFaceHub` (for files >100MB, use system downloader, provide progress callbacks)
-- [X] T062 [US2] Add download progress tracking with `ModelDownload` entity from data-model.md (update downloadedBytes, calculate speed, estimate remaining time)
+- [ ] T060 [US2] Extend `HuggingFaceHub.download()` method in `llmedge/src/main/java/io/aatricks/llmedge/huggingface/HuggingFaceHub.kt` to support video model detection (check model type, set appropriate cache subdirectory)
+- [ ] T061 [US2] Implement large file download using Android DownloadManager in `HuggingFaceHub` (for files >100MB, use system downloader, provide progress callbacks)
+- [ ] T062 [US2] Add download progress tracking with `ModelDownload` entity from data-model.md (update downloadedBytes, calculate speed, estimate remaining time)
 - [ ] T063 [US2] Implement download resumption logic (check partial file MD5, resume from offset if supported by server)
 
 ### Cache Management
 
-- [X] T064 [US2] Implement cache validation in `HuggingFaceHub` (verify file size matches expected, check for corruption via GGUF header validation)
+- [ ] T064 [US2] Implement cache validation in `HuggingFaceHub` (verify file size matches expected, check for corruption via GGUF header validation)
 - [ ] T065 [US2] Add `forceDownload` parameter support in `loadFromHuggingFace` (skip cache check, re-download model even if exists)
-- [X] T066 [US2] Implement cache cleanup utility in `HuggingFaceHub` (remove partial downloads on error, provide clearCache() method)
+- [ ] T066 [US2] Implement cache cleanup utility in `HuggingFaceHub` (remove partial downloads on error, provide clearCache() method)
 
 ### StableDiffusion Integration
 
-- [X] T067 [US2] Extend `StableDiffusion.load()` companion method in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` to support video model downloads (detect Wan models, call HuggingFaceHub with appropriate parameters)
-- [X] T068 [US2] Add `loadFromHuggingFace()` variant specifically for video models in `StableDiffusion` companion (accepts modelId, filename, quantization preference)
-- [X] T069 [US2] Implement download progress callback bridging (convert HuggingFaceHub progress to user-facing callback)
+- [ ] T067 [US2] Extend `StableDiffusion.load()` companion method in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` to support video model downloads (detect Wan models, call HuggingFaceHub with appropriate parameters)
+- [ ] T068 [US2] Add `loadFromHuggingFace()` variant specifically for video models in `StableDiffusion` companion (accepts modelId, filename, quantization preference)
+- [ ] T069 [US2] Implement download progress callback bridging (convert HuggingFaceHub progress to user-facing callback)
 
 ### Testing
 
-- [X] T070 [US2] Re-run unit tests with `./gradlew :llmedge:testDebugUnitTest` - verify tests PASS
-- [X] T071 [US2] Create integration test in `llmedge/src/androidTest/java/io/aatricks/llmedge/HuggingFaceVideoDownloadTest.kt` (download small test model, verify caching, test forceDownload=true)
-- [X] T072 [US2] Test large model download on real device (Wan 1.3B Q4_K_M ~1.4GB, verify DownloadManager usage, progress updates, successful load)
-- [X] T073 [US2] Test network error scenarios (airplane mode mid-download, verify cleanup, retry logic)
+- [ ] T070 [US2] Re-run unit tests with `./gradlew :llmedge:testDebugUnitTest` - verify tests PASS
+- [ ] T071 [US2] Create integration test in `llmedge/src/androidTest/java/io/aatricks/llmedge/HuggingFaceVideoDownloadTest.kt` (download small test model, verify caching, test forceDownload=true)
+- [ ] T072 [US2] Test large model download on real device (Wan 1.3B Q4_K_M ~1.4GB, verify DownloadManager usage, progress updates, successful load)
+- [ ] T073 [US2] Test network error scenarios (airplane mode mid-download, verify cleanup, retry logic)
 
 ### Example App Enhancement
 
