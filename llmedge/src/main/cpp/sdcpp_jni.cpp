@@ -142,6 +142,9 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     sd_set_log_callback(sd_android_log_cb, nullptr);
 
     ALOGI("Initializing Stable Diffusion with:");
+    ALOGI("  modelPath=%s", modelPath ? modelPath : "NULL");
+    ALOGI("  vaePath=%s", vaePath ? vaePath : "NULL");
+    ALOGI("  t5xxlPath=%s", t5xxlPath ? t5xxlPath : "NULL");
     ALOGI("  offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s",
           offloadToCpu ? "true" : "false",
           keepClipOnCpu ? "true" : "false",

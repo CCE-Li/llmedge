@@ -224,10 +224,12 @@ class StableDiffusion private constructor(
         ): StableDiffusion = withContext(Dispatchers.IO) {
             var resolvedModelPath: String
             var resolvedVaePath: String?
+            var resolvedT5xxlPath: String?
 
             if (modelPath != null) {
                 resolvedModelPath = modelPath
                 resolvedVaePath = vaePath
+                resolvedT5xxlPath = t5xxlPath
             } else if (modelId != null) {
                 try {
                     val possibleWan = WanModelRegistry.findById(context, modelId) 
@@ -264,6 +266,7 @@ class StableDiffusion private constructor(
                     )
                     resolvedModelPath = res.file.absolutePath
                     resolvedVaePath = vaePath
+                    resolvedT5xxlPath = t5xxlPath
                 } catch (iae: IllegalArgumentException) {
                     iae.printStackTrace()
                     val alt = HuggingFaceHub.ensureRepoFileOnDisk(
@@ -279,6 +282,7 @@ class StableDiffusion private constructor(
                     )
                     resolvedModelPath = alt.file.absolutePath
                     resolvedVaePath = vaePath
+                    resolvedT5xxlPath = t5xxlPath
                 }
             } else {
                 throw IllegalArgumentException("Provide either modelPath or modelId")
@@ -311,7 +315,7 @@ class StableDiffusion private constructor(
             val handle = nativeCreate(
                 resolvedModelPath,
                 resolvedVaePath,
-                t5xxlPath,
+                resolvedT5xxlPath,
                 nThreads,
                 offloadToCpu,
                 keepClipOnCpu,
