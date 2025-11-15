@@ -16,15 +16,24 @@ Complete reference for on-device video generation using Wan models in llmedge.
 
 ## Overview
 
-llmedge provides on-device video generation through the `StableDiffusion` class, using Wan models from Black Forest Labs. Generate short video clips (4-64 frames) entirely on Android devices with 3GB+ RAM.
+llmedge provides on-device video generation through the `StableDiffusion` class, using Wan models. Generate short video clips (4-64 frames) entirely on Android devices.
+
+**⚠️ Hardware Requirements**:
+- **Minimum RAM**: 12GB recommended for Wan 2.1 T2V-1.3B
+- **Supported Devices**: Galaxy S23 Ultra (12GB), Pixel 8 Pro (12GB), OnePlus 12 (16GB+)
+- **Not Supported**: 8GB RAM devices (Galaxy S22, Pixel 7)
+
+**Why 12GB?** Wan models require loading three components simultaneously:
+1. Main diffusion model (fp16): ~2.7GB RAM
+2. T5XXL text encoder (Q3_K_S GGUF): ~5.9GB RAM
+3. VAE decoder (fp16): ~0.14GB RAM
+4. Working memory: ~1GB RAM
+**Total**: ~9.7GB minimum, 12GB recommended
 
 **Key Features**:
 - Text-to-video (T2V) generation
-- Image-to-video (I2V) generation  
-- Text+Image-to-video (TI2V) generation
-- Multiple quantization levels (Q4_K_M, Q3_K_S, Q6_K, fp8)
-- Device-appropriate model recommendations
-- Memory-aware frame capping
+- Multi-file model loading (main + VAE + T5XXL)
+- Memory-aware device compatibility checks
 - Progress monitoring and cancellation
 - Multiple scheduler options
 
@@ -32,38 +41,26 @@ llmedge provides on-device video generation through the `StableDiffusion` class,
 
 ## Supported Models
 
-> **Important**: llmedge recommends using the official Comfy-Org safetensors models for best compatibility. While GGUF versions exist, some may have conversion issues with 5D tensor operations required for video models.
-
 ### Official Model Source (Recommended)
 
 **Wan 2.1 T2V 1.3B from Comfy-Org/Wan_2.1_ComfyUI_repackaged:**
-- **Model**: `split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors` (~2.6GB)
-- **VAE**: `split_files/vae/wan_2.1_vae.safetensors` (~160MB)
-- **Text Encoder**: `split_files/text_encoders/umt5_xxl_fp16.safetensors` (~9.5GB)
 
-**Device Requirements**: 8GB+ RAM, 13GB free storage. All three files are required and will be auto-downloaded.
+All three components are required and must be explicitly downloaded:
 
-### Alternative GGUF Models (Use with Caution)
+1. **Main Model**: `wan2.1_t2v_1.3B_fp16.safetensors` (~2.6GB file, 2.7GB RAM)
+2. **VAE**: `wan_2.1_vae.safetensors` (~160MB file, 0.14GB RAM)
+3. **T5XXL Encoder**: `umt5-xxl-encoder-Q3_K_S.gguf` from `city96/umt5-xxl-encoder-gguf` (~2.86GB file, 5.9GB RAM)
 
-| Model | Size | RAM | Frames | Speed | Use Case |
-|-------|------|-----|--------|-------|----------|
-| T2V-1.3B-Q4_K_M | 1.4GB | 3GB+ | 64 | Fast | Low-mid range devices |
-| T2V-1.3B-Q3_K_S | 1.1GB | 2GB+ | 64 | Fastest | Budget devices |
-| I2V-14B-Q4_K_M | 9.5GB | 12GB+ | 64 | Slow | Not mobile-supported |
+**Device Requirements**: 
+- **RAM**: 12GB+ (9.7GB minimum + overhead)
+- **Storage**: 6GB free space for downloads
+- **OS**: Android 11+ recommended (Vulkan acceleration)
 
-### Wan 2.2 Models
-
-| Model | Size | RAM | Frames | Speed | Use Case |
-|-------|------|-----|--------|-------|----------|
-| TI2V-5B-fp8 | 5.0GB | 8GB+ | 32 | Medium | High-end devices |
-| TI2V-5B-Q6_K | 4.2GB | 6GB+ | 32 | Medium | Mid-high range |
-| T2V-A14B-Q4_K_M | 9.8GB | 12GB+ | 64 | Slow | Not mobile-supported |
-
-**Model Selection Guide**:
-- **< 4GB RAM**: Wan 2.1 T2V-1.3B Q3_K_S
-- **4-8GB RAM**: Wan 2.1 T2V-1.3B Q4_K_M (recommended)
-- **8GB+ RAM**: Wan 2.2 TI2V-5B fp8 or Q6_K
-- **14B models**: Rejected at load time (mobile unsupported)
+**Known Limitations**:
+- GGUF quantization of main model blocked by metadata issues
+- Sequential loading not supported - all three models load simultaneously
+- No disk streaming - models must fit in RAM
+- 8GB RAM devices cannot run Wan models (architectural constraint)
 
 ---
 
@@ -73,46 +70,81 @@ llmedge provides on-device video generation through the `StableDiffusion` class,
 
 #### `StableDiffusion.load()`
 
-Load a video generation model from Hugging Face or local storage.
+Load a video generation model with explicit paths to all three required components.
+
+**⚠️ Important**: The simplified `modelId` + `filename` approach does not work for Wan models. You must explicitly download and provide paths to all three files.
 
 ```kotlin
-fun load(
+suspend fun load(
     context: Context,
-    modelId: String,
-    filename: String,
+    modelPath: String,
+    vaePath: String?,
+    t5xxlPath: String?,
     nThreads: Int = Runtime.getRuntime().availableProcessors(),
-    offloadToCpu: Boolean = false,
-    keepClipOnCpu: Boolean = false,
-    keepVaeOnCpu: Boolean = false,
-    vaePath: String? = null
+    offloadToCpu: Boolean = true,
+    keepClipOnCpu: Boolean = true,
+    keepVaeOnCpu: Boolean = true
 ): StableDiffusion
 ```
 
 **Parameters**:
 - `context`: Android application context
-- `modelId`: Hugging Face model ID (e.g., "black-forest-labs/Wan-TVC-2.1")
-- `filename`: GGUF model filename (e.g., "Wan2.1-T2V-1.3B-Q4_K_M.gguf")
+- `modelPath`: Absolute path to main model file (safetensors)
+- `vaePath`: Absolute path to VAE file (safetensors)
+- `t5xxlPath`: Absolute path to T5XXL encoder (GGUF)
 - `nThreads`: Number of CPU threads (default: all cores)
-- `offloadToCpu`: Enable CPU offloading for memory pressure (default: false)
-- `keepClipOnCpu`: Keep CLIP model on CPU (default: false)
-- `keepVaeOnCpu`: Keep VAE on CPU (default: false)
-- `vaePath`: Optional custom VAE path
+- `offloadToCpu`: Enable CPU offloading (default: true, recommended)
+- `keepClipOnCpu`: Keep CLIP model on CPU (default: true, recommended)
+- `keepVaeOnCpu`: Keep VAE on CPU (default: true, recommended)
 
 **Returns**: `StableDiffusion` instance ready for generation
 
 **Throws**:
 - `FileNotFoundException`: Model file not found
-- `IllegalStateException`: Model loading failed
-- `IllegalArgumentException`: 14B model rejected (mobile unsupported)
+- `IllegalStateException`: Model loading failed (e.g., insufficient RAM)
+- `UnsupportedOperationException`: 14B model rejected (mobile unsupported)
 
 **Example**:
 
 ```kotlin
+// Download all three model files explicitly
+val modelFile = HuggingFaceHub.ensureRepoFileOnDisk(
+    context = this,
+    modelId = "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+    revision = "main",
+    filename = "wan2.1_t2v_1.3B_fp16.safetensors",
+    allowedExtensions = listOf(".safetensors"),
+    preferSystemDownloader = true
+)
+
+val vaeFile = HuggingFaceHub.ensureRepoFileOnDisk(
+    context = this,
+    modelId = "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+    revision = "main",
+    filename = "wan_2.1_vae.safetensors",
+    allowedExtensions = listOf(".safetensors"),
+    preferSystemDownloader = true
+)
+
+val t5xxlFile = HuggingFaceHub.ensureRepoFileOnDisk(
+    context = this,
+    modelId = "city96/umt5-xxl-encoder-gguf",
+    revision = "main",
+    filename = "umt5-xxl-encoder-Q3_K_S.gguf",
+    allowedExtensions = listOf(".gguf"),
+    preferSystemDownloader = true
+)
+
+// Load all three models together
 val sd = StableDiffusion.load(
     context = this,
-    modelId = "black-forest-labs/Wan-TVC-2.1",
-    filename = "Wan2.1-T2V-1.3B-Q4_K_M.gguf",
-    nThreads = 4
+    modelPath = modelFile.file.absolutePath,
+    vaePath = vaeFile.file.absolutePath,
+    t5xxlPath = t5xxlFile.file.absolutePath,
+    nThreads = Runtime.getRuntime().availableProcessors(),
+    offloadToCpu = true,
+    keepClipOnCpu = true,
+    keepVaeOnCpu = true
 )
 ```
 
@@ -519,33 +551,34 @@ val params = VideoGenerateParams(
 
 ### Device-Aware Model Selection
 
-Automatically select appropriate model based on device RAM:
+Check device RAM before attempting to load:
 
 ```kotlin
-fun selectModelForDevice(context: Context): Pair<String, String> {
+fun checkDeviceCompatibility(context: Context): Boolean {
     val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     val memInfo = ActivityManager.MemoryInfo()
     activityManager.getMemoryInfo(memInfo)
     val totalRamGB = memInfo.totalMem / (1024.0 * 1024.0 * 1024.0)
     
-    return when {
-        totalRamGB < 4.0 -> Pair(
-            "black-forest-labs/Wan-TVC-2.1",
-            "Wan2.1-T2V-1.3B-Q3_K_S.gguf"
-        )
-        totalRamGB < 8.0 -> Pair(
-            "black-forest-labs/Wan-TVC-2.1",
-            "Wan2.1-T2V-1.3B-Q4_K_M.gguf"
-        )
-        else -> Pair(
-            "black-forest-labs/Wan-TVC-2.2",
-            "Wan2.2-TI2V-5B-fp8.gguf"
-        )
+    if (totalRamGB < 12.0) {
+        Log.w("VideoGen", "Insufficient RAM: ${String.format("%.1f", totalRamGB)}GB (12GB required)")
+        return false
     }
+    
+    return true
 }
 
-val (modelId, filename) = selectModelForDevice(this)
-val sd = StableDiffusion.load(this, modelId, filename)
+// Usage
+if (!checkDeviceCompatibility(this)) {
+    showErrorDialog(
+        "Video generation requires 12GB+ RAM. " +
+        "This device has ${String.format("%.1f", totalRamGB)}GB. " +
+        "Consider using cloud inference APIs instead."
+    )
+    return
+}
+
+// Proceed with model loading
 ```
 
 ---
