@@ -30,10 +30,10 @@ internal class HFModelTree(
 ) {
     @Serializable
     data class HFModelFile(
-        val type: String,
-        val oid: String,
-        val size: Long,
-        val path: String,
+        val type: String? = null,
+        val oid: String? = null,
+        val size: Long? = null,
+        @SerialName("rfilename") val path: String,
         @SerialName("lfs") val lfs: LfsMetadata? = null,
     ) {
         @Serializable
@@ -48,13 +48,17 @@ internal class HFModelTree(
         revision: String,
         token: String? = null,
     ): List<HFModelFile> {
+        // Use model specs endpoint which returns all files in 'siblings'
         val response =
-            client.get(HFEndpoints.modelTreeEndpoint(modelId, revision)) {
+            client.get(HFEndpoints.modelSpecsEndpoint(modelId)) {
                 token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
             }
         if (!response.status.isSuccess()) {
-            throw IllegalArgumentException("Hugging Face model '$modelId' revision '$revision' not found")
+            throw IllegalArgumentException("Hugging Face model '$modelId' not found")
         }
-        return response.body()
+        @Serializable
+        data class ModelSpecs(val siblings: List<HFModelFile>)
+        val specs: ModelSpecs = response.body()
+        return specs.siblings
     }
 }

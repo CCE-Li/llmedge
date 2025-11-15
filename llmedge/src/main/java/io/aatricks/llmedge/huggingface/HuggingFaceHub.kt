@@ -92,9 +92,9 @@ object HuggingFaceHub {
         val revisionDir = File(destinationRoot, "${sanitizedModelId}/${resolved.revision}")
         val targetName = modelFile.path.substringAfterLast('/')
         val targetFile = File(revisionDir, targetName)
-        val expectedSize = modelFile.lfs?.size ?: modelFile.size
+        val expectedSize = modelFile.lfs?.size ?: modelFile.size ?: 0L
 
-        if (!forceDownload && targetFile.exists() && targetFile.length() == expectedSize) {
+        if (!forceDownload && targetFile.exists() && expectedSize > 0 && targetFile.length() == expectedSize) {
             return ModelDownloadResult(
                 requestedModelId = modelId,
                 requestedRevision = revision,
@@ -150,7 +150,7 @@ object HuggingFaceHub {
             )
         }
 
-        if (expectedSize > 0 && targetFile.length() != expectedSize) {
+        if (expectedSize != null && expectedSize > 0 && targetFile.length() != expectedSize) {
             targetFile.delete()
             throw IllegalStateException("Downloaded file size mismatch for ${modelFile.path}")
         }
@@ -296,16 +296,21 @@ object HuggingFaceHub {
         val resolved = resolveModelReference(modelId, revision)
         val treeClient = HFModels.tree()
         val files = treeClient.getModelFileTree(resolved.modelId, resolved.revision, token)
+        
+        // Debug: log file count and sample paths
+        android.util.Log.d("HuggingFaceHub", "getModelFileTree returned ${files.size} items for ${resolved.modelId}")
+        files.take(5).forEach { android.util.Log.d("HuggingFaceHub", "  Sample file: ${it.path} (type=${it.type})") }
 
         // If a filename is provided, try to find it (exact or suffix match).
         val fileMatch = if (!filename.isNullOrEmpty()) {
-            files.firstOrNull { it.type == "file" && (it.path.equals(filename, ignoreCase = true) || it.path.endsWith(filename, ignoreCase = true)) }
+            android.util.Log.d("HuggingFaceHub", "Searching for filename: $filename")
+            files.firstOrNull { (it.type == "file" || it.type == null) && (it.path.equals(filename, ignoreCase = true) || it.path.endsWith(filename, ignoreCase = true)) }
         } else null
 
         val candidate = fileMatch ?: run {
             // Choose the largest file that ends with one of the allowed extensions
-            val candidates = files.filter { it.type == "file" && allowedExtensions.any { ext -> it.path.endsWith(ext, ignoreCase = true) } }
-            candidates.maxByOrNull { it.lfs?.size ?: it.size }
+            val candidates = files.filter { (it.type == "file" || it.type == null) && allowedExtensions.any { ext -> it.path.endsWith(ext, ignoreCase = true) } }
+            candidates.maxByOrNull { it.lfs?.size ?: it.size ?: 0L }
         }
 
         val modelFile = candidate ?: throw IllegalArgumentException("No file found for '$modelId' matching ${filename ?: allowedExtensions}")
@@ -372,7 +377,7 @@ object HuggingFaceHub {
             )
         }
 
-        if (expectedSize > 0 && targetFile.length() != expectedSize) {
+        if (expectedSize != null && expectedSize > 0 && targetFile.length() != expectedSize) {
             targetFile.delete()
             throw IllegalStateException("Downloaded file size mismatch for ${modelFile.path}")
         }
@@ -433,7 +438,7 @@ object HuggingFaceHub {
             candidates.firstOrNull { it.path.contains(marker, ignoreCase = true) }?.let { return it }
         }
 
-        return candidates.minByOrNull { it.size }
+        return candidates.minByOrNull { it.size ?: it.lfs?.size ?: Long.MAX_VALUE }
     }
 
     private const val DEFAULT_MODELS_DIRECTORY = "hf-models"
@@ -459,7 +464,7 @@ object HuggingFaceHub {
     private fun HFModelTree.HFModelFile.toMetadata(): ModelFileMetadata =
         ModelFileMetadata(
             path = path,
-            sizeBytes = lfs?.size ?: size,
+            sizeBytes = lfs?.size ?: size ?: 0L,
             sha256 = lfs?.oid ?: oid,
         )
 

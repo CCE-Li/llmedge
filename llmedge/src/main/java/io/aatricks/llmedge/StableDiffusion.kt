@@ -128,11 +128,13 @@ class StableDiffusion private constructor(
         @JvmStatic
         private external fun nativeCheckBindings(): Boolean
 
-        private fun inferVideoModelMetadata(
+        private suspend fun inferVideoModelMetadata(
             resolvedModelPath: String,
             modelId: String?,
             explicitFilename: String?,
         ): VideoModelMetadata {
+            android.util.Log.d(LOG_TAG, "inferVideoModelMetadata called: path=$resolvedModelPath, exists=${File(resolvedModelPath).exists()}")
+            
             // T098: Check cache first to avoid re-parsing GGUF
             val cacheKey = resolvedModelPath
             metadataCache[cacheKey]?.let { return it }
@@ -146,17 +148,9 @@ class StableDiffusion private constructor(
             var parameterCount: String? = null
             var modelType: String? = null
             
-            try {
-                val ggufReader = GGUFReader()
-                kotlinx.coroutines.runBlocking {
-                    ggufReader.load(resolvedModelPath)
-                }
-                architecture = ggufReader.getArchitecture()
-                parameterCount = ggufReader.getParameterCount()
-                ggufReader.close()
-            } catch (e: Exception) {
-                // Fall back to filename-based detection if GGUF reading fails
-            }
+            // Skip GGUF parsing for video models - they use a different GGUF format
+            // that llama.cpp's parser can't read. Rely on filename-based detection instead.
+            android.util.Log.d(LOG_TAG, "Using filename-based video model detection for: $resolvedModelPath")
             
             // Fallback to filename-based detection
             if (architecture == null) {
@@ -291,6 +285,8 @@ class StableDiffusion private constructor(
             }
 
             // T100: Memory pressure detection before loading
+            android.util.Log.d(LOG_TAG, "inferVideoModelMetadata: resolvedModelPath=$resolvedModelPath, exists=${File(resolvedModelPath).exists()}, modelId=$modelId, filename=$filename")
+            
             val metadata = inferVideoModelMetadata(
                 resolvedModelPath = resolvedModelPath,
                 modelId = modelId,
