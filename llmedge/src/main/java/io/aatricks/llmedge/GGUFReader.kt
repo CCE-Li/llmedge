@@ -55,6 +55,34 @@ class GGUFReader : Closeable {
         }
     }
 
+    /**
+     * Read the model architecture from GGUF metadata (e.g., "wan", "llama", "stable-diffusion")
+     */
+    fun getArchitecture(): String? {
+        assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
+        val arch = getArchitecture(nativeHandle)
+        return arch.ifEmpty { null }
+    }
+
+    /**
+     * Read parameter count metadata (e.g., "1.3B", "5B", "14B")
+     * Falls back to estimating from model file size if not in metadata
+     */
+    fun getParameterCount(): String? {
+        assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
+        val params = getParameterCount(nativeHandle)
+        return params.ifEmpty { null }
+    }
+
+    /**
+     * Read model name from GGUF metadata
+     */
+    fun getModelName(): String? {
+        assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
+        val name = getModelName(nativeHandle)
+        return name.ifEmpty { null }
+    }
+
     override fun close() {
         if (nativeHandle != 0L) {
             releaseGGUFContext(nativeHandle)
@@ -76,6 +104,21 @@ class GGUFReader : Closeable {
      * Read the chat template from the GGUF file, given the native handle
      */
     private external fun getChatTemplate(nativeHandle: Long): String
+
+    /**
+     * Read the architecture from GGUF metadata
+     */
+    private external fun getArchitecture(nativeHandle: Long): String
+
+    /**
+     * Read parameter count from GGUF metadata
+     */
+    private external fun getParameterCount(nativeHandle: Long): String
+
+    /**
+     * Read model name from GGUF metadata
+     */
+    private external fun getModelName(nativeHandle: Long): String
 
     private external fun releaseGGUFContext(nativeHandle: Long)
 }

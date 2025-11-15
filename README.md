@@ -15,6 +15,8 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 
 - Run GGUF models directly on Android using llama.cpp (JNI)
 - Download and cache models from Hugging Face
+- **Video Generation**: Generate short video clips (4-64 frames) from text using Wan models
+- **Image Generation**: Stable Diffusion integration for txt2img
 - Minimal on-device RAG (retrieval-augmented generation) pipeline
 - **OCR Support**: Extract text from images using Google ML Kit
 - **Vision Model Ready**: Architecture prepared for vision-capable LLMs (LLaVA)
@@ -31,6 +33,8 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
    - [Reasoning Controls](#reasoning-controls)  
    - [Image Text Extraction (OCR)](#image-text-extraction-ocr)
    - [Vision Models](#vision-models)
+   - [Stable Diffusion (image generation)](#stable-diffusion-image-generation)
+   - [Video Generation](#video-generation)
    - [On-device RAG](#on-device-rag)  
 3. [Building](#building)  
 4. [Architecture](#architecture)  
@@ -265,6 +269,122 @@ sd.close()
 Memory & troubleshooting:
 - If you encounter OutOfMemoryError during generation, reduce width/height and number of steps, or enable more aggressive CPU offloading.
 - The example app falls back to a smaller resolution when a generation OOM occurs; you should do the same in production code.
+
+### Video Generation
+
+llmedge now supports **on-device video generation** using Wan models via the `StableDiffusion` class. Generate short video clips (4-64 frames) from text prompts entirely on Android devices with 3GB+ RAM.
+
+**Supported Models**:
+- **Wan 2.1**: T2V-1.3B (text-to-video), I2V-14B (image-to-video)
+- **Wan 2.2**: TI2V-5B (text+image-to-video), T2V-A14B
+- **Quantization**: Q4_K_M, Q3_K_S, Q6_K, fp8_e4m3fn variants
+
+**Recommended Models**:
+- **3-6GB RAM devices**: Wan 2.1 T2V-1.3B Q4_K_M (~1.4GB, generates 64 frames max)
+- **8GB+ RAM devices**: Wan 2.2 TI2V-5B fp8 (~5GB, generates 32 frames max with frame capping)
+- **14B models**: Not supported on mobile (rejected at load time)
+
+**Basic Usage**:
+
+```kotlin
+val sd = StableDiffusion.load(
+    context = this,
+    modelId = "black-forest-labs/Wan-TVC-2.1",
+    filename = "Wan2.1-T2V-1.3B-Q4_K_M.gguf",
+    nThreads = Runtime.getRuntime().availableProcessors()
+)
+
+val params = StableDiffusion.VideoGenerateParams(
+    prompt = "a cat walking in a garden, high quality",
+    videoFrames = 16,
+    width = 512,
+    height = 512,
+    steps = 20,
+    cfgScale = 7.0,
+    seed = 42,
+    scheduler = StableDiffusion.Scheduler.EULER_A  // EULER_A, DDIM, DDPM, LCM
+)
+
+val frames: List<Bitmap> = sd.txt2vid(params)
+
+// Save frames to video file or display
+frames.forEachIndexed { index, bitmap ->
+    // Process each frame
+}
+
+sd.close()
+```
+
+**Model Selection**:
+
+Check device RAM and choose appropriate variant:
+
+```kotlin
+val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+val memInfo = ActivityManager.MemoryInfo()
+activityManager.getMemoryInfo(memInfo)
+val totalRamGB = memInfo.totalMem / (1024.0 * 1024.0 * 1024.0)
+
+val filename = when {
+    totalRamGB < 4.0 -> "Wan2.1-T2V-1.3B-Q3_K_S.gguf"  // Low RAM
+    totalRamGB < 8.0 -> "Wan2.1-T2V-1.3B-Q4_K_M.gguf"  // Mid RAM
+    else -> "Wan2.2-TI2V-5B-fp8.gguf"                   // High RAM
+}
+```
+
+**Advanced Parameters**:
+
+```kotlin
+val params = StableDiffusion.VideoGenerateParams(
+    prompt = "a serene ocean sunset, waves gently rolling",
+    videoFrames = 32,
+    width = 512,
+    height = 512,
+    steps = 25,
+    cfgScale = 7.5,
+    seed = -1,  // -1 for random seed
+    scheduler = StableDiffusion.Scheduler.DDIM,
+    strength = 0.8,  // For image-to-video (0.0-1.0)
+    initImage = null  // Optional: initial image for I2V models
+)
+```
+
+**Progress Monitoring**:
+
+```kotlin
+sd.setProgressCallback { step, totalSteps ->
+    val progress = (step.toFloat() / totalSteps * 100).toInt()
+    runOnUiThread {
+        progressBar.progress = progress
+        statusText.text = "Generating: $progress%"
+    }
+}
+
+val frames = sd.txt2vid(params)
+```
+
+**Cancellation**:
+
+```kotlin
+// Cancel long-running generation
+sd.cancelGeneration()
+```
+
+**Performance Tips**:
+- Start with 256x256 or 512x512 resolution
+- Use 10-20 steps for faster generation (20-30 for quality)
+- Enable Vulkan acceleration on Android 11+ devices
+- 1.3B models generate ~2-5 seconds/frame on mid-range devices
+- 5B models are 2-3x slower but produce higher quality
+
+**Memory Management**:
+- 1.3B models peak at ~2.5GB RAM
+- 5B models peak at ~7GB RAM (automatically capped to 32 frames)
+- 14B models are rejected (require 12GB+ RAM)
+- Model metadata is cached to avoid GGUF re-parsing
+
+See `llmedge-examples/app/src/main/java/io/aatricks/llmedge/VideoGenerationActivity.kt` for a complete working example.
+
 
 Running the example app:
 1. Build the library AAR and copy it into the example app (from the repo root):

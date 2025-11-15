@@ -56,6 +56,8 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
@@ -159,6 +161,8 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
@@ -215,6 +219,8 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
@@ -253,10 +259,12 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
-                ): Array<ByteArray> {
+                ): Array<ByteArray>? {
                     instance.cancelGeneration()
                     throw RuntimeException("native aborted")
                 }
@@ -296,6 +304,8 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
@@ -328,7 +338,14 @@ class StableDiffusionTxt2VidTest {
         val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
         constructor.isAccessible = true
         val instance = constructor.newInstance(1L)
-        instance.updateModelMetadata(StableDiffusion.VideoModelMetadata(architecture = "wan"))
+        instance.updateModelMetadata(StableDiffusion.VideoModelMetadata(
+            architecture = "wan",
+            modelType = "t2v",
+            parameterCount = "1.3B",
+            mobileSupported = true,
+            tags = setOf("wan", "video"),
+            filename = "test-model.gguf"
+        ))
         return instance
     }
 

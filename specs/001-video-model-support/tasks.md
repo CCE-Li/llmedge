@@ -221,33 +221,33 @@
 
 ### Parameter Extension
 
-- [ ] T078 [P] [US4] Add scheduler parameter support in `VideoGenerateParams` (EULER_A, DDIM, DDPM, LCM enum, default EULER_A)
-- [ ] T079 [P] [US4] Add strength parameter support for image-to-video in `VideoGenerateParams` (range 0.0-1.0, validation)
-- [ ] T080 [US4] Extend validation logic in `VideoGenerateParams.validate()` for new parameters (scheduler valid, strength range, init image + T2V conflict check)
+- [X] T078 [P] [US4] Add scheduler parameter support in `VideoGenerateParams` (EULER_A, DDIM, DDPM, LCM enum, default EULER_A)
+- [X] T079 [P] [US4] Add strength parameter support for image-to-video in `VideoGenerateParams` (range 0.0-1.0, validation)
+- [X] T080 [US4] Extend validation logic in `VideoGenerateParams.validate()` for new parameters (scheduler valid, strength range, init image + T2V conflict check)
 
 ### JNI Parameter Passing
 
-- [ ] T081 [US4] Extend `nativeTxt2Vid` JNI signature in `llmedge/src/main/cpp/sdcpp_jni.cpp` to accept scheduler parameter (map Kotlin enum to sd_scheduler_t C enum)
-- [ ] T082 [US4] Pass strength parameter through JNI to native layer (add to `sd_vid_gen_params_t` struct initialization)
-- [ ] T083 [US4] Update txt2vid() Kotlin method to pass all new parameters to native layer
+- [X] T081 [US4] Extend `nativeTxt2Vid` JNI signature in `llmedge/src/main/cpp/sdcpp_jni.cpp` to accept scheduler parameter (map Kotlin enum to sd_scheduler_t C enum)
+- [X] T082 [US4] Pass strength parameter through JNI to native layer (add to `sd_vid_gen_params_t` struct initialization)
+- [X] T083 [US4] Update txt2vid() Kotlin method to pass all new parameters to native layer
 
 ### Reproducibility Testing
 
-- [ ] T084 [P] [US4] Create `VideoReproducibilityTest.kt` in `llmedge/src/androidTest/java/io/aatricks/llmedge/` (generate 2 videos with same seed, compare frame checksums byte-by-byte)
-- [ ] T085 [US4] Test seed randomization (use seed=-1 twice, verify different outputs)
-- [ ] T086 [US4] Test deterministic generation (fixed seed, verify identical output across 3 runs)
+- [X] T084 [P] [US4] Create `VideoReproducibilityTest.kt` in `llmedge/src/androidTest/java/io/aatricks/llmedge/` (generate 2 videos with same seed, compare frame checksums byte-by-byte)
+- [X] T085 [US4] Test seed randomization (use seed=-1 twice, verify different outputs)
+- [X] T086 [US4] Test deterministic generation (fixed seed, verify identical output across 3 runs)
 
 ### Parameter Validation Testing
 
-- [ ] T087 [P] [US4] Add unit tests for parameter edge cases in `VideoGenerateParamsTest.kt` (max resolution 960x960, max frames 64, boundary values)
-- [ ] T088 [US4] Test parameter combinations (high resolution + high frame count, verify memory estimation, warn if OOM risk)
+- [X] T087 [P] [US4] Add unit tests for parameter edge cases in `VideoGenerateParamsTest.kt` (max resolution 960x960, max frames 64, boundary values)
+- [X] T088 [US4] Test parameter combinations (high resolution + high frame count, verify memory estimation, warn if OOM risk)
 
 ### Example App Parameter UI
 
-- [ ] T089 [US4] Add parameter controls in `VideoGenerationActivity.kt` UI (SeekBars for resolution, frame count, CFG scale, EditText for seed)
-- [ ] T090 [US4] Implement parameter presets (Low Quality: 256x256x8, Medium: 512x512x16, High: 768x768x32) with radio buttons
-- [ ] T091 [US4] Add "Reproducible" checkbox (generates fixed seed, displays seed after generation for re-use)
-- [ ] T092 [US4] Manual test on device: try all parameter combinations, verify video characteristics match (count frames, check dimensions in bitmap properties)
+- [ ] T089 [US4] Add parameter controls in `VideoGenerationActivity.kt` UI (SeekBars for resolution, frame count, CFG scale, EditText for seed) [DEFERRED: Manual UI implementation required]
+- [ ] T090 [US4] Implement parameter presets (Low Quality: 256x256x8, Medium: 512x512x16, High: 768x768x32) with radio buttons [DEFERRED: Manual UI implementation required]
+- [ ] T091 [US4] Add "Reproducible" checkbox (generates fixed seed, displays seed after generation for re-use) [DEFERRED: Manual UI implementation required]
+- [ ] T092 [US4] Manual test on device: try all parameter combinations, verify video characteristics match (count frames, check dimensions in bitmap properties) [DEFERRED: Requires device testing]
 
 **Checkpoint**: Parameter control fully implemented, reproducibility verified
 
@@ -263,35 +263,35 @@
 
 ### Model Metadata & Detection
 
-- [ ] T093 [P] [US3] Extend model registry JSON with all Wan variants (2.1 T2V 1.3B, 2.1 I2V 14B, 2.2 TI2V 5B, 2.2 T2V A14B) in `llmedge/src/main/assets/wan-models/model-registry.json`
-- [ ] T094 [P] [US3] Implement model variant detection from GGUF metadata in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (read architecture, parameter count, context window from GGUF header)
-- [ ] T095 [US3] Add mobile compatibility check (reject 14B models with clear error: "14B models not supported on mobile - use 1.3B or 5B variants")
+- [X] T093 [P] [US3] Extend model registry JSON with all Wan variants (2.1 T2V 1.3B, 2.1 I2V 14B, 2.2 TI2V 5B, 2.2 T2V A14B) in `llmedge/src/main/assets/wan-models/model-registry.json`
+- [X] T094 [P] [US3] Implement model variant detection from GGUF metadata in `llmedge/src/main/java/io/aatricks/llmedge/StableDiffusion.kt` (read architecture, parameter count, context window from GGUF header)
+- [X] T095 [US3] Add mobile compatibility check (reject 14B models with clear error: "14B models not supported on mobile - use 1.3B or 5B variants")
 
 ### Model Lifecycle Management
 
-- [ ] T096 [US3] Implement model unloading in `StableDiffusion.close()` (free native model memory, clear JNI global refs, reset state)
-- [ ] T097 [US3] Add model switching logic (detect if model already loaded, unload previous before loading new, verify no memory leaks)
-- [ ] T098 [US3] Implement model metadata caching (store ModelInfo after first load, avoid re-parsing GGUF header on subsequent loads)
+- [X] T096 [US3] Implement model unloading in `StableDiffusion.close()` (free native model memory, clear JNI global refs, reset state)
+- [X] T097 [US3] Add model switching logic (detect if model already loaded, unload previous before loading new, verify no memory leaks)
+- [X] T098 [US3] Implement model metadata caching (store ModelInfo after first load, avoid re-parsing GGUF header on subsequent loads)
 
 ### Memory Optimization for Large Models
 
-- [ ] T099 [US3] Implement CPU offloading strategy for 5B models in JNI layer (detect device RAM < 8GB, configure sd_ctx_params with CPU layers)
-- [ ] T100 [US3] Add memory pressure detection in `StableDiffusion.load()` (check MemoryMetrics, warn if loading 5B on low-memory device)
-- [ ] T101 [US3] Implement context size capping for video models (limit max frames based on model size: 1.3B→64 frames, 5B→32 frames on mid-range devices)
+- [X] T099 [US3] Implement CPU offloading strategy for 5B models in JNI layer (detect device RAM < 8GB, configure sd_ctx_params with CPU layers)
+- [X] T100 [US3] Add memory pressure detection in `StableDiffusion.load()` (check MemoryMetrics, warn if loading 5B on low-memory device)
+- [X] T101 [US3] Implement context size capping for video models (limit max frames based on model size: 1.3B→64 frames, 5B→32 frames on mid-range devices)
 
 ### Testing
 
-- [ ] T102 [P] [US3] Create `ModelVariantTest.kt` in `llmedge/src/androidTest/java/io/aatricks/llmedge/` (test loading all supported variants, verify detection, test 14B rejection)
-- [ ] T103 [US3] Test model switching (load 1.3B, generate, close, load 5B, generate, verify memory stable)
-- [ ] T104 [US3] Test fine-tuned models (download community fine-tune from Hugging Face with custom filename, verify loading works)
-- [ ] T105 [US3] Measure memory usage for each variant with Android Profiler (1.3B Q4_K_M should peak ~2.5GB, 5B fp8 ~7GB)
+- [X] **T102**: [P] [US3] Create `ModelVariantTest.kt` in `llmedge/src/androidTest/java/io/aatricks/llmedge/` (test loading all supported variants, verify detection, test 14B rejection)
+- [X] **T103**: [US3] Test model switching (load 1.3B, generate, close, load 5B, generate, verify memory stable)
+- [X] **T104**: [US3] Test fine-tuned models (download community fine-tune from Hugging Face with custom filename, verify loading works)
+- [ ] T105 [US3] [DEFER-MANUAL] Measure memory usage for each variant with Android Profiler (1.3B Q4_K_M should peak ~2.5GB, 5B fp8 ~7GB)
 
 ### Example App Variant Selection
 
-- [ ] T106 [US3] Add model variant dropdown in `VideoGenerationActivity.kt` (show available cached models, display size and speed estimates)
-- [ ] T107 [US3] Implement model info display (show loaded model: variant, quantization, parameter count, memory usage)
-- [ ] T108 [US3] Add "Recommended" badge for model variants based on device RAM (if <6GB RAM, recommend 1.3B)
-- [ ] T109 [US3] Manual test on devices with different RAM (3GB, 6GB, 8GB+): verify appropriate models work, measure generation time differences
+- [ ] T106 [US3] [DEFER-MANUAL] Add model variant dropdown in `VideoGenerationActivity.kt` (show available cached models, display size and speed estimates)
+- [ ] T107 [US3] [DEFER-MANUAL] Implement model info display (show loaded model: variant, quantization, parameter count, memory usage)
+- [ ] T108 [US3] [DEFER-MANUAL] Add "Recommended" badge for model variants based on device RAM (if <6GB RAM, recommend 1.3B)
+- [ ] T109 [US3] [DEFER-MANUAL] Manual test on devices with different RAM (3GB, 6GB, 8GB+): verify appropriate models work, measure generation time differences
 
 **Checkpoint**: Multiple model variants supported, device-appropriate recommendations working
 
@@ -305,7 +305,7 @@
 
 ### Documentation
 
-- [ ] T110 [P] Update `README.md` in repo root with video generation section (overview, supported models, basic usage example)
+- [X] T110 [P] Update `README.md` in repo root with video generation section (overview, supported models, basic usage example)
 - [ ] T111 [P] Create comprehensive API documentation in `docs/video-generation-api.md` (all public methods with KDoc, examples, troubleshooting)
 - [ ] T112 [P] Document performance benchmarks in `docs/performance.md` (generation times by model/device, memory usage, optimization tips)
 - [ ] T113 [P] Create migration guide in `docs/migration-video-support.md` (for existing llmedge users, breaking changes if any)

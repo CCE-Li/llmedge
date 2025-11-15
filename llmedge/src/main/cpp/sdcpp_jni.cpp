@@ -252,6 +252,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
         jstring jPrompt, jstring jNegative,
         jint width, jint height,
         jint videoFrames, jint steps, jfloat cfg, jlong seed,
+        jint jScheduler, jfloat jStrength,
         jbyteArray jInitImage, jint initWidth, jint initHeight) {
     (void)thiz;
     if (handlePtr == 0) {
@@ -290,6 +291,12 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     gen.video_frames = videoFrames;
     gen.sample_params = sample;
     gen.seed = seed;
+    // Map scheduler enum if provided
+    if (jScheduler >= 0) {
+        enum scheduler_t s = static_cast<enum scheduler_t>(jScheduler);
+        gen.sample_params.scheduler = s;
+    }
+    gen.strength = jStrength;
 
     std::vector<uint8_t> initImageData;
     if (jInitImage != nullptr) {

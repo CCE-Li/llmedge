@@ -27,6 +27,8 @@ class VideoProgressCallbackTest : BaseVideoIntegrationTest() {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,

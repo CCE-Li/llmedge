@@ -1,5 +1,6 @@
 package io.aatricks.llmedge
 
+import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.os.Debug
@@ -34,43 +35,51 @@ class StableDiffusion private constructor(
         private const val MIN_FRAME_BATCH = 4
         private const val MAX_FRAME_BATCH = 8
         @Volatile private var isNativeLibraryAvailable: Boolean
+        
+        // T098: Model metadata cache to avoid re-parsing GGUF headers
+        private val metadataCache = mutableMapOf<String, VideoModelMetadata>()
+        
         private val defaultNativeBridgeProvider: (StableDiffusion) -> NativeBridge = { instance ->
             object : NativeBridge {
-                override fun txt2vid(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    videoFrames: Int,
-                    steps: Int,
-                    cfg: Float,
-                    seed: Long,
-                    initImage: ByteArray?,
-                    initWidth: Int,
-                    initHeight: Int,
-                ): Array<ByteArray>? = instance.nativeTxt2Vid(
-                    handle,
-                    prompt,
-                    negative,
-                    width,
-                    height,
-                    videoFrames,
-                    steps,
-                    cfg,
-                    seed,
-                    initImage,
-                    initWidth,
-                    initHeight,
-                )
+                 override fun txt2vid(
+                     handle: Long,
+                     prompt: String,
+                     negative: String,
+                     width: Int,
+                     height: Int,
+                     videoFrames: Int,
+                     steps: Int,
+                     cfg: Float,
+                     seed: Long,
+                     scheduler: Scheduler,
+                     strength: Float,
+                     initImage: ByteArray?,
+                     initWidth: Int,
+                     initHeight: Int,
+                 ): Array<ByteArray>? = instance.nativeTxt2Vid(
+                     handle,
+                     prompt,
+                     negative,
+                     width,
+                     height,
+                     videoFrames,
+                     steps,
+                     cfg,
+                     seed,
+                     schedulerToNativeSampleMethod(scheduler),
+                     strength,
+                     initImage,
+                     initWidth,
+                     initHeight,
+                 )
 
-                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {
-                    instance.nativeSetProgressCallback(handle, callback)
-                }
+                 override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {
+                     instance.nativeSetProgressCallback(handle, callback)
+                 }
 
-                override fun cancelGeneration(handle: Long) {
-                    instance.nativeCancelGeneration(handle)
-                }
+                 override fun cancelGeneration(handle: Long) {
+                     instance.nativeCancelGeneration(handle)
+                 }
             }
         }
         @Volatile private var nativeBridgeProvider: (StableDiffusion) -> NativeBridge = defaultNativeBridgeProvider
@@ -81,7 +90,6 @@ class StableDiffusion private constructor(
             if (disableNativeLoad) {
                 println("[StableDiffusion] Native load disabled via llmedge.disableNativeLoad=true")
             } else {
-                // Reuse SmolLM CPU feature detection to choose the best lib variant if needed later.
                 try {
                     System.loadLibrary("sdcpp")
                     check(nativeCheckBindings()) { "Failed to link StableDiffusion JNI bindings" }
@@ -106,8 +114,6 @@ class StableDiffusion private constructor(
             nativeBridgeProvider = defaultNativeBridgeProvider
         }
 
-        // JNI factory function implemented in native code. Declared as @JvmStatic
-        // so it maps to a static native method (jclass) in JNI.
         @JvmStatic
         private external fun nativeCreate(
             modelPath: String?,
@@ -127,33 +133,85 @@ class StableDiffusion private constructor(
             modelId: String?,
             explicitFilename: String?,
         ): VideoModelMetadata {
+            // T098: Check cache first to avoid re-parsing GGUF
+            val cacheKey = resolvedModelPath
+            metadataCache[cacheKey]?.let { return it }
+            
             val filename = explicitFilename ?: resolvedModelPath.substringAfterLast('/')
             val lowerName = filename.lowercase(Locale.US)
             val tags = mutableSetOf<String>()
+            
+            // Try to read from GGUF metadata first
+            var architecture: String? = null
+            var parameterCount: String? = null
+            var modelType: String? = null
+            
+            try {
+                val ggufReader = GGUFReader()
+                kotlinx.coroutines.runBlocking {
+                    ggufReader.load(resolvedModelPath)
+                }
+                architecture = ggufReader.getArchitecture()
+                parameterCount = ggufReader.getParameterCount()
+                ggufReader.close()
+            } catch (e: Exception) {
+                // Fall back to filename-based detection if GGUF reading fails
+            }
+            
+            // Fallback to filename-based detection
+            if (architecture == null) {
+                architecture = when {
+                    !modelId.isNullOrBlank() -> modelId
+                    lowerName.contains("hunyuan") -> "hunyuan_video"
+                    lowerName.contains("wan") -> "wan"
+                    else -> null
+                }
+            }
+            
+            if (modelType == null) {
+                modelType = when {
+                    lowerName.contains("ti2v") -> "ti2v"
+                    lowerName.contains("i2v") -> "i2v"
+                    lowerName.contains("t2v") -> "t2v"
+                    else -> null
+                }
+            }
+            
+            if (parameterCount == null) {
+                parameterCount = when {
+                    lowerName.contains("1.3b") || lowerName.contains("1_3b") -> "1.3B"
+                    lowerName.contains("5b") || lowerName.contains("5_b") -> "5B"
+                    lowerName.contains("14b") || lowerName.contains("14_b") -> "14B"
+                    else -> null
+                }
+            }
+            
+            // Determine mobile support based on parameter count
+            val mobileSupported = when (parameterCount) {
+                "1.3B", "5B" -> true
+                "14B" -> false
+                else -> true // Unknown models assumed supported (will fail at load time if too large)
+            }
+            
+            // Build tags
             if (lowerName.contains("wan")) tags += "wan"
-            if (lowerName.contains("video")) tags += "text-to-video"
+            if (lowerName.contains("video") || modelType in listOf("t2v", "i2v", "ti2v")) {
+                tags += "text-to-video"
+            }
             if (lowerName.contains("hunyuan")) tags += "hunyuan"
 
-            val architectureGuess = when {
-                !modelId.isNullOrBlank() -> modelId
-                lowerName.contains("hunyuan") -> "hunyuan_video"
-                lowerName.contains("wan") -> "wan"
-                else -> null
-            }
-
-            val modelTypeGuess = when {
-                lowerName.contains("ti2v") -> "ti2v"
-                lowerName.contains("i2v") -> "i2v"
-                lowerName.contains("t2v") -> "t2v"
-                else -> null
-            }
-
-            return VideoModelMetadata(
-                architecture = architectureGuess,
-                modelType = modelTypeGuess,
+            val metadata = VideoModelMetadata(
+                architecture = architecture,
+                modelType = modelType,
+                parameterCount = parameterCount,
+                mobileSupported = mobileSupported,
                 tags = tags,
                 filename = filename,
             )
+            
+            // T098: Cache the metadata for future loads
+            metadataCache[cacheKey] = metadata
+            return metadata
         }
 
         suspend fun load(
@@ -177,10 +235,9 @@ class StableDiffusion private constructor(
                 resolvedModelPath = modelPath
                 resolvedVaePath = vaePath
             } else if (modelId != null) {
-                // If this model ID corresponds to a Wan video model in our registry, use
-                // the convenience loader that pulls model + vae + t5 encoder as needed.
                 try {
-                    val possibleWan = WanModelRegistry.findById(context, modelId) ?: WanModelRegistry.findByModelIdPrefix(context, modelId.removePrefix("wan/"))
+                    val possibleWan = WanModelRegistry.findById(context, modelId) 
+                        ?: WanModelRegistry.findByModelIdPrefix(context, modelId.removePrefix("wan/"))
                     if (possibleWan != null) {
                         return@withContext loadFromHuggingFace(
                             context = context,
@@ -196,11 +253,9 @@ class StableDiffusion private constructor(
                         )
                     }
                 } catch (t: Throwable) {
-                    // If registry lookup fails, continue with default downloader behavior
+                    // Continue with default downloader
                 }
-                // First, try to find a GGUF model (preferred). If none exists in the repo,
-                // fall back to looking for other supported diffusion weight formats
-                // such as .safetensors or .ckpt using ensureRepoFileOnDisk.
+
                 try {
                     val res = HuggingFaceHub.ensureModelOnDisk(
                         context = context,
@@ -216,7 +271,6 @@ class StableDiffusion private constructor(
                     resolvedModelPath = res.file.absolutePath
                     resolvedVaePath = vaePath
                 } catch (iae: IllegalArgumentException) {
-                    // No GGUF found — try to fetch a safetensors/ckpt (or other allowed extensions)
                     iae.printStackTrace()
                     val alt = HuggingFaceHub.ensureRepoFileOnDisk(
                         context = context,
@@ -230,12 +284,32 @@ class StableDiffusion private constructor(
                         onProgress = null,
                     )
                     resolvedModelPath = alt.file.absolutePath
-                    // If the selected repo-file is itself a VAE or ancillary file, the caller should
-                    // explicitly pass a VAe path. We keep vaePath as given.
                     resolvedVaePath = vaePath
                 }
             } else {
                 throw IllegalArgumentException("Provide either modelPath or modelId")
+            }
+
+            // T100: Memory pressure detection before loading
+            val metadata = inferVideoModelMetadata(
+                resolvedModelPath = resolvedModelPath,
+                modelId = modelId,
+                explicitFilename = filename,
+            )
+            
+            // Check if we're trying to load a 5B model on a low-memory device
+            if (metadata.parameterCount == "5B") {
+                val memoryInfo = ActivityManager.MemoryInfo()
+                val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                activityManager.getMemoryInfo(memoryInfo)
+                val totalRamGB = memoryInfo.totalMem / (1024L * 1024L * 1024L)
+                
+                if (totalRamGB < 8) {
+                    android.util.Log.w(LOG_TAG, 
+                        "Loading 5B model on device with ${totalRamGB}GB RAM. " +
+                        "Consider using 1.3B variant for better performance. " +
+                        "Generation may be slow or fail with OOM.")
+                }
             }
 
             val handle = nativeCreate(
@@ -249,11 +323,19 @@ class StableDiffusion private constructor(
             )
             if (handle == 0L) throw IllegalStateException("Failed to initialize Stable Diffusion context")
             val instance = StableDiffusion(handle)
-            instance.modelMetadata = inferVideoModelMetadata(
-                resolvedModelPath = resolvedModelPath,
-                modelId = modelId,
-                explicitFilename = filename,
-            )
+            instance.modelMetadata = metadata
+            
+            // T095: Mobile compatibility check - reject 14B models
+            if (instance.modelMetadata?.mobileSupported == false) {
+                instance.close()
+                val paramCount = instance.modelMetadata?.parameterCount ?: "14B"
+                throw UnsupportedOperationException(
+                    "$paramCount models are not supported on mobile devices. " +
+                    "Please use 1.3B or 5B model variants instead. " +
+                    "14B models require 20-40GB RAM and are designed for desktop/server use only."
+                )
+            }
+            
             instance
         }
 
@@ -270,7 +352,6 @@ class StableDiffusion private constructor(
             preferSystemDownloader: Boolean = true,
             onProgress: ((name: String, downloaded: Long, total: Long?) -> Unit)? = null,
         ): StableDiffusion = withContext(Dispatchers.IO) {
-            val destinationRoot = File(context.filesDir, "hf-models")
             val (modelRes, vaeRes, t5Res) = HuggingFaceHub.ensureWanAssetsOnDisk(
                 context = context,
                 wanModelId = modelId,
@@ -310,10 +391,17 @@ class StableDiffusion private constructor(
     )
 
     enum class Scheduler {
+        /** Euler Ancestral - Default, good balance of quality and speed */
         EULER_A,
+        
+        /** Denoising Diffusion Implicit Models - High quality, slower */
         DDIM,
+        
+        /** Denoising Diffusion Probabilistic Models - Very high quality, slowest */
         DDPM,
-        LCM,
+        
+        /** Latent Consistency Models - Fast generation, fewer steps needed */
+        LCM
     }
 
     data class VideoGenerateParams(
@@ -327,7 +415,7 @@ class StableDiffusion private constructor(
         val seed: Long = -1L,
         val initImage: Bitmap? = null,
         val strength: Float = 0.8f,
-        val scheduler: Scheduler = Scheduler.EULER_A,
+        val scheduler: Scheduler = Scheduler.EULER_A
     ) {
         fun validate(): Result<Unit> = runCatching {
             require(prompt.isNotBlank()) { "Prompt cannot be blank" }
@@ -342,6 +430,13 @@ class StableDiffusion private constructor(
             require(cfgScale in 1.0f..15.0f) { "CFG scale must be between 1.0 and 15.0" }
             require(strength in 0.0f..1.0f) { "Strength must be between 0.0 and 1.0" }
             require(seed >= -1L) { "Seed must be -1 or non-negative" }
+            
+            // Validate init image + strength consistency (I2V mode)
+            if (initImage != null) {
+                require(strength > 0.0f) {
+                    "When initImage is provided (I2V mode), strength must be > 0.0"
+                }
+            }
         }
 
         fun withPrompt(prompt: String): VideoGenerateParams = copy(prompt = prompt)
@@ -357,7 +452,6 @@ class StableDiffusion private constructor(
         val timePerStep: Float,
         val peakMemoryUsageMb: Long,
         val vulkanEnabled: Boolean,
-        val modelLoadTimeSeconds: Float = 0f,
         val frameConversionTimeSeconds: Float = 0f,
     ) {
         val averageFrameTime: Float
@@ -368,6 +462,15 @@ class StableDiffusion private constructor(
 
         val throughput: String
             get() = String.format("%.2f fps", framesPerSecond)
+
+        fun toPrettyString(): String = """
+            Total time: ${String.format("%.2f", totalTimeSeconds)}s
+            Throughput: ${String.format("%.2f", framesPerSecond)} fps
+            Average time/step: ${String.format("%.3f", timePerStep)}s
+            Peak memory: ${peakMemoryUsageMb}MB
+            Vulkan: ${if (vulkanEnabled) "enabled" else "disabled"}
+            Frame conversion: ${String.format("%.2f", frameConversionTimeSeconds)}s
+        """.trimIndent()
     }
 
     fun interface VideoProgressCallback {
@@ -380,6 +483,15 @@ class StableDiffusion private constructor(
         )
     }
 
+    internal data class VideoModelMetadata(
+        val architecture: String?,
+        val modelType: String?,
+        val parameterCount: String?,
+        val mobileSupported: Boolean,
+        val tags: Set<String>,
+        val filename: String,
+    )
+
     internal interface NativeBridge {
         fun txt2vid(
             handle: Long,
@@ -391,6 +503,8 @@ class StableDiffusion private constructor(
             steps: Int,
             cfg: Float,
             seed: Long,
+            scheduler: Scheduler,
+            strength: Float,
             initImage: ByteArray?,
             initWidth: Int,
             initHeight: Int,
@@ -400,15 +514,6 @@ class StableDiffusion private constructor(
 
         fun cancelGeneration(handle: Long)
     }
-
-    internal data class VideoModelMetadata(
-        val architecture: String? = null,
-        val modelType: String? = null,
-        val tags: Set<String> = emptySet(),
-        val filename: String? = null,
-        val parameterCount: Long? = null,
-        val contextWindow: Int? = null,
-    )
 
     internal fun updateModelMetadata(metadata: VideoModelMetadata?) {
         modelMetadata = metadata
@@ -426,6 +531,16 @@ class StableDiffusion private constructor(
         check(isNativeLibraryAvailable) { "Video generation is unavailable on this platform" }
         params.validate().getOrThrow()
         check(isVideoModel()) { "Loaded model is not a video model (use txt2img instead)" }
+
+        // T101: Context size capping based on model size
+        val maxFrames = when (modelMetadata?.parameterCount) {
+            "5B" -> 32  // 5B models limited to 32 frames on mobile
+            else -> 64  // 1.3B and unknown models can use full 64 frames
+        }
+        require(params.videoFrames <= maxFrames) {
+            "Model ${modelMetadata?.parameterCount ?: "unknown"} supports maximum $maxFrames frames. " +
+            "Requested ${params.videoFrames} frames. Use a smaller model or reduce frame count."
+        }
 
         val estimatedBytes = estimateFrameFootprintBytes(
             width = params.width,
@@ -457,6 +572,8 @@ class StableDiffusion private constructor(
                     params.steps,
                     params.cfgScale,
                     params.seed,
+                    params.scheduler,
+                    params.strength,
                     initBytes,
                     initWidth,
                     initHeight,
@@ -556,7 +673,12 @@ class StableDiffusion private constructor(
     }
 
     override fun close() {
+        // T096: Proper cleanup - cancel any ongoing generation, destroy native context, reset state
+        if (cancellationRequested.get()) {
+            cancellationRequested.set(false)
+        }
         nativeDestroy(handle)
+        modelMetadata = null
     }
     
     private external fun nativeDestroy(handle: Long)
@@ -582,6 +704,8 @@ class StableDiffusion private constructor(
         steps: Int,
         cfg: Float,
         seed: Long,
+        scheduler: Int,
+        strength: Float,
         initImage: ByteArray?,
         initWidth: Int,
         initHeight: Int,
@@ -717,4 +841,14 @@ class StableDiffusion private constructor(
             return VIDEO_KEYWORDS.any { keyword -> value.contains(keyword) }
         }
     }
+}
+
+/**
+ * Converts Kotlin Scheduler enum to native sd_sample_method_t integer.
+ */
+internal fun schedulerToNativeSampleMethod(scheduler: StableDiffusion.Scheduler): Int = when (scheduler) {
+    StableDiffusion.Scheduler.EULER_A -> 0  // EULER_A
+    StableDiffusion.Scheduler.DDIM -> 10    // DDIM
+    StableDiffusion.Scheduler.DDPM -> 0     // EULER_A as fallback (DDPM not directly supported)
+    StableDiffusion.Scheduler.LCM -> 11     // LCM
 }

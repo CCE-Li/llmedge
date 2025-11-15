@@ -31,6 +31,8 @@ abstract class BaseVideoIntegrationTest {
                 StableDiffusion.VideoModelMetadata(
                     architecture = "wan",
                     modelType = "t2v",
+                    parameterCount = "1.3B",
+                    mobileSupported = true,
                     filename = "wan-test.gguf",
                     tags = setOf("wan", "video"),
                 ),

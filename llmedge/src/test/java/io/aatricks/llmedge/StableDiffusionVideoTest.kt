@@ -24,6 +24,10 @@ class StableDiffusionVideoTest {
         sd.updateModelMetadata(
             StableDiffusion.VideoModelMetadata(
                 architecture = "Wan 2.1 T2V",
+                modelType = null,
+                parameterCount = "1.3B",
+                mobileSupported = true,
+                tags = emptySet(),
                 filename = "hunyuan_video_720_cfgdistill_fp8.gguf",
             ),
         )
@@ -37,7 +41,11 @@ class StableDiffusionVideoTest {
         sd.updateModelMetadata(
             StableDiffusion.VideoModelMetadata(
                 architecture = "stable-diffusion-xl",
+                modelType = null,
+                parameterCount = null,
+                mobileSupported = true,
                 tags = setOf("text-to-video", "wan-model"),
+                filename = "sdxl-model.gguf",
             ),
         )
 
@@ -50,7 +58,11 @@ class StableDiffusionVideoTest {
         sd.updateModelMetadata(
             StableDiffusion.VideoModelMetadata(
                 architecture = "stable-diffusion-xl",
+                modelType = null,
+                parameterCount = null,
+                mobileSupported = true,
                 tags = setOf("image", "text-to-image"),
+                filename = "sdxl-ti.gguf",
             ),
         )
 
@@ -62,7 +74,12 @@ class StableDiffusionVideoTest {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
             StableDiffusion.VideoModelMetadata(
-                architecture = "wan-2.1",
+                architecture = "wan",
+                modelType = "t2v",
+                parameterCount = "1.3B",
+                mobileSupported = true,
+                tags = setOf("video"),
+                filename = "wan-model.gguf"
             ),
         )
         assertTrue(sd.isVideoModel())

@@ -4,9 +4,31 @@
 
 #include <atomic>
 #include <iostream>
-#include <stdexcept>
-#include <string>
+#include <fstream>
 #include <vector>
+
+static void save_frame_as_ppm(const uint8_t* data, int width, int height, int frame_index) {
+    std::string filename = "/tmp/cat_frame_" + std::to_string(frame_index) + ".ppm";
+    std::ofstream file(filename, std::ios::binary);
+    if (!file) {
+        std::cerr << "Failed to open " << filename << " for writing" << std::endl;
+        return;
+    }
+    
+    // PPM header
+    file << "P6\n" << width << " " << height << "\n255\n";
+    
+    // Write RGB data (assuming 3 channels)
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            int idx = (y * width + x) * 3;
+            file.write(reinterpret_cast<const char*>(&data[idx]), 3);
+        }
+    }
+    
+    file.close();
+    std::cout << "Saved frame " << frame_index << " to " << filename << std::endl;
+}
 
 #ifndef SD_TEST_JAVA_CLASS_DIR
 #define SD_TEST_JAVA_CLASS_DIR "."
@@ -14,7 +36,7 @@
 
 extern "C" {
 JNIEXPORT jlong JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
-        JNIEnv* env, jclass clazz, jstring jModelPath, jstring jVaePath,
+        JNIEnv* env, jclass clazz, jstring jModelPath, jstring jVaePath, jstring jT5xxlPath,
         jint nThreads, jboolean offloadToCpu, jboolean keepClipOnCpu, jboolean keepVaeOnCpu);
 JNIEXPORT void JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeDestroy(JNIEnv* env, jobject thiz, jlong handlePtr);
 JNIEXPORT jobjectArray JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
@@ -94,14 +116,14 @@ static bool test_nativeTxt2Vid_memory(JNIEnv* env) {
     reset_free_counters();
     jstring modelPath = env->NewStringUTF("stub-model.gguf");
     jlong handle = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
-            env, nullptr, modelPath, nullptr, 4, JNI_FALSE, JNI_FALSE, JNI_FALSE);
+            env, nullptr, modelPath, nullptr, nullptr, 4, JNI_FALSE, JNI_FALSE, JNI_FALSE);
     env->DeleteLocalRef(modelPath);
     if (handle == 0) {
         std::cerr << "nativeCreate returned null handle" << std::endl;
         return false;
     }
 
-    jstring prompt = env->NewStringUTF("hello world");
+    jstring prompt = env->NewStringUTF("a cat playing with yarn");
     jobjectArray frames = Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
             env, nullptr, handle, prompt, nullptr,
             256, 256, 4, 12, 7.5f, 42L,
@@ -134,7 +156,18 @@ static bool test_nativeTxt2Vid_memory(JNIEnv* env) {
             }
             env->DeleteLocalRef(frameBytes);
         }
-        env->DeleteLocalRef(frames);
+        
+        // Save frames as PPM files for video creation
+        for (jsize i = 0; i < frameCount; ++i) {
+            auto frameBytes = static_cast<jbyteArray>(env->GetObjectArrayElement(frames, i));
+            if (frameBytes) {
+                jsize length = env->GetArrayLength(frameBytes);
+                std::vector<uint8_t> frameData(static_cast<size_t>(length));
+                env->GetByteArrayRegion(frameBytes, 0, length, reinterpret_cast<jbyte*>(frameData.data()));
+                save_frame_as_ppm(frameData.data(), 256, 256, static_cast<int>(i));
+                env->DeleteLocalRef(frameBytes);
+            }
+        }
     }
 
     Java_io_aatricks_llmedge_StableDiffusion_nativeDestroy(env, nullptr, handle);
@@ -153,7 +186,7 @@ static bool test_nativeTxt2Vid_memory(JNIEnv* env) {
 static bool test_progress_callback_bridge(JNIEnv* env) {
     jstring modelPath = env->NewStringUTF("stub-model.gguf");
     jlong handlePtr = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
-            env, nullptr, modelPath, nullptr, 2, JNI_FALSE, JNI_FALSE, JNI_FALSE);
+            env, nullptr, modelPath, nullptr, nullptr, 2, JNI_FALSE, JNI_FALSE, JNI_FALSE);
     env->DeleteLocalRef(modelPath);
     if (handlePtr == 0) {
         std::cerr << "Failed to create handle for progress test" << std::endl;
