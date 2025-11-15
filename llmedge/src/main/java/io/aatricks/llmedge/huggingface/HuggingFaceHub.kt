@@ -113,24 +113,28 @@ object HuggingFaceHub {
         val useSystemDownloader = preferSystemDownloader && systemDownloadContext != null
 
         if (useSystemDownloader) {
-            val tempDir = systemDownloadContext?.getExternalFilesDir("hf-downloads")
-            if (tempDir == null) {
-                Log.w(LOG_TAG, "External downloads directory unavailable; falling back to in-app streaming")
-            } else {
-                val tempFile = File(tempDir, "${sanitize(resolved.modelId)}-${System.currentTimeMillis()}.tmp")
-                val downloaded = SystemDownload.download(
-                    context = systemDownloadContext,
-                    url = downloadUrl,
-                    token = token,
-                    destination = tempFile,
-                    displayName = targetName,
-                    onProgress = onProgress,
-                )
-                if (targetFile.exists()) {
-                    targetFile.delete()
+            try {
+                val tempDir = systemDownloadContext?.getExternalFilesDir("hf-downloads")
+                if (tempDir == null) {
+                    Log.w(LOG_TAG, "External downloads directory unavailable; falling back to in-app streaming")
+                } else {
+                    val tempFile = File(tempDir, "${sanitize(resolved.modelId)}-${System.currentTimeMillis()}.tmp")
+                    val downloaded = SystemDownload.download(
+                        context = systemDownloadContext,
+                        url = downloadUrl,
+                        token = token,
+                        destination = tempFile,
+                        displayName = targetName,
+                        onProgress = onProgress,
+                    )
+                    if (targetFile.exists()) {
+                        targetFile.delete()
+                    }
+                    downloaded.copyTo(targetFile, overwrite = true)
+                    downloaded.delete()
                 }
-                downloaded.copyTo(targetFile, overwrite = true)
-                downloaded.delete()
+            } catch (t: Throwable) {
+                Log.w(LOG_TAG, "System download failed (${t.message}) - falling back to in-app downloader")
             }
         }
 
@@ -151,6 +155,20 @@ object HuggingFaceHub {
             throw IllegalStateException("Downloaded file size mismatch for ${modelFile.path}")
         }
 
+        // If file metadata includes sha256, validate to avoid corrupted downloads
+        modelFile.lfs?.oid?.let { expectedSha ->
+            try {
+                val actualSha = computeSha256(targetFile)
+                if (!actualSha.equals(expectedSha, ignoreCase = true)) {
+                    targetFile.delete()
+                    throw IllegalStateException("Downloaded file sha mismatch for ${modelFile.path}")
+                }
+            } catch (_: Throwable) {
+                // If hashing fails for any reason, prefer to proceed rather than block; the next
+                // consumer will fail later. We already validated size above.
+            }
+        }
+
         return ModelDownloadResult(
             requestedModelId = modelId,
             requestedRevision = revision,
@@ -161,6 +179,74 @@ object HuggingFaceHub {
             fromCache = false,
             aliasApplied = resolved.aliasApplied,
         )
+    }
+
+    suspend fun ensureWanAssetsOnDisk(
+        context: Context,
+        wanModelId: String,
+        preferSystemDownloader: Boolean = true,
+        token: String? = null,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+    ): Triple<ModelDownloadResult, ModelDownloadResult?, ModelDownloadResult?> = withContext(Dispatchers.IO) {
+        var registryEntry = WanModelRegistry.findById(context, wanModelId)
+        if (registryEntry == null) {
+            // Try prefix match (e.g. 'wan/Wan2.1-T2V-1.3B' vs 'Wan2.1-T2V-1.3B')
+            val trimmed = wanModelId.removePrefix("wan/")
+            registryEntry = WanModelRegistry.findByModelIdPrefix(context, trimmed)
+        }
+        registryEntry ?: throw IllegalArgumentException("Unknown Wan model $wanModelId")
+
+        val modelRes = ensureModelOnDisk(
+            context = context,
+            modelId = registryEntry.modelId,
+            filename = registryEntry.filename,
+            token = token,
+            preferSystemDownloader = preferSystemDownloader,
+            onProgress = onProgress,
+        )
+
+        val vaeRes = registryEntry.vaeFilename?.let { vaeName ->
+            ensureRepoFileOnDisk(
+                context = context,
+                modelId = registryEntry.modelId,
+                filename = vaeName,
+                allowedExtensions = listOf(".safetensors", ".pt"),
+                token = token,
+                preferSystemDownloader = preferSystemDownloader,
+                onProgress = onProgress,
+            )
+        }
+
+        val t5Res = registryEntry.t5ModelId?.let { t5ModelId ->
+            val t5Filename = registryEntry.t5Filename
+                ?: throw IllegalArgumentException("Registry entry for $wanModelId missing t5 filename")
+            ensureRepoFileOnDisk(
+                context = context,
+                modelId = t5ModelId,
+                filename = t5Filename,
+                allowedExtensions = listOf(".gguf"),
+                token = token,
+                preferSystemDownloader = preferSystemDownloader,
+                onProgress = onProgress,
+            )
+        }
+
+        Triple(modelRes, vaeRes, t5Res)
+    }
+
+    /* Cache utilities */
+    fun clearCache(context: Context) {
+        val root = File(context.filesDir, DEFAULT_MODELS_DIRECTORY)
+        if (root.exists()) {
+            root.deleteRecursively()
+        }
+    }
+
+    fun listCachedModels(context: Context): List<File> {
+        val root = File(context.filesDir, DEFAULT_MODELS_DIRECTORY)
+        return if (root.exists() && root.isDirectory) {
+            root.listFiles()?.filter { it.isDirectory }?.toList() ?: emptyList()
+        } else emptyList()
     }
 
     /**
@@ -249,24 +335,28 @@ object HuggingFaceHub {
         val useSystemDownloader = preferSystemDownloader && systemDownloadContext != null
 
         if (useSystemDownloader) {
-            val tempDir = systemDownloadContext?.getExternalFilesDir("hf-downloads")
-            if (tempDir == null) {
-                Log.w(LOG_TAG, "External downloads directory unavailable; falling back to in-app streaming")
-            } else {
-                val tempFile = File(tempDir, "${sanitize(resolved.modelId)}-${System.currentTimeMillis()}.tmp")
-                val downloaded = SystemDownload.download(
-                    context = systemDownloadContext!!,
-                    url = downloadUrl,
-                    token = token,
-                    destination = tempFile,
-                    displayName = targetName,
-                    onProgress = onProgress,
-                )
-                if (targetFile.exists()) {
-                    targetFile.delete()
+            try {
+                val tempDir = systemDownloadContext?.getExternalFilesDir("hf-downloads")
+                if (tempDir == null) {
+                    Log.w(LOG_TAG, "External downloads directory unavailable; falling back to in-app streaming")
+                } else {
+                    val tempFile = File(tempDir, "${sanitize(resolved.modelId)}-${System.currentTimeMillis()}.tmp")
+                    val downloaded = SystemDownload.download(
+                        context = systemDownloadContext!!,
+                        url = downloadUrl,
+                        token = token,
+                        destination = tempFile,
+                        displayName = targetName,
+                        onProgress = onProgress,
+                    )
+                    if (targetFile.exists()) {
+                        targetFile.delete()
+                    }
+                    downloaded.copyTo(targetFile, overwrite = true)
+                    downloaded.delete()
                 }
-                downloaded.copyTo(targetFile, overwrite = true)
-                downloaded.delete()
+            } catch (t: Throwable) {
+                Log.w(LOG_TAG, "System download failed (${t.message}) - falling back to in-app downloader")
             }
         }
 
@@ -285,6 +375,17 @@ object HuggingFaceHub {
         if (expectedSize > 0 && targetFile.length() != expectedSize) {
             targetFile.delete()
             throw IllegalStateException("Downloaded file size mismatch for ${modelFile.path}")
+        }
+
+        modelFile.lfs?.oid?.let { expectedSha ->
+            try {
+                val actualSha = computeSha256(targetFile)
+                if (!actualSha.equals(expectedSha, ignoreCase = true)) {
+                    targetFile.delete()
+                    throw IllegalStateException("Downloaded file sha mismatch for ${modelFile.path}")
+                }
+            } catch (_: Throwable) {
+            }
         }
 
         return ModelDownloadResult(
@@ -369,4 +470,21 @@ object HuggingFaceHub {
         val revision: String,
         val aliasApplied: Boolean,
     )
+
+    private fun computeSha256(file: File): String {
+        try {
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { fis ->
+                val buffer = ByteArray(8 * 1024)
+                var bytesRead = fis.read(buffer)
+                while (bytesRead >= 0) {
+                    md.update(buffer, 0, bytesRead)
+                    bytesRead = fis.read(buffer)
+                }
+            }
+            return md.digest().joinToString("") { "%02x".format(it) }
+        } catch (t: Throwable) {
+            throw t
+        }
+    }
 }

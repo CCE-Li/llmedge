@@ -129,6 +129,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     JNIEnv* env, jclass clazz,
         jstring jModelPath,
         jstring jVaePath,
+        jstring jT5xxlPath,
         jint nThreads,
         jboolean offloadToCpu,
         jboolean keepClipOnCpu,
@@ -136,6 +137,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     (void)clazz;
     const char* modelPath = jModelPath ? env->GetStringUTFChars(jModelPath, nullptr) : nullptr;
     const char* vaePath   = jVaePath   ? env->GetStringUTFChars(jVaePath,   nullptr) : nullptr;
+    const char* t5xxlPath = jT5xxlPath ? env->GetStringUTFChars(jT5xxlPath, nullptr) : nullptr;
 
     sd_set_log_callback(sd_android_log_cb, nullptr);
 
@@ -149,6 +151,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     sd_ctx_params_init(&p);
     p.model_path = modelPath ? modelPath : "";
     p.vae_path = vaePath ? vaePath : "";
+    p.t5xxl_path = t5xxlPath ? t5xxlPath : "";
     p.free_params_immediately = true;
     p.n_threads = nThreads > 0 ? nThreads : get_num_physical_cores();
     p.offload_params_to_cpu = offloadToCpu;
@@ -159,6 +162,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
 
     if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
     if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+    if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
 
     if (!ctx) {
         ALOGE("Failed to create sd_ctx");

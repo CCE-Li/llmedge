@@ -1,0 +1,9 @@
+[{
+  "modelId": "wan/Wan2.1-T2V-1.3B",
+  "filename": "Wan2.1-T2V-1.3B-Q3_K_S.gguf",
+  "quantization": "Q3_K_S",
+  "t5ModelId": "city96/umt5-xxl-encoder-gguf",
+  "t5Filename": "umt5-xxl-encoder-Q3_K_S.gguf",
+  "vaeFilename": "wan_2.1_vae.safetensors",
+  "sizeBytes": 1400000000
+}]

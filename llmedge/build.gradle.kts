@@ -1,3 +1,5 @@
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+import org.gradle.testing.jacoco.tasks.JacocoReport
 /*
  * Copyright (C) 2024 Shubham Panchal
  *
@@ -18,6 +20,7 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     id("org.jetbrains.kotlin.plugin.serialization") version "2.0.0"
+    id("jacoco")
 }
 
 android {
@@ -68,6 +71,11 @@ android {
             version = "3.22.1"
         }
     }
+        testOptions {
+            unitTests.all {
+                it.systemProperty("llmedge.disableNativeLoad", "true")
+            }
+        }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -79,6 +87,8 @@ android {
             pickFirsts += "META-INF/LICENSE.txt"
             pickFirsts += "META-INF/NOTICE"
             pickFirsts += "META-INF/NOTICE.txt"
+            pickFirsts += "META-INF/LICENSE.md"
+            pickFirsts += "META-INF/LICENSE-notice.md"
         }
     }
 }
@@ -118,10 +128,64 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
     testImplementation("io.mockk:mockk:1.13.12")
+    testImplementation("org.robolectric:robolectric:4.13")
 
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("io.mockk:mockk-android:1.13.12")
+}
+
+jacoco {
+    toolVersion = "0.8.11"
+}
+
+tasks.withType<Test>().configureEach {
+    extensions.configure(JacocoTaskExtension::class) {
+        isIncludeNoLocationClasses = true
+        excludes = listOf("jdk.internal.*")
+    }
+}
+
+val jacocoTestReport by tasks.registering(JacocoReport::class) {
+    dependsOn("testDebugUnitTest")
+
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+
+        val reportsDir = layout.buildDirectory.dir("reports/jacoco/jacocoTestReport")
+        xml.outputLocation.set(reportsDir.map { it.file("jacocoTestReport.xml") })
+        html.outputLocation.set(reportsDir.map { it.dir("html") })
+    }
+
+    val fileFilter = listOf(
+        "**/R.class",
+        "**/R$*.class",
+        "**/BuildConfig.*",
+        "**/Manifest*.*",
+        "**/*Test*.*",
+        "**/*$*Companion*"
+    )
+
+    val classTrees = listOf(
+        layout.buildDirectory.dir("intermediates/javac/debug/classes"),
+        layout.buildDirectory.dir("tmp/kotlin-classes/debug")
+    ).map { dirProvider ->
+        dirProvider.map { dir ->
+            fileTree(dir) {
+                exclude(fileFilter)
+            }
+        }
+    }
+
+    classDirectories.setFrom(classTrees)
+    sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
+    val coverageData = layout.buildDirectory.asFileTree.matching {
+        include("jacoco/testDebugUnitTest.exec")
+        include("outputs/unit_test_code_coverage/**/testDebugUnitTest.exec")
+        include("outputs/unit_test_code_coverage/**/*.ec")
+    }
+    executionData.setFrom(coverageData)
 }
