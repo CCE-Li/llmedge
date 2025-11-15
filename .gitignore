@@ -26,6 +26,8 @@ replay_pid*
 # Kotlin Gradle plugin data, see https://kotlinlang.org/docs/whatsnew20.html#new-directory-for-kotlin-data-in-gradle-projects
 .kotlin/
 
+.opencode/
+.specify/
 .idea/
 .vscode/
 build/
@@ -42,3 +44,19 @@ local.properties
 .kotlin
 ktlint
 ktlint.bat
+# Kotlin / Android extras
+out/
+.env*
+
+# Native/C++ artifacts
+bin/
+obj/
+*.o
+*.so
+*.a
+*.exe
+*.dll
+
+# Node/JS tooling
+node_modules/
+dist/

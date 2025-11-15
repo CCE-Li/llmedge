@@ -1,0 +1,74 @@
+package io.aatricks.llmedge
+
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class VideoProgressCallbackTest : BaseVideoIntegrationTest() {
+
+    @Test
+    fun forwardsProgressEventsFromNativeBridge() = runBlocking {
+        val frames = buildFrames(frameCount = 4, width = 256, height = 256)
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                private var callback: StableDiffusion.VideoProgressCallback? = null
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                ): Array<ByteArray> {
+                    repeat(videoFrames) { index ->
+                        callback?.onProgress(
+                            step = index + 1,
+                            totalSteps = steps,
+                            currentFrame = index + 1,
+                            totalFrames = videoFrames,
+                            timePerStep = 0.05f,
+                        )
+                    }
+                    return frames.map { it.copyOf() }.toTypedArray()
+                }
+
+                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {
+                    this.callback = callback
+                }
+
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
+        val sd = createStableDiffusion()
+        val progressEvents = mutableListOf<Pair<Int, Int>>()
+        val params = StableDiffusion.VideoGenerateParams(
+            prompt = "wan fox in snow",
+            width = 256,
+            height = 256,
+            videoFrames = 4,
+            steps = 16,
+        )
+
+        sd.txt2vid(params) { _, _, currentFrame, totalFrames, _ ->
+            progressEvents += currentFrame to totalFrames
+        }
+
+        assertTrue(progressEvents.isNotEmpty())
+        val last = progressEvents.last()
+        assertEquals(4, last.first)
+        assertEquals(4, last.second)
+    }
+}

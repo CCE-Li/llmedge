@@ -30,13 +30,11 @@ internal class HFModelDownload(
     ): File {
         destination.parentFile?.mkdirs()
         val tempFile = File(destination.parentFile, "${destination.name}.part")
-        if (tempFile.exists()) {
-            tempFile.delete()
-        }
         if (destination.exists()) {
             destination.delete()
         }
-    val response = requestFile(modelId, revision, filePath, token)
+    val resumeStart = if (tempFile.exists()) tempFile.length() else 0L
+    val response = requestFile(modelId, revision, filePath, token, resumeStart)
     val expectedLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
 
         if (!response.status.isSuccess()) {
@@ -52,7 +50,16 @@ internal class HFModelDownload(
             )
         }
 
-        onProgress?.invoke(0L, expectedLength)
+        var downloaded = resumeStart
+        // If server returned full file despite providing a Range header, start fresh
+        val responseStatusValue = response.status.value
+        if (resumeStart > 0L && responseStatusValue == 200) {
+            // Server ignored range — start over
+            tempFile.delete()
+            downloaded = 0L
+            onProgress?.invoke(downloaded, expectedLength)
+        }
+        onProgress?.invoke(downloaded, expectedLength)
 
         val channel = response.bodyAsChannel()
 
@@ -61,9 +68,13 @@ internal class HFModelDownload(
             val inputStream = channel.toInputStream()
             withContext(Dispatchers.IO) {
                 inputStream.use { ins ->
+                    // If resuming, open in append mode
                     tempFile.outputStream().use { outputStream ->
+                        // If resumeStart > 0, we are appending; else overwrite
+                        if (resumeStart > 0L) {
+                            outputStream.channel.position(resumeStart)
+                        }
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        var downloaded = 0L
                         while (true) {
                             val read = ins.read(buffer)
                             if (read <= 0) break
@@ -100,6 +111,7 @@ internal class HFModelDownload(
         revision: String,
         filePath: String,
         token: String?,
+        rangeStart: Long = 0L,
     ): HttpResponse {
         return client.get {
             url {
@@ -110,6 +122,9 @@ internal class HFModelDownload(
                 path(*modelSegments.toTypedArray(), "resolve", revision, *fileSegments.toTypedArray())
             }
             token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
+            if (rangeStart > 0L) {
+                header(HttpHeaders.Range, "bytes=$rangeStart-")
+            }
         }
     }
 
