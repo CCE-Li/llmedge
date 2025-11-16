@@ -35,12 +35,12 @@ class SmolLMResolveChatTemplateTest {
     fun `default chat template used when both are null`() {
         val smol = SmolLM()
         val reader = mockk<GGUFReader>(relaxed = true)
-        every { reader.getChatTemplate() } returns ""
+        every { reader.getChatTemplate() } returns null
 
         val method = SmolLM::class.java.getDeclaredMethod("resolveChatTemplate", String::class.java, GGUFReader::class.java)
         method.isAccessible = true
         val result = method.invoke(smol, null, reader) as String
         // Default template should not be null and should contain 'assistant'
-        assert(result.contains("assistant"))
+        assertEquals("Default template should contain 'assistant'", true, result.contains("assistant"))
     }
 }

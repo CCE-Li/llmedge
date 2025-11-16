@@ -107,8 +107,12 @@ class SmolLM(
         init {
             val logTag = LOG_TAG
 
-            // check if the following CPU features are available,
-            // and load the native library accordingly
+            val disableNativeLoad = java.lang.Boolean.getBoolean("llmedge.disableNativeLoad")
+            if (disableNativeLoad) {
+                println("[SmolLM] Native library load disabled via llmedge.disableNativeLoad=true")
+            } else {
+                // check if the following CPU features are available,
+                // and load the native library accordingly
             val cpuFeatures = getCPUFeatures()
             val hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp")
             val hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp")
@@ -174,6 +178,7 @@ class SmolLM(
                 // specific instructions
                 Log.d(logTag, "Loading default libsmollm.so")
                 System.loadLibrary("smollm")
+            }
             }
         }
 

@@ -3,6 +3,36 @@ package io.aatricks.llmedge
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@Suppress("unused")
+private val disableNativeLoadForTests = run {
+    System.setProperty("llmedge.disableNativeLoad", "true")
+    StableDiffusion.enableNativeBridgeForTests()
+    StableDiffusion.overrideNativeBridgeForTests { instance ->
+        object : StableDiffusion.NativeBridge {
+            override fun txt2vid(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                videoFrames: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                scheduler: StableDiffusion.Scheduler,
+                strength: Float,
+                initImage: ByteArray?,
+                initWidth: Int,
+                initHeight: Int,
+            ): Array<ByteArray>? = arrayOf(byteArrayOf(1, 2, 3))
+
+            override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
+            override fun cancelGeneration(handle: Long) {}
+        }
+    }
+    true
+}
+
 class StableDiffusionVideoModelDetectorExtraTest {
     @Test
     fun `filename containing WAR casing doesn't prevent detection`() {
