@@ -19,11 +19,13 @@ Complete reference for on-device video generation using Wan models in llmedge.
 llmedge provides on-device video generation through the `StableDiffusion` class, using Wan models. Generate short video clips (4-64 frames) entirely on Android devices.
 
 **⚠️ Hardware Requirements**:
+
 - **Minimum RAM**: 12GB recommended for Wan 2.1 T2V-1.3B
 - **Supported Devices**: Galaxy S23 Ultra (12GB), Pixel 8 Pro (12GB), OnePlus 12 (16GB+)
 - **Not Supported**: 8GB RAM devices (Galaxy S22, Pixel 7)
 
 **Why 12GB?** Wan models require loading three components simultaneously:
+
 1. Main diffusion model (fp16): ~2.7GB RAM
 2. T5XXL text encoder (Q3_K_S GGUF): ~5.9GB RAM
 3. VAE decoder (fp16): ~0.14GB RAM
@@ -31,6 +33,7 @@ llmedge provides on-device video generation through the `StableDiffusion` class,
 **Total**: ~9.7GB minimum, 12GB recommended
 
 **Key Features**:
+
 - Text-to-video (T2V) generation
 - Multi-file model loading (main + VAE + T5XXL)
 - Memory-aware device compatibility checks
@@ -52,11 +55,13 @@ All three components are required and must be explicitly downloaded:
 3. **T5XXL Encoder**: `umt5-xxl-encoder-Q3_K_S.gguf` from `city96/umt5-xxl-encoder-gguf` (~2.86GB file, 5.9GB RAM)
 
 **Device Requirements**: 
+
 - **RAM**: 12GB+ (9.7GB minimum + overhead)
 - **Storage**: 6GB free space for downloads
 - **OS**: Android 11+ recommended (Vulkan acceleration)
 
 **Known Limitations**:
+
 - GGUF quantization of main model blocked by metadata issues
 - Sequential loading not supported - all three models load simultaneously
 - No disk streaming - models must fit in RAM
@@ -88,6 +93,7 @@ suspend fun load(
 ```
 
 **Parameters**:
+
 - `context`: Android application context
 - `modelPath`: Absolute path to main model file (safetensors)
 - `vaePath`: Absolute path to VAE file (safetensors)
@@ -100,6 +106,7 @@ suspend fun load(
 **Returns**: `StableDiffusion` instance ready for generation
 
 **Throws**:
+
 - `FileNotFoundException`: Model file not found
 - `IllegalStateException`: Model loading failed (e.g., insufficient RAM)
 - `UnsupportedOperationException`: 14B model rejected (mobile unsupported)
@@ -161,11 +168,13 @@ suspend fun txt2vid(params: VideoGenerateParams): List<Bitmap>
 ```
 
 **Parameters**:
+
 - `params`: `VideoGenerateParams` object (see [Parameter Guide](#parameter-guide))
 
 **Returns**: `List<Bitmap>` - Generated video frames
 
 **Throws**:
+
 - `IllegalStateException`: Model not loaded or not a video model
 - `IllegalArgumentException`: Invalid parameters (dimensions, frame count, etc.)
 - `CancellationException`: Generation cancelled via `cancelGeneration()`
@@ -208,6 +217,7 @@ data class VideoGenerateParams(
 ```
 
 **Field Validation**:
+
 - `prompt`: Non-empty string
 - `videoFrames`: 4-64 (capped to 32 for 5B models)
 - `width`: 256-960 (multiple of 64)
@@ -248,6 +258,7 @@ fun getVideoModelMetadata(): VideoModelMetadata?
 **Returns**: `VideoModelMetadata` object or `null` if not a video model
 
 **VideoModelMetadata fields**:
+
 - `architecture`: Model architecture (e.g., "wan")
 - `modelType`: "t2v", "i2v", or "ti2v"
 - `parameterCount`: "1.3B", "5B", or "14B"
@@ -339,6 +350,7 @@ StableDiffusion.load(context, modelId, filename).use { sd ->
 Text description of the video to generate.
 
 **Best Practices**:
+
 - Be specific and descriptive
 - Include quality modifiers: "high quality", "detailed", "cinematic"
 - Avoid negations (use positive descriptions)
@@ -363,12 +375,14 @@ Text description of the video to generate.
 Number of frames to generate (4-64).
 
 **Guidelines**:
+
 - **4-8 frames**: Quick tests, ~5-15 seconds generation
 - **16 frames**: Standard short clips, ~20-45 seconds generation
 - **32 frames**: Longer animations, ~40-90 seconds generation
 - **64 frames**: Maximum quality (1.3B models only), ~80-180 seconds
 
 **Memory Impact**:
+
 - 1.3B models: Up to 64 frames
 - 5B models: Automatically capped at 32 frames
 
@@ -390,6 +404,7 @@ videoFrames = 64
 Output resolution (256-960, must be multiples of 64).
 
 **Common Resolutions**:
+
 - **256x256**: Fastest, lowest quality
 - **512x512**: Balanced (recommended)
 - **768x768**: High quality, slower
@@ -414,6 +429,7 @@ width = 768, height = 768
 Number of diffusion steps (10-50).
 
 **Guidelines**:
+
 - **10-15 steps**: Fast, lower quality
 - **20 steps**: Recommended default
 - **25-30 steps**: Higher quality
@@ -437,6 +453,7 @@ steps = 30
 Classifier-free guidance scale (1.0-15.0). Controls adherence to prompt.
 
 **Guidelines**:
+
 - **1.0-3.0**: Very creative, less prompt adherence
 - **7.0**: Default, balanced
 - **10.0-12.0**: Strong prompt adherence
@@ -460,6 +477,7 @@ cfgScale = 10.0
 Random seed for reproducibility.
 
 **Guidelines**:
+
 - **-1**: Random seed (different output each time)
 - **0+**: Fixed seed (reproducible outputs)
 
@@ -486,6 +504,7 @@ seeds.forEach { seed ->
 Diffusion scheduler algorithm.
 
 **Options**:
+
 - `Scheduler.EULER_A`: Default, good quality and speed
 - `Scheduler.DDIM`: More deterministic, slightly slower
 - `Scheduler.DDPM`: Higher quality, slower
@@ -511,6 +530,7 @@ Denoising strength for image-to-video (0.0-1.0).
 Only used with `initImage` for I2V/TI2V models.
 
 **Guidelines**:
+
 - **0.0-0.3**: Subtle animation, preserves image
 - **0.5-0.7**: Moderate animation
 - **0.8-1.0**: Strong transformation
@@ -661,6 +681,7 @@ sd.close()
 **Symptoms**: App crashes during generation with OOM error
 
 **Solutions**:
+
 1. Reduce resolution: `width = 256, height = 256`
 2. Reduce frame count: `videoFrames = 8`
 3. Reduce steps: `steps = 15`
@@ -687,6 +708,7 @@ val params = VideoGenerateParams(
 **Symptoms**: Generation takes >5 seconds per frame
 
 **Solutions**:
+
 1. Use 1.3B model instead of 5B
 2. Reduce resolution
 3. Reduce steps (15-20 is usually sufficient)
@@ -712,6 +734,7 @@ val params = VideoGenerateParams(
 **Symptoms**: `FileNotFoundException` or load failure
 
 **Solutions**:
+
 1. Verify model file exists: `File(context.filesDir, "hf-models/$modelId/$filename").exists()`
 2. Check internet connection for downloads
 3. Verify Hugging Face model ID is correct
@@ -735,6 +758,7 @@ try {
 **Symptoms**: Blurry, artifact-heavy, or incoherent frames
 
 **Solutions**:
+
 1. Increase steps: 20-30
 2. Increase resolution: 512x512 or higher
 3. Adjust cfgScale: Try 7.0-10.0
@@ -762,6 +786,7 @@ val params = VideoGenerateParams(
 **Symptoms**: Progress stops, app becomes unresponsive
 
 **Solutions**:
+
 1. Ensure generation runs on `Dispatchers.IO`
 2. Set progress callback to monitor
 3. Implement timeout mechanism
@@ -871,7 +896,4 @@ Build library with Vulkan support:
 
 ## See Also
 
-- [README.md](../README.md) - Quick start guide
-- [performance.md](./performance.md) - Detailed benchmarks
 - [architecture.md](./architecture.md) - System design
-- [examples](../llmedge-examples) - Complete working examples
