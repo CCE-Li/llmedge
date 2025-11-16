@@ -1,9 +1,7 @@
 package io.aatricks.llmedge
 
 import android.graphics.Bitmap
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.mockkStatic
+import io.mockk.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest

@@ -36,7 +36,8 @@ class WanModelRegistryTest {
         """.trimIndent()
 
         every { context.assets } returns assetManager
-        every { assetManager.open(any()) } answers { ByteArrayInputStream(jsonContent.toByteArray()) }
+        val assetName = "wan-models/model-registry.json"
+        every { assetManager.open(assetName) } answers { ByteArrayInputStream(jsonContent.toByteArray()) }
 
         val models = WanModelRegistry.loadFromAssets(context)
 
@@ -80,10 +81,11 @@ class WanModelRegistryTest {
         """.trimIndent()
 
         every { context.assets } returns assetManager
-        every { assetManager.open(any()) } answers { ByteArrayInputStream(jsonContent.toByteArray()) }
+        val assetName = "wan-models/model-registry.json"
+        every { assetManager.open(assetName) } answers { ByteArrayInputStream(jsonContent.toByteArray()) }
 
         val result1 = WanModelRegistry.findById(context, "wan2.1-t2v-1.3b")
-        verify { assetManager.open(any()) }
+        verify { assetManager.open(assetName) }
         assertEquals("wan2.1-t2v-1.3b", result1?.modelId)
 
         val result2 = WanModelRegistry.findById(context, "WAN2.1-I2V-5B")
@@ -116,10 +118,11 @@ class WanModelRegistryTest {
         """.trimIndent()
 
         every { context.assets } returns assetManager
-        every { assetManager.open(any()) } answers { ByteArrayInputStream(jsonContent.toByteArray()) }
+        val assetName = "wan-models/model-registry.json"
+        every { assetManager.open(assetName) } answers { ByteArrayInputStream(jsonContent.toByteArray()) }
 
         val result1 = WanModelRegistry.findByModelIdPrefix(context, "wan2.1-t2v")
-        verify { assetManager.open(any()) }
+        verify { assetManager.open(assetName) }
         assertEquals("wan2.1-t2v-1.3b", result1?.modelId) // Should return first match
 
         val result2 = WanModelRegistry.findByModelIdPrefix(context, "WAN2.1-T2V")
@@ -161,7 +164,8 @@ class WanModelRegistryTest {
         val jsonContent = "[]"
 
         every { context.assets } returns assetManager
-        every { assetManager.open(any()) } answers { ByteArrayInputStream(jsonContent.toByteArray()) }
+        val assetName = "wan-models/model-registry.json"
+        every { assetManager.open(assetName) } answers { ByteArrayInputStream(jsonContent.toByteArray()) }
 
         val models = WanModelRegistry.loadFromAssets(context)
         assertEquals(0, models.size)

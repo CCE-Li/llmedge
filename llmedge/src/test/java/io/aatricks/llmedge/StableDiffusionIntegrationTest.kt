@@ -7,10 +7,7 @@ import org.robolectric.annotation.Config
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.justRun
+import io.mockk.*
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -21,8 +18,35 @@ import kotlinx.coroutines.delay
 @Config(sdk = [34])
 class StableDiffusionIntegrationTest {
 
+    /**
+     * Small helper to run tests with the JVM-level native-load disabled and the
+     * StableDiffusion native bridge enabled; guarantees reset and property cleanup.
+     */
+    private suspend inline fun <R> withStableDiffusionNativeBridgeDisabledSuspend(crossinline block: suspend () -> R): R {
+        System.setProperty("llmedge.disableNativeLoad", "true")
+        StableDiffusion.enableNativeBridgeForTests()
+        try {
+            return block()
+        } finally {
+            StableDiffusion.resetNativeBridgeForTests()
+            System.clearProperty("llmedge.disableNativeLoad")
+        }
+    }
+
+    private inline fun <R> withStableDiffusionNativeBridgeDisabled(crossinline block: () -> R): R {
+        System.setProperty("llmedge.disableNativeLoad", "true")
+        StableDiffusion.enableNativeBridgeForTests()
+        try {
+            return block()
+        } finally {
+            StableDiffusion.resetNativeBridgeForTests()
+            System.clearProperty("llmedge.disableNativeLoad")
+        }
+    }
+
     @Test
     fun `txt2vid uses native bridge and provides progress callbacks`() = runTest {
+        withStableDiffusionNativeBridgeDisabledSuspend {
         // Disable native load for JVM tests and inject mock bridge
         System.setProperty("llmedge.disableNativeLoad", "true")
         StableDiffusion.enableNativeBridgeForTests()
@@ -86,15 +110,12 @@ class StableDiffusionIntegrationTest {
         assertEquals(13, g)
         assertEquals(26, b)
 
-        StableDiffusion.resetNativeBridgeForTests()
-        System.clearProperty("llmedge.disableNativeLoad")
+        }
     }
 
     @Test
     fun `txt2vid onProgress argument overrides cached progress callback and is restored`() = runTest {
-        System.setProperty("llmedge.disableNativeLoad", "true")
-        StableDiffusion.enableNativeBridgeForTests()
-
+        withStableDiffusionNativeBridgeDisabledSuspend {
         val mockBridge = MockStableDiffusionBridge()
         mockBridge.disableProgressDelays()
         StableDiffusion.overrideNativeBridgeForTests { _ -> mockBridge }
@@ -135,15 +156,12 @@ class StableDiffusionIntegrationTest {
         // Confirm bitmaps returned as expected
         assertEquals(params.videoFrames, bitmaps.size)
 
-        StableDiffusion.resetNativeBridgeForTests()
-        System.clearProperty("llmedge.disableNativeLoad")
+        }
     }
 
     @Test
     fun `txt2vid cancellation during generation triggers CancellationException`() {
-        System.setProperty("llmedge.disableNativeLoad", "true")
-        StableDiffusion.enableNativeBridgeForTests()
-
+        withStableDiffusionNativeBridgeDisabled {
         val mockBridge = MockStableDiffusionBridge()
         // Use progress delays to make generation long enough to cancel
         mockBridge.progressCallbackDelayMs = 30L
@@ -188,8 +206,7 @@ class StableDiffusionIntegrationTest {
             thrown is kotlinx.coroutines.CancellationException || thrown?.cause is kotlinx.coroutines.CancellationException
         )
 
-        StableDiffusion.resetNativeBridgeForTests()
-        System.clearProperty("llmedge.disableNativeLoad")
+        }
     }
 
     private fun newStableDiffusion(): StableDiffusion {

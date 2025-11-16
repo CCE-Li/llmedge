@@ -1,6 +1,6 @@
 package io.aatricks.llmedge
 
-import io.mockk.mockk
+import io.mockk.*
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows

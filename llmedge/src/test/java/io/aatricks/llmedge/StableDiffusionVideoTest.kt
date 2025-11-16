@@ -1,7 +1,7 @@
 package io.aatricks.llmedge
 
 import android.content.Context
-import io.mockk.mockk
+import io.mockk.*
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull

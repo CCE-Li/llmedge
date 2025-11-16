@@ -1,6 +1,6 @@
 package io.aatricks.llmedge.vision
 
-import io.mockk.mockk
+import io.mockk.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue

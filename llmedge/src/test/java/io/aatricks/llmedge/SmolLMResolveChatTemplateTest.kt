@@ -1,8 +1,7 @@
 package io.aatricks.llmedge
 
 import io.aatricks.llmedge.GGUFReader
-import io.mockk.every
-import io.mockk.mockk
+import io.mockk.*
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

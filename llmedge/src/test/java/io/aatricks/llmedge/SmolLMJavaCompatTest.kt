@@ -1,8 +1,6 @@
 package io.aatricks.llmedge
 
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.mockk
+import io.mockk.*
 import kotlinx.coroutines.delay
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -176,6 +174,8 @@ class SmolLMJavaCompatTest {
         assert(completed)
         assert(error == null)
         assertEquals(listOf("Hello", " ", "world"), chunks)
+        // Ensure we passed the exact query through to the SmolLM instance (strict verification)
+        coVerify { mockSmol.getResponseAsFlow("Test query") }
     }
 
     @Test

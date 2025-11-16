@@ -3,9 +3,7 @@ package io.aatricks.llmedge
 import android.app.ActivityManager
 import android.content.Context
 import android.os.Debug
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.mockkStatic
+import io.mockk.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
