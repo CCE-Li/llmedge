@@ -85,8 +85,15 @@ object HuggingFaceHub {
         val resolved = resolveModelReference(modelId, revision)
         val treeClient = HFModels.tree()
         val files = treeClient.getModelFileTree(resolved.modelId, resolved.revision, token)
+        // Debug logging: provide visibility into the files returned by Hugging Face
+        Log.d(LOG_TAG, "getModelFileTree returned ${'$'}{files.size} items for ${'$'}{resolved.modelId} (rev=${'$'}{resolved.revision})")
+        files.take(5).forEach { Log.d(LOG_TAG, "  Sample file: ${'$'}{it.path} (type=${'$'}{it.type} size=${'$'}{it.size ?: it.lfs?.size})") }
         val modelFile = selectFile(files, filename, preferredQuantizations)
-            ?: throw IllegalArgumentException("No GGUF file found for '$modelId' (revision '$revision')")
+            ?: run {
+                val ggufFiles = files.filter { (it.type == "file" || it.type == null) && it.path.endsWith(".gguf", ignoreCase = true) }
+                val ggufList = ggufFiles.joinToString(", ") { it.path }
+                throw IllegalArgumentException("No GGUF file found for '$modelId' (revision '$revision'). Found: [$ggufList]")
+            }
 
         val sanitizedModelId = sanitize(resolved.modelId)
         val revisionDir = File(destinationRoot, "${sanitizedModelId}/${resolved.revision}")
@@ -150,7 +157,7 @@ object HuggingFaceHub {
             )
         }
 
-        if (expectedSize != null && expectedSize > 0 && targetFile.length() != expectedSize) {
+        if (expectedSize > 0 && targetFile.length() != expectedSize) {
             targetFile.delete()
             throw IllegalStateException("Downloaded file size mismatch for ${modelFile.path}")
         }
@@ -301,17 +308,7 @@ object HuggingFaceHub {
         android.util.Log.d("HuggingFaceHub", "getModelFileTree returned ${files.size} items for ${resolved.modelId}")
         files.take(5).forEach { android.util.Log.d("HuggingFaceHub", "  Sample file: ${it.path} (type=${it.type})") }
 
-        // If a filename is provided, try to find it (exact or suffix match).
-        val fileMatch = if (!filename.isNullOrEmpty()) {
-            android.util.Log.d("HuggingFaceHub", "Searching for filename: $filename")
-            files.firstOrNull { (it.type == "file" || it.type == null) && (it.path.equals(filename, ignoreCase = true) || it.path.endsWith(filename, ignoreCase = true)) }
-        } else null
-
-        val candidate = fileMatch ?: run {
-            // Choose the largest file that ends with one of the allowed extensions
-            val candidates = files.filter { (it.type == "file" || it.type == null) && allowedExtensions.any { ext -> it.path.endsWith(ext, ignoreCase = true) } }
-            candidates.maxByOrNull { it.lfs?.size ?: it.size ?: 0L }
-        }
+        val candidate = pickRepoFile(files, filename, allowedExtensions)
 
         val modelFile = candidate ?: throw IllegalArgumentException("No file found for '$modelId' matching ${filename ?: allowedExtensions}")
 
@@ -319,7 +316,7 @@ object HuggingFaceHub {
         val revisionDir = File(destinationRoot, "${sanitizedModelId}/${resolved.revision}")
         val targetName = modelFile.path.substringAfterLast('/')
         val targetFile = File(revisionDir, targetName)
-        val expectedSize = modelFile.lfs?.size ?: modelFile.size
+        val expectedSize = modelFile.lfs?.size ?: modelFile.size ?: 0L
 
         if (!forceDownload && targetFile.exists() && targetFile.length() == expectedSize) {
             return ModelDownloadResult(
@@ -347,7 +344,7 @@ object HuggingFaceHub {
                 } else {
                     val tempFile = File(tempDir, "${sanitize(resolved.modelId)}-${System.currentTimeMillis()}.tmp")
                     val downloaded = SystemDownload.download(
-                        context = systemDownloadContext!!,
+                        context = systemDownloadContext,
                         url = downloadUrl,
                         token = token,
                         destination = tempFile,
@@ -377,7 +374,7 @@ object HuggingFaceHub {
             )
         }
 
-        if (expectedSize != null && expectedSize > 0 && targetFile.length() != expectedSize) {
+        if (expectedSize > 0 && targetFile.length() != expectedSize) {
             targetFile.delete()
             throw IllegalStateException("Downloaded file size mismatch for ${modelFile.path}")
         }
@@ -405,6 +402,23 @@ object HuggingFaceHub {
         )
     }
 
+    internal fun pickRepoFile(
+        files: List<HFModelTree.HFModelFile>,
+        filename: String?,
+        allowedExtensions: List<String>,
+    ): HFModelTree.HFModelFile? {
+        // If a filename is provided, try to find it (exact or suffix match).
+        val fileMatch = if (!filename.isNullOrEmpty()) {
+            files.firstOrNull { (it.type == "file" || it.type == null) && (it.path.equals(filename, ignoreCase = true) || it.path.endsWith(filename, ignoreCase = true)) }
+        } else null
+
+        return fileMatch ?: run {
+            // Choose the largest file that ends with one of the allowed extensions
+            val candidates = files.filter { (it.type == "file" || it.type == null) && allowedExtensions.any { ext -> it.path.endsWith(ext, ignoreCase = true) } }
+            candidates.maxByOrNull { it.lfs?.size ?: it.size ?: 0L }
+        }
+    }
+
     fun sanitize(modelId: String): String = modelId.replace("/", "_")
 
     private fun resolveModelReference(modelId: String, revision: String): ResolvedModel {
@@ -417,12 +431,14 @@ object HuggingFaceHub {
         )
     }
 
-    private fun selectFile(
+    internal fun selectFile(
         files: List<HFModelTree.HFModelFile>,
         filename: String?,
         preferredQuantizations: List<String>,
     ): HFModelTree.HFModelFile? {
-        val candidates = files.filter { it.type == "file" && it.path.endsWith(".gguf", ignoreCase = true) }
+        // Some Hugging Face API responses omit the 'type' field (null). Treat `null` as a file
+        // to stay consistent with `ensureRepoFileOnDisk`'s relaxed matching.
+        val candidates = files.filter { (it.type == "file" || it.type == null) && it.path.endsWith(".gguf", ignoreCase = true) }
         if (candidates.isEmpty()) {
             return null
         }

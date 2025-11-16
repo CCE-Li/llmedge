@@ -34,11 +34,75 @@ import java.io.FileNotFoundException
 class SmolLM(
     useVulkan: Boolean = true
 ) {
+    
+    internal interface NativeBridge {
+        fun loadModel(
+            instance: SmolLM,
+            modelPath: String,
+            minP: Float,
+            temperature: Float,
+            storeChats: Boolean,
+            contextSize: Long,
+            chatTemplate: String,
+            nThreads: Int,
+            useMmap: Boolean,
+            useMlock: Boolean,
+            useVulkan: Boolean,
+        ): Long
+
+        fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int)
+        fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String)
+        fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float
+        fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long
+        fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long
+        fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int
+        fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long
+        fun nativeDecodePreparedEmbeddings(instance: SmolLM, modelPtr: Long, embdPath: String, metaPath: String, nBatch: Int): Boolean
+        fun close(instance: SmolLM, modelPtr: Long)
+        fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String)
+        fun completionLoop(instance: SmolLM, modelPtr: Long): String
+        fun stopCompletion(instance: SmolLM, modelPtr: Long)
+    }
     companion object {
         private const val LOG_TAG = "SmolLM"
         private const val DEFAULT_CONTEXT_SIZE_CAP: Long = 8_192L
         private const val MIN_CONTEXT_SIZE: Long = 1_024L
         private const val DEFAULT_REASONING_BUDGET: Int = -1
+
+        private val isAndroidLogAvailable: Boolean = try {
+            Class.forName("android.util.Log")
+            true
+        } catch (_: Throwable) {
+            false
+        }
+
+        private fun logD(tag: String, message: String) {
+            if (isAndroidLogAvailable) {
+                try {
+                    val logClass = Class.forName("android.util.Log")
+                    val dMethod = logClass.getMethod("d", String::class.java, String::class.java)
+                    dMethod.invoke(null, tag, message)
+                } catch (t: Throwable) {
+                    println("D/$tag: $message")
+                }
+            } else {
+                println("D/$tag: $message")
+            }
+        }
+
+        private fun logW(tag: String, message: String) {
+            if (isAndroidLogAvailable) {
+                try {
+                    val logClass = Class.forName("android.util.Log")
+                    val wMethod = logClass.getMethod("w", String::class.java, String::class.java)
+                    wMethod.invoke(null, tag, message)
+                } catch (t: Throwable) {
+                    println("W/$tag: $message")
+                }
+            } else {
+                println("W/$tag: $message")
+            }
+        }
 
         init {
             val logTag = LOG_TAG
@@ -58,20 +122,20 @@ class SmolLM(
                     )
             val isAtLeastArmV84 = cpuFeatures.contains("dcpop") && cpuFeatures.contains("uscat")
 
-            Log.d(logTag, "CPU features: $cpuFeatures")
-            Log.d(logTag, "- hasFp16: $hasFp16")
-            Log.d(logTag, "- hasDotProd: $hasDotProd")
-            Log.d(logTag, "- hasSve: $hasSve")
-            Log.d(logTag, "- hasI8mm: $hasI8mm")
-            Log.d(logTag, "- isAtLeastArmV82: $isAtLeastArmV82")
-            Log.d(logTag, "- isAtLeastArmV84: $isAtLeastArmV84")
+            logD(logTag, "CPU features: $cpuFeatures")
+            logD(logTag, "- hasFp16: $hasFp16")
+            logD(logTag, "- hasDotProd: $hasDotProd")
+            logD(logTag, "- hasSve: $hasSve")
+            logD(logTag, "- hasI8mm: $hasI8mm")
+            logD(logTag, "- isAtLeastArmV82: $isAtLeastArmV82")
+            logD(logTag, "- isAtLeastArmV84: $isAtLeastArmV84")
 
             // Check if the app is running in an emulated device
             // Note, this is not the OFFICIAL way to check if the app is running
             // on an emulator
             val isEmulated =
                 (Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu"))
-            Log.d(logTag, "isEmulated: $isEmulated")
+                logD(logTag, "isEmulated: $isEmulated")
 
             if (!isEmulated) {
                 if (supportsArm64V8a()) {
@@ -135,9 +199,61 @@ class SmolLM(
         }
 
         private fun supportsArm64V8a(): Boolean = Build.SUPPORTED_ABIS[0].equals("arm64-v8a")
+
+        
+
+        private val defaultNativeBridgeProvider: (SmolLM) -> NativeBridge = { instance ->
+            object : NativeBridge {
+                override fun loadModel(
+                    instance: SmolLM,
+                    modelPath: String,
+                    minP: Float,
+                    temperature: Float,
+                    storeChats: Boolean,
+                    contextSize: Long,
+                    chatTemplate: String,
+                    nThreads: Int,
+                    useMmap: Boolean,
+                    useMlock: Boolean,
+                    useVulkan: Boolean,
+                ): Long = instance.loadModel(modelPath, minP, temperature, storeChats, contextSize, chatTemplate, nThreads, useMmap, useMlock, useVulkan)
+
+                override fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int) = instance.setReasoningOptions(modelPtr, disableThinking, reasoningBudget)
+
+                override fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String) = instance.addChatMessage(modelPtr, message, role)
+
+                override fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float = instance.getResponseGenerationSpeed(modelPtr)
+                override fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long = instance.getResponseGeneratedTokenCount(modelPtr)
+                override fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long = instance.getResponseGenerationDurationMicros(modelPtr)
+                override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int = instance.getContextSizeUsed(modelPtr)
+                override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long = instance.getNativeModelPtr(modelPtr)
+                override fun nativeDecodePreparedEmbeddings(instance: SmolLM, modelPtr: Long, embdPath: String, metaPath: String, nBatch: Int): Boolean = instance.nativeDecodePreparedEmbeddings(modelPtr, embdPath, metaPath, nBatch)
+                override fun close(instance: SmolLM, modelPtr: Long) = instance.close(modelPtr)
+                override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) = instance.startCompletion(modelPtr, prompt)
+                override fun completionLoop(instance: SmolLM, modelPtr: Long): String = instance.completionLoop(modelPtr)
+                override fun stopCompletion(instance: SmolLM, modelPtr: Long) = instance.stopCompletion(modelPtr)
+            }
+        }
+
+        @Volatile private var nativeBridgeProvider: (SmolLM) -> NativeBridge = defaultNativeBridgeProvider
+
+        internal fun overrideNativeBridgeForTests(provider: (SmolLM) -> NativeBridge) {
+            nativeBridgeProvider = provider
+        }
+
+        internal fun resetNativeBridgeForTests() {
+            nativeBridgeProvider = defaultNativeBridgeProvider
+        }
+
+        internal fun createLoadedForTests(nativePtr: Long, useVulkan: Boolean = false): SmolLM {
+            val s = SmolLM(useVulkan)
+            s.nativePtr = nativePtr
+            return s
+        }
     }
 
     private var nativePtr = 0L
+    private val nativeBridge: NativeBridge = Companion.nativeBridgeProvider(this)
     private var useVulkanGPU = true
     private var currentThinkingMode = ThinkingMode.DEFAULT
     private var currentReasoningBudget = DEFAULT_REASONING_BUDGET
@@ -267,7 +383,7 @@ class SmolLM(
             ggufReader.close()
         }
         nativePtr =
-            loadModel(
+            nativeBridge.loadModel(this@SmolLM,
                 modelPath,
                 params.minP,
                 params.temperature,
@@ -337,7 +453,7 @@ class SmolLM(
      */
     fun addUserMessage(message: String) {
         verifyHandle()
-        addChatMessage(nativePtr, message, "user")
+        nativeBridge.addChatMessage(this, nativePtr, message, "user")
     }
 
     /**
@@ -345,7 +461,7 @@ class SmolLM(
      */
     fun addSystemPrompt(prompt: String) {
         verifyHandle()
-        addChatMessage(nativePtr, prompt, "system")
+        nativeBridge.addChatMessage(this, nativePtr, prompt, "system")
     }
 
     /**
@@ -355,7 +471,7 @@ class SmolLM(
      */
     fun addAssistantMessage(message: String) {
         verifyHandle()
-        addChatMessage(nativePtr, message, "assistant")
+        nativeBridge.addChatMessage(this, nativePtr, message, "assistant")
     }
 
     fun getThinkingMode(): ThinkingMode = currentThinkingMode
@@ -386,7 +502,7 @@ class SmolLM(
      */
     fun getResponseGenerationSpeed(): Float {
         verifyHandle()
-        return getResponseGenerationSpeed(nativePtr)
+        return nativeBridge.getResponseGenerationSpeed(this, nativePtr)
     }
 
     /**
@@ -395,13 +511,13 @@ class SmolLM(
      */
     fun getLastGenerationMetrics(): GenerationMetrics {
         verifyHandle()
-        val elapsedMicros = getResponseGenerationDurationMicros(nativePtr)
-        val tokenCount = getResponseGeneratedTokenCount(nativePtr)
+        val elapsedMicros = nativeBridge.getResponseGenerationDurationMicros(this, nativePtr)
+        val tokenCount = nativeBridge.getResponseGeneratedTokenCount(this, nativePtr)
         val tokensPerSecond =
             if (elapsedMicros <= 0L || tokenCount <= 0L) {
                 0f
             } else {
-                getResponseGenerationSpeed(nativePtr)
+                nativeBridge.getResponseGenerationSpeed(this, nativePtr)
             }
         return GenerationMetrics(
             tokensPerSecond = tokensPerSecond,
@@ -418,7 +534,7 @@ class SmolLM(
      */
     fun getContextLengthUsed(): Int {
         verifyHandle()
-        return getContextSizeUsed(nativePtr)
+        return nativeBridge.getContextSizeUsed(this, nativePtr)
     }
 
     /**
@@ -435,13 +551,13 @@ class SmolLM(
     fun getResponseAsFlow(query: String): Flow<String> =
         flow {
             verifyHandle()
-            startCompletion(nativePtr, query)
-            var piece = completionLoop(nativePtr)
+            nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
+            var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
             while (piece != "[EOG]") {
                 emit(piece)
-                piece = completionLoop(nativePtr)
+                piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
             }
-            stopCompletion(nativePtr)
+            nativeBridge.stopCompletion(this@SmolLM, nativePtr)
         }
 
     /**
@@ -454,14 +570,14 @@ class SmolLM(
      */
     fun getResponse(query: String): String {
         verifyHandle()
-        startCompletion(nativePtr, query)
-        var piece = completionLoop(nativePtr)
+        nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
+        var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
         var response = ""
         while (piece != "[EOG]") {
             response += piece
-            piece = completionLoop(nativePtr)
+            piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
         }
-        stopCompletion(nativePtr)
+        nativeBridge.stopCompletion(this, nativePtr)
         return response
     }
 
@@ -472,7 +588,7 @@ class SmolLM(
      */
     fun close() {
         if (nativePtr != 0L) {
-            close(nativePtr)
+            nativeBridge.close(this, nativePtr)
             nativePtr = 0L
         }
         currentThinkingMode = ThinkingMode.DEFAULT
@@ -526,7 +642,7 @@ class SmolLM(
      */
     fun getNativeModelPointer(): Long {
         verifyHandle()
-        return getNativeModelPtr(nativePtr)
+        return nativeBridge.getNativeModelPtr(this, nativePtr)
     }
 
     // Decode embeddings prepared by the projector (raw floats) without loading mmproj
@@ -541,7 +657,7 @@ class SmolLM(
     fun decodePreparedEmbeddings(embdPath: String, metaPath: String, nBatch: Int = 1): Boolean {
         verifyHandle()
         return try {
-            nativeDecodePreparedEmbeddings(nativePtr, embdPath, metaPath, nBatch)
+            nativeBridge.nativeDecodePreparedEmbeddings(this, nativePtr, embdPath, metaPath, nBatch)
         } catch (e: UnsatisfiedLinkError) {
             false
         }
@@ -563,7 +679,7 @@ class SmolLM(
         currentThinkingMode = effectiveMode
         currentReasoningBudget = budget
         if (nativePtr != 0L) {
-            setReasoningOptions(nativePtr, effectiveMode.disableReasoning || budget == 0, budget)
+            nativeBridge.setReasoningOptions(this, nativePtr, effectiveMode.disableReasoning || budget == 0, budget)
         }
     }
 

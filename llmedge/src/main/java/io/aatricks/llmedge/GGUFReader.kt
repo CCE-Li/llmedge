@@ -23,7 +23,19 @@ import java.io.Closeable
 class GGUFReader : Closeable {
     companion object {
         init {
-            System.loadLibrary("ggufreader")
+            val disableNativeLoad = java.lang.Boolean.getBoolean("llmedge.disableNativeLoad")
+            if (disableNativeLoad) {
+                // Running under unit tests — skip native library load
+                println("[GGUFReader] Native library load disabled via llmedge.disableNativeLoad")
+            } else {
+                try {
+                    System.loadLibrary("ggufreader")
+                } catch (e: UnsatisfiedLinkError) {
+                    println("[GGUFReader] Native library missing or failed to load: ${'$'}{e.message}")
+                } catch (t: Throwable) {
+                    println("[GGUFReader] Native library failed to load: ${'$'}{t.message}")
+                }
+            }
         }
     }
 

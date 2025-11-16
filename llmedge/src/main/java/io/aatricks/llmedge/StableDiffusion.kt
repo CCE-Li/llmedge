@@ -89,13 +89,19 @@ class StableDiffusion private constructor(
             isNativeLibraryAvailable = !disableNativeLoad
             if (disableNativeLoad) {
                 println("[StableDiffusion] Native load disabled via llmedge.disableNativeLoad=true")
+                isNativeLibraryAvailable = false
             } else {
                 try {
                     System.loadLibrary("sdcpp")
-                    check(nativeCheckBindings()) { "Failed to link StableDiffusion JNI bindings" }
-                } catch (e: UnsatisfiedLinkError) {
+                    if (!nativeCheckBindings()) {
+                        Log.e(LOG_TAG, "Failed to link StableDiffusion JNI bindings")
+                        isNativeLibraryAvailable = false
+                    } else {
+                        isNativeLibraryAvailable = true
+                    }
+                } catch (e: Throwable) {
                     Log.e(LOG_TAG, "Failed to load sdcpp native library", e)
-                    throw e
+                    isNativeLibraryAvailable = false
                 }
             }
         }
@@ -312,7 +318,8 @@ class StableDiffusion private constructor(
                 }
             }
 
-            val handle = nativeCreate(
+            val handle = try {
+                nativeCreate(
                 resolvedModelPath,
                 resolvedVaePath,
                 resolvedT5xxlPath,
@@ -320,7 +327,16 @@ class StableDiffusion private constructor(
                 offloadToCpu,
                 keepClipOnCpu,
                 keepVaeOnCpu,
-            )
+                )
+            } catch (oom: OutOfMemoryError) {
+                throw IllegalStateException(
+                    "Failed to initialize Stable Diffusion native context: OutOfMemoryError - " +
+                        "model too large for device. Consider using a smaller model or enabling offloadToCpu",
+                    oom,
+                )
+            } catch (t: Throwable) {
+                throw IllegalStateException("Failed to initialize Stable Diffusion native context: ${'$'}{t.message}", t)
+            }
             if (handle == 0L) throw IllegalStateException("Failed to initialize Stable Diffusion context")
             val instance = StableDiffusion(handle)
             instance.modelMetadata = metadata

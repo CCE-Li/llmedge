@@ -128,6 +128,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
     testImplementation("io.mockk:mockk:1.13.12")
+    testImplementation("io.ktor:ktor-client-mock:2.3.12")
     testImplementation("org.robolectric:robolectric:4.13")
 
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")

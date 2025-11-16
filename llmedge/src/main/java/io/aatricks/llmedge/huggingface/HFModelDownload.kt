@@ -68,12 +68,9 @@ internal class HFModelDownload(
             val inputStream = channel.toInputStream()
             withContext(Dispatchers.IO) {
                 inputStream.use { ins ->
-                    // If resuming, open in append mode
-                    tempFile.outputStream().use { outputStream ->
-                        // If resumeStart > 0, we are appending; else overwrite
-                        if (resumeStart > 0L) {
-                            outputStream.channel.position(resumeStart)
-                        }
+                        // If resuming, open in append mode. This avoids truncating existing data.
+                        val fileOutputStream = if (resumeStart > 0L) java.io.FileOutputStream(tempFile, true) else java.io.FileOutputStream(tempFile)
+                        fileOutputStream.use { outputStream ->
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                         while (true) {
                             val read = ins.read(buffer)
