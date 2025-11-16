@@ -21,7 +21,19 @@ import kotlinx.coroutines.withContext
 import java.io.Closeable
 
 class GGUFReader : Closeable {
+    interface NativeBridge {
+        fun getGGUFContextNativeHandle(modelPath: String): Long
+        fun getContextSize(nativeHandle: Long): Long
+        fun getChatTemplate(nativeHandle: Long): String
+        fun getArchitecture(nativeHandle: Long): String
+        fun getParameterCount(nativeHandle: Long): String
+        fun getModelName(nativeHandle: Long): String
+        fun releaseGGUFContext(nativeHandle: Long)
+    }
+
     companion object {
+        private var testBridgeProvider: ((GGUFReader) -> NativeBridge)? = null
+
         init {
             val disableNativeLoad = java.lang.Boolean.getBoolean("llmedge.disableNativeLoad")
             if (disableNativeLoad) {
@@ -37,21 +49,30 @@ class GGUFReader : Closeable {
                 }
             }
         }
+
+        internal fun overrideNativeBridgeForTests(provider: (GGUFReader) -> NativeBridge) {
+            testBridgeProvider = provider
+        }
+
+        internal fun resetNativeBridgeForTests() {
+            testBridgeProvider = null
+        }
     }
 
     private var nativeHandle: Long = 0L
+    private val nativeBridge: NativeBridge = testBridgeProvider?.invoke(this) ?: DefaultNativeBridge()
 
     suspend fun load(modelPath: String) =
         withContext(Dispatchers.IO) {
             if (nativeHandle != 0L) {
                 close()
             }
-            nativeHandle = getGGUFContextNativeHandle(modelPath)
+            nativeHandle = nativeBridge.getGGUFContextNativeHandle(modelPath)
         }
 
     fun getContextSize(): Long? {
         assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
-        val contextSize = getContextSize(nativeHandle)
+        val contextSize = nativeBridge.getContextSize(nativeHandle)
         return if (contextSize == -1L) {
             null
         } else {
@@ -61,7 +82,7 @@ class GGUFReader : Closeable {
 
     fun getChatTemplate(): String? {
         assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
-        val chatTemplate = getChatTemplate(nativeHandle)
+        val chatTemplate = nativeBridge.getChatTemplate(nativeHandle)
         return chatTemplate.ifEmpty {
             null
         }
@@ -72,7 +93,7 @@ class GGUFReader : Closeable {
      */
     fun getArchitecture(): String? {
         assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
-        val arch = getArchitecture(nativeHandle)
+        val arch = nativeBridge.getArchitecture(nativeHandle)
         return arch.ifEmpty { null }
     }
 
@@ -82,7 +103,7 @@ class GGUFReader : Closeable {
      */
     fun getParameterCount(): String? {
         assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
-        val params = getParameterCount(nativeHandle)
+        val params = nativeBridge.getParameterCount(nativeHandle)
         return params.ifEmpty { null }
     }
 
@@ -91,46 +112,24 @@ class GGUFReader : Closeable {
      */
     fun getModelName(): String? {
         assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
-        val name = getModelName(nativeHandle)
+        val name = nativeBridge.getModelName(nativeHandle)
         return name.ifEmpty { null }
     }
 
     override fun close() {
         if (nativeHandle != 0L) {
-            releaseGGUFContext(nativeHandle)
+            nativeBridge.releaseGGUFContext(nativeHandle)
             nativeHandle = 0L
         }
     }
 
-    /**
-     * Returns the native handle (pointer to gguf_context created on the native side)
-     */
-    private external fun getGGUFContextNativeHandle(modelPath: String): Long
-
-    /**
-     * Read the context size (in no. of tokens) from the GGUF file, given the native handle
-     */
-    private external fun getContextSize(nativeHandle: Long): Long
-
-    /**
-     * Read the chat template from the GGUF file, given the native handle
-     */
-    private external fun getChatTemplate(nativeHandle: Long): String
-
-    /**
-     * Read the architecture from GGUF metadata
-     */
-    private external fun getArchitecture(nativeHandle: Long): String
-
-    /**
-     * Read parameter count from GGUF metadata
-     */
-    private external fun getParameterCount(nativeHandle: Long): String
-
-    /**
-     * Read model name from GGUF metadata
-     */
-    private external fun getModelName(nativeHandle: Long): String
-
-    private external fun releaseGGUFContext(nativeHandle: Long)
+    private class DefaultNativeBridge : NativeBridge {
+        override external fun getGGUFContextNativeHandle(modelPath: String): Long
+        override external fun getContextSize(nativeHandle: Long): Long
+        override external fun getChatTemplate(nativeHandle: Long): String
+        override external fun getArchitecture(nativeHandle: Long): String
+        override external fun getParameterCount(nativeHandle: Long): String
+        override external fun getModelName(nativeHandle: Long): String
+        override external fun releaseGGUFContext(nativeHandle: Long)
+    }
 }
