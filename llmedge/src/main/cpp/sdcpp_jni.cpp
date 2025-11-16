@@ -22,6 +22,10 @@ inline int __android_log_print(int, const char*, const char* format, ...) {
 
 #include "stable-diffusion.h"
 #include "sd_jni_internal.h"
+#if defined(SD_USE_VULKAN)
+#include "ggml-vulkan.h"
+#endif
+#include "model.h"
 
 #define LOG_TAG "SmolSD"
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -110,6 +114,96 @@ SD_JNI_INTERNAL void sd_video_progress_wrapper(int step, int steps, float time, 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_io_aatricks_llmedge_StableDiffusion_nativeCheckBindings(JNIEnv*, jclass) {
     return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_io_aatricks_llmedge_StableDiffusion_nativeGetVulkanDeviceCount(JNIEnv* env, jclass clazz) {
+    (void)env;
+    (void)clazz;
+#ifdef SD_USE_VULKAN
+    return (jint)ggml_backend_vk_get_device_count();
+#else
+    return 0;
+#endif
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_io_aatricks_llmedge_StableDiffusion_nativeGetVulkanDeviceMemory(JNIEnv* env, jclass clazz, jint deviceIndex) {
+    (void)clazz;
+#ifdef SD_USE_VULKAN
+    size_t free_mem = 0, total_mem = 0;
+    ggml_backend_vk_get_device_memory((int)deviceIndex, &free_mem, &total_mem);
+    jlongArray arr = env->NewLongArray(2);
+    if (!arr) return nullptr;
+    jlong vals[2];
+    vals[0] = (jlong)free_mem;
+    vals[1] = (jlong)total_mem;
+    env->SetLongArrayRegion(arr, 0, 2, vals);
+    return arr;
+#else
+    jlongArray arr = env->NewLongArray(2);
+    if (!arr) return nullptr;
+    jlong vals[2] = {0, 0};
+    env->SetLongArrayRegion(arr, 0, 2, vals);
+    return arr;
+#endif
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_io_aatricks_llmedge_StableDiffusion_nativeEstimateModelParamsMemory(JNIEnv* env, jclass clazz, jstring jModelPath, jint deviceIndex) {
+    (void)clazz;
+    if (!jModelPath) return (jlong)-1;
+    const char* modelPath = env->GetStringUTFChars(jModelPath, nullptr);
+    if (!modelPath) return (jlong)-1;
+    ModelLoader model_loader;
+    bool ok = model_loader.init_from_file(modelPath);
+    if (!ok) {
+        env->ReleaseStringUTFChars(jModelPath, modelPath);
+        return (jlong)-1;
+    }
+    ggml_backend_t backend = nullptr;
+#ifdef SD_USE_VULKAN
+    if (deviceIndex >= 0 && ggml_backend_vk_get_device_count() > deviceIndex) {
+        backend = ggml_backend_vk_init(deviceIndex);
+    }
+#endif
+    int64_t params_mem = model_loader.get_params_mem_size(backend, GGML_TYPE_COUNT);
+    if (backend) ggml_backend_free(backend);
+    env->ReleaseStringUTFChars(jModelPath, modelPath);
+    return (jlong)params_mem;
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_io_aatricks_llmedge_StableDiffusion_nativeEstimateModelParamsMemoryDetailed(JNIEnv* env, jclass clazz, jstring jModelPath, jint deviceIndex) {
+    (void)clazz;
+    if (!jModelPath) return nullptr;
+    const char* modelPath = env->GetStringUTFChars(jModelPath, nullptr);
+    if (!modelPath) return nullptr;
+    ModelLoader model_loader;
+    bool ok = model_loader.init_from_file(modelPath);
+    if (!ok) {
+        env->ReleaseStringUTFChars(jModelPath, modelPath);
+        return nullptr;
+    }
+    ggml_backend_t backend = nullptr;
+#ifdef SD_USE_VULKAN
+    if (deviceIndex >= 0 && ggml_backend_vk_get_device_count() > deviceIndex) {
+        backend = ggml_backend_vk_init(deviceIndex);
+    }
+#endif
+    jlong clip = (jlong)model_loader.get_params_mem_size_prefix(backend, std::string("text_encoders."), GGML_TYPE_COUNT);
+    jlong diffusion = (jlong)model_loader.get_params_mem_size_prefix(backend, std::string("model.diffusion_model."), GGML_TYPE_COUNT);
+    jlong vae = (jlong)model_loader.get_params_mem_size_prefix(backend, std::string("vae."), GGML_TYPE_COUNT);
+    jlong control = (jlong)model_loader.get_params_mem_size_prefix(backend, std::string("control_model."), GGML_TYPE_COUNT);
+    jlong pmid = (jlong)model_loader.get_params_mem_size_prefix(backend, std::string("pmid."), GGML_TYPE_COUNT);
+    jlong total = (jlong)model_loader.get_params_mem_size(backend, GGML_TYPE_COUNT);
+    if (backend) ggml_backend_free(backend);
+    env->ReleaseStringUTFChars(jModelPath, modelPath);
+    jlong vals[6] = {clip, diffusion, vae, control, pmid, total};
+    jlongArray arr = env->NewLongArray(6);
+    if (!arr) return nullptr;
+    env->SetLongArrayRegion(arr, 0, 6, vals);
+    return arr;
 }
 
 static void sd_android_log_cb(enum sd_log_level_t level, const char* text, void* data) {

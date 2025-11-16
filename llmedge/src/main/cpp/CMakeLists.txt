@@ -53,6 +53,7 @@ set(SMOLLM_SOURCES
         ${LLAMA_DIR}/src/unicode-data.cpp
 
         # Model builders
+        ${LLAMA_DIR}/src/models/afmoe.cpp
         ${LLAMA_DIR}/src/models/apertus.cpp
         ${LLAMA_DIR}/src/models/arcee.cpp
         ${LLAMA_DIR}/src/models/arctic.cpp
