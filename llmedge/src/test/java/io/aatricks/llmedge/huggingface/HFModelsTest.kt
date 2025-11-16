@@ -53,11 +53,15 @@ class HFModelsTest {
         val download = HFModels.download()
 
         // All instances should be using the same shared client
-        val clientField = HFModelInfo::class.java.getDeclaredField("client").apply { isAccessible = true }
-        val infoClient = clientField.get(info)
-        val treeClient = clientField.get(tree)
-        val searchClient = clientField.get(search)
-        val downloadClient = clientField.get(download)
+        val infoClientField = HFModelInfo::class.java.getDeclaredField("client").apply { isAccessible = true }
+        val treeClientField = HFModelTree::class.java.getDeclaredField("client").apply { isAccessible = true }
+        val searchClientField = HFModelSearch::class.java.getDeclaredField("client").apply { isAccessible = true }
+        val downloadClientField = HFModelDownload::class.java.getDeclaredField("client").apply { isAccessible = true }
+
+        val infoClient = infoClientField.get(info)
+        val treeClient = treeClientField.get(tree)
+        val searchClient = searchClientField.get(search)
+        val downloadClient = downloadClientField.get(download)
 
         assertTrue("All instances should share the same HttpClient", infoClient === treeClient)
         assertTrue("All instances should share the same HttpClient", treeClient === searchClient)

@@ -1,31 +1,30 @@
 package io.aatricks.llmedge
 
 import android.graphics.Bitmap
-import io.mockk.every
-import io.mockk.mockk
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+// Avoid mocking Android framework classes (Bitmap). Use Robolectric real Bitmaps instead.
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.lang.reflect.Method
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class BitmapConversionTest {
 
     @Test
     fun `bitmapToRgbBytes converts ARGB_8888 bitmap correctly`() {
         val sd = newStableDiffusion()
-        val bitmap = mockk<Bitmap>()
-
-        every { bitmap.config } returns Bitmap.Config.ARGB_8888
-        every { bitmap.width } returns 2
-        every { bitmap.height } returns 2
-        every { bitmap.getPixels(any(), any(), any(), any(), any(), any(), any()) } answers {
-            val pixels = it.invocation.args[0] as IntArray
-            pixels[0] = 0xFFAABBCC.toInt() // A=FF, R=AA, G=BB, B=CC
-            pixels[1] = 0xFFDDEEFF.toInt() // A=FF, R=DD, G=EE, B=FF
-            pixels[2] = 0xFF112233.toInt() // A=FF, R=11, G=22, B=33
-            pixels[3] = 0xFF445566.toInt() // A=FF, R=44, G=55, B=66
-        }
+        // Create a real ARGB_8888 Bitmap using Robolectric
+        val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+        // Set pixels in row-major order (x, y)
+        bitmap.setPixel(0, 0, 0xFFAABBCC.toInt()) // pixel index 0
+        bitmap.setPixel(1, 0, 0xFFDDEEFF.toInt()) // pixel index 1
+        bitmap.setPixel(0, 1, 0xFF112233.toInt()) // pixel index 2
+        bitmap.setPixel(1, 1, 0xFF445566.toInt()) // pixel index 3
 
         val result = callPrivateMethod<Triple<ByteArray, Int, Int>>(
             sd,
@@ -53,18 +52,9 @@ class BitmapConversionTest {
     @Test
     fun `bitmapToRgbBytes copies bitmap if not ARGB_8888`() {
         val sd = newStableDiffusion()
-        val originalBitmap = mockk<Bitmap>()
-        val copiedBitmap = mockk<Bitmap>()
-
-        every { originalBitmap.config } returns Bitmap.Config.RGB_565
-        every { originalBitmap.copy(Bitmap.Config.ARGB_8888, false) } returns copiedBitmap
-        every { copiedBitmap.config } returns Bitmap.Config.ARGB_8888
-        every { copiedBitmap.width } returns 1
-        every { copiedBitmap.height } returns 1
-        every { copiedBitmap.getPixels(any(), any(), any(), any(), any(), any(), any()) } answers {
-            val pixels = it.invocation.args[0] as IntArray
-            pixels[0] = 0xFF123456.toInt()
-        }
+        val originalBitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.RGB_565)
+        // Fill the RGB_565 bitmap with a color that will be represented similarly
+        originalBitmap.setPixel(0, 0, 0xFF123456.toInt())
 
         val result = callPrivateMethod<Triple<ByteArray, Int, Int>>(
             sd,
@@ -101,11 +91,14 @@ class BitmapConversionTest {
         assertEquals(Bitmap.Config.ARGB_8888, result.config)
 
         val pixels = IntArray(4)
-        result.getPixels(pixels, 0, 2, 0, 0, 2, 1)
+        // Read the full bitmap by providing width=2 and height=2
+        result.getPixels(pixels, 0, 2, 0, 0, 2, 2)
 
-        // Check that pixels are created (exact values depend on implementation)
-        assertEquals(4, pixels.size)
-        assertTrue("Pixels should contain valid ARGB data", pixels.all { it >= 0 })
+        // Check that pixels map to the input RGB bytes
+        assertEquals(0xFF112233.toInt(), pixels[0])
+        assertEquals(0xFF445566.toInt(), pixels[1])
+        assertEquals(0xFF778899.toInt(), pixels[2])
+        assertEquals(0xFFAA1122.toInt(), pixels[3])
     }
 
     @Test

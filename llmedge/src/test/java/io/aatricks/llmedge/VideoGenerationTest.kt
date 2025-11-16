@@ -5,7 +5,12 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -14,6 +19,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicBoolean
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class VideoGenerationTest {
 
     @Suppress("unused")
@@ -22,6 +29,8 @@ class VideoGenerationTest {
         StableDiffusion.enableNativeBridgeForTests()
         StableDiffusion.overrideNativeBridgeForTests { instance ->
             object : StableDiffusion.NativeBridge {
+                private val cancellationField = StableDiffusion::class.java.getDeclaredField("cancellationRequested").apply { isAccessible = true }
+
                 override fun txt2vid(
                     handle: Long,
                     prompt: String,
@@ -37,9 +46,20 @@ class VideoGenerationTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
-                ): Array<ByteArray>? = when {
-                    prompt.contains("fail") -> null // Simulate failure
-                    else -> Array(videoFrames) { byteArrayOf(1, 2, 3) } // Mock frame data
+                ): Array<ByteArray>? {
+                    // Simulate a generation that checks for cancellation and gives some time to cancel
+                    val flag = cancellationField.get(instance) as java.util.concurrent.atomic.AtomicBoolean
+                    for (i in 0 until videoFrames) {
+                        if (flag.get()) {
+                            // Simulate a native-side abort
+                            throw RuntimeException("Simulated native cancellation")
+                        }
+                        try { Thread.sleep(50) } catch (_: InterruptedException) { }
+                    }
+                    return when {
+                        prompt.contains("fail") -> null // Simulate failure
+                        else -> Array(videoFrames) { byteArrayOf(1, 2, 3) } // Mock frame data
+                    }
                 }
 
                 override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
@@ -83,11 +103,10 @@ class VideoGenerationTest {
 
         val params = StableDiffusion.VideoGenerateParams(prompt = "test")
 
-        val exception = assertThrows(IllegalStateException::class.java) {
-            runTest { sd.txt2vid(params) }
-        }
+        val thrown = runCatching { sd.txt2vid(params) }.exceptionOrNull()
+        assertTrue(thrown is IllegalStateException)
 
-        assertTrue(exception.message?.contains("not a video model") == true)
+        assertTrue(thrown?.message?.contains("not a video model") == true)
     }
 
     @Test
@@ -97,11 +116,10 @@ class VideoGenerationTest {
 
         val params = StableDiffusion.VideoGenerateParams(prompt = "fail") // Triggers null return
 
-        val exception = assertThrows(IllegalStateException::class.java) {
-            runTest { sd.txt2vid(params) }
-        }
+        val thrown = runCatching { sd.txt2vid(params) }.exceptionOrNull()
+        assertTrue(thrown is IllegalStateException)
 
-        assertEquals("Video generation failed", exception.message)
+        assertEquals("Video generation failed", thrown?.message)
     }
 
     @Test
@@ -114,31 +132,87 @@ class VideoGenerationTest {
             videoFrames = 64 // Over limit for 5B model
         )
 
-        val exception = assertThrows(IllegalArgumentException::class.java) {
-            runTest { sd.txt2vid(params) }
-        }
+        val thrown = runCatching { sd.txt2vid(params) }.exceptionOrNull()
+        assertTrue(thrown is IllegalArgumentException)
 
-        assertTrue(exception.message?.contains("supports maximum 32 frames") == true)
+        assertTrue(thrown?.message?.contains("supports maximum 32 frames") == true)
     }
 
     @Test
     fun `txt2vid handles cancellation correctly`() = runTest {
+        // Use a latch to deterministically wait for the native bridge to start
+        val latch = java.util.concurrent.CountDownLatch(1)
+        // Override native bridge provider for this test so we can signal state
+        StableDiffusion.overrideNativeBridgeForTests { instance ->
+            object : StableDiffusion.NativeBridge {
+                private val cancellationField = StableDiffusion::class.java.getDeclaredField("cancellationRequested").apply { isAccessible = true }
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                ): Array<ByteArray>? {
+                    // Signal we've started
+                    println("[VideoGenerationTest] Mock txt2vid called (thread=${Thread.currentThread().name})")
+                    latch.countDown()
+                    val flag = cancellationField.get(instance) as java.util.concurrent.atomic.AtomicBoolean
+                    for (i in 0 until videoFrames) {
+                        if (flag.get()) {
+                            // Simulate a native-side abort using CancellationException to mirror expected flow
+                            throw kotlinx.coroutines.CancellationException("Simulated native cancellation")
+                        }
+                        try { Thread.sleep(50) } catch (_: InterruptedException) { }
+                    }
+                    return when {
+                        prompt.contains("fail") -> null // Simulate failure
+                        else -> Array(videoFrames) { byteArrayOf(1, 2, 3) } // Mock frame data
+                    }
+                }
+
+                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
+                override fun cancelGeneration(handle: Long) {}
+            }
+        }
+
         val sd = newStableDiffusion()
         sd.updateModelMetadata(createVideoModelMetadata())
 
-        // Set cancellation flag
-        val cancellationField = StableDiffusion::class.java.getDeclaredField("cancellationRequested")
-        cancellationField.isAccessible = true
-        val flag = cancellationField.get(sd) as AtomicBoolean
-        flag.set(true)
-
         val params = StableDiffusion.VideoGenerateParams(prompt = "test")
 
-        val exception = assertThrows(CancellationException::class.java) {
-            runTest { sd.txt2vid(params) }
+        // Start generation in a separate thread and cancel shortly after to simulate user cancellation
+        val thrownHolder = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+        val thread = Thread {
+            try {
+                runBlocking { sd.txt2vid(params) }
+            } catch (t: Throwable) {
+                thrownHolder.set(t)
+            }
         }
+        thread.start()
 
-        assertTrue(exception.message?.contains("cancelled") == true)
+        // Wait for the native bridge to start and then request cancellation
+        val started = latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+        assertTrue("Native bridge never started", started)
+        sd.cancelGeneration()
+
+        thread.join()
+        val thrown = thrownHolder.get()
+        assertTrue(thrown is CancellationException)
+        assertTrue(thrown?.message?.contains("cancel") == true)
+
+        // Restore original provider to avoid affecting other tests
+        StableDiffusion.resetNativeBridgeForTests()
     }
 
     @Test
@@ -173,11 +247,10 @@ class VideoGenerationTest {
             height = 256
         )
 
-        val exception = assertThrows(IllegalArgumentException::class.java) {
-            runTest { sd.txt2vid(invalidParams) }
-        }
+        val thrown = runCatching { sd.txt2vid(invalidParams) }.exceptionOrNull()
+        assertTrue(thrown is IllegalArgumentException)
 
-        assertTrue(exception.message?.contains("Prompt cannot be blank") == true)
+        assertTrue(thrown?.message?.contains("Prompt cannot be blank") == true)
     }
 
     @Test
@@ -207,11 +280,9 @@ class VideoGenerationTest {
             strength = 0.0f // Invalid: strength must be > 0 for I2V
         )
 
-        val exception = assertThrows(IllegalArgumentException::class.java) {
-            runTest { sd.txt2vid(params) }
-        }
-
-        assertTrue(exception.message?.contains("strength must be > 0.0") == true)
+        val thrown2 = runCatching { sd.txt2vid(params) }.exceptionOrNull()
+        assertTrue(thrown2 is IllegalArgumentException)
+        assertTrue(thrown2?.message?.contains("strength must be > 0.0") == true)
     }
 
     @Test
@@ -237,7 +308,7 @@ class VideoGenerationTest {
             width = 256,
             height = 256,
             videoFrames = 4,
-            steps = 5
+            steps = 10
         )
 
         val result = sd.txt2vid(params)

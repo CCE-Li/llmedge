@@ -129,11 +129,12 @@ class HFModelInfoTest {
         }
 
         val modelInfo = HFModelInfo(client)
-        val exception = assertThrows(IllegalArgumentException::class.java) {
-            runTest { modelInfo.getModelInfo("private-model") }
+        try {
+            modelInfo.getModelInfo("private-model")
+            assertEquals("Expected exception to be thrown", "but no exception was thrown")
+        } catch (e: IllegalArgumentException) {
+            assertEquals("Hugging Face model 'private-model' not found or unavailable", e.message)
         }
-
-        assertEquals("Hugging Face model 'private-model' not found or unavailable", exception.message)
     }
 
     @Test

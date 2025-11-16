@@ -82,6 +82,11 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
             // Simulate progress updates
             for (step in 1..steps) {
                 Thread.sleep(progressCallbackDelayMs)
+                // Respect cancellation during progress updates
+                if (isCancelled.get()) {
+                    isCancelled.set(false)
+                    return null
+                }
                 callback.onProgress(step, steps, 0, videoFrames, 1.0f)
             }
         }

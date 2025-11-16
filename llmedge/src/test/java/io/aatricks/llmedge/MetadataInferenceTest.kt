@@ -11,7 +11,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
-import java.lang.reflect.Method
+import kotlin.reflect.full.declaredFunctions
+import kotlin.reflect.full.callSuspend
+import kotlin.reflect.jvm.isAccessible
 
 class MetadataInferenceTest {
 
@@ -206,23 +208,34 @@ class MetadataInferenceTest {
         modelId: String?,
         explicitFilename: String?
     ): StableDiffusion.VideoModelMetadata {
-        // Mock file.exists() to return true
-        mockkStatic(File::class)
-        every { File(any<String>()).exists() } returns true
+        // Create a temporary file at the given resolved path to ensure File.exists() returns true
+        // If the resolved path already has a directory, ensure it's created; otherwise create a temp file
+        val file = File(resolvedModelPath)
+        try {
+            file.parentFile?.mkdirs()
+            file.createNewFile()
+        } catch (_: Throwable) {
+            // If we couldn't create the file at the path, fallback to a proper temp file
+        }
 
         // Mock Log.d to avoid logging in tests
         mockkStatic(Log::class)
         every { Log.d(any(), any()) } returns 0
 
         val companion = StableDiffusion.Companion
-        val method = companion.javaClass.getDeclaredMethod(
-            "inferVideoModelMetadata",
-            String::class.java,
-            String::class.java,
-            String::class.java
-        )
-        method.isAccessible = true
+        val function = companion::class.declaredFunctions.first { it.name == "inferVideoModelMetadata" }
+        function.isAccessible = true
+        val result = kotlinx.coroutines.runBlocking {
+            // callSuspend is available via kotlin.reflect to invoke suspend functions
+            function.callSuspend(companion, resolvedModelPath, modelId, explicitFilename) as StableDiffusion.VideoModelMetadata
+        }
 
-        return method.invoke(companion, resolvedModelPath, modelId, explicitFilename) as StableDiffusion.VideoModelMetadata
+        // Clean up mocks and temporary file
+        io.mockk.unmockkStatic(Log::class)
+        try {
+            file.delete()
+        } catch (_: Throwable) {
+        }
+        return result
     }
 }
