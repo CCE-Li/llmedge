@@ -30,6 +30,26 @@ set(SMOLLM_SOURCES
         ${LLAMA_DIR}/src/llama.cpp
         ${LLAMA_DIR}/src/llama-vocab.cpp
         ${LLAMA_DIR}/src/llama-grammar.cpp
+        ${LLAMA_DIR}/src/llama-sampling.cpp
+        ${LLAMA_DIR}/src/llama-context.cpp
+        ${LLAMA_DIR}/src/llama-model.cpp
+        ${LLAMA_DIR}/src/llama-model-loader.cpp
+        ${LLAMA_DIR}/src/llama-impl.cpp
+        ${LLAMA_DIR}/src/llama-memory.cpp
+        ${LLAMA_DIR}/src/llama-memory-recurrent.cpp
+        ${LLAMA_DIR}/src/llama-memory-hybrid.cpp
+        ${LLAMA_DIR}/src/llama-mmap.cpp
+        ${LLAMA_DIR}/src/llama-hparams.cpp
+        ${LLAMA_DIR}/src/llama-kv-cache-iswa.cpp
+        ${LLAMA_DIR}/src/llama-kv-cache.cpp
+        ${LLAMA_DIR}/src/llama-batch.cpp
+        ${LLAMA_DIR}/src/llama-arch.cpp
+        ${LLAMA_DIR}/src/llama-adapter.cpp
+        ${LLAMA_DIR}/src/llama-chat.cpp
+        ${LLAMA_DIR}/src/llama-graph.cpp
+        ${LLAMA_DIR}/src/unicode.h
+        ${LLAMA_DIR}/src/unicode.cpp
+        ${LLAMA_DIR}/src/unicode-data.cpp
         # Model builders - if llama.cpp is using per-model files, include them
         # otherwise rely on llama-model.cpp which contains model builders in newer
         # versions of llama.cpp
