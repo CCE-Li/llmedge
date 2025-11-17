@@ -108,7 +108,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
                 videoFrames = 8,
                 width = 256,
                 height = 256,
-                steps = 5
+                steps = 10
             )
             val frames = sd.txt2vid(params)
             assertEquals("Should generate 8 frames", 8, frames.size)
@@ -246,7 +246,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
         val params2 = StableDiffusion.VideoGenerateParams(
             prompt = "new test",
             videoFrames = 8,
-            steps = 5
+            steps = 10
         )
         val frames = sd2.txt2vid(params2)
         assertEquals("Generation should succeed after model reload", 8, frames.size)

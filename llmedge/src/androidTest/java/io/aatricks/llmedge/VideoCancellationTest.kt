@@ -21,6 +21,17 @@ class VideoCancellationTest : BaseVideoIntegrationTest() {
                 @Volatile
                 private var cancelled = false
 
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                ): ByteArray? = null
+
                 override fun txt2vid(
                     handle: Long,
                     prompt: String,
@@ -36,7 +47,7 @@ class VideoCancellationTest : BaseVideoIntegrationTest() {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
-                ): Array<ByteArray> {
+                ): Array<ByteArray>? {
                     while (!cancelled) {
                         Thread.sleep(10)
                     }

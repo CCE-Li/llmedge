@@ -75,6 +75,15 @@ android {
             unitTests.all {
                 it.systemProperty("llmedge.disableNativeLoad", "true")
             }
+            managedDevices {
+                devices {
+                    maybeCreate<com.android.build.api.dsl.ManagedVirtualDevice>("pixel6api33").apply {
+                        device = "Pixel 6"
+                        apiLevel = 33
+                        systemImageSource = "aosp-atd"
+                    }
+                }
+            }
         }
     packaging {
         resources {

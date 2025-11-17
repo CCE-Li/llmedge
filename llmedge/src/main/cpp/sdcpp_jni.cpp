@@ -154,7 +154,10 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     sd_ctx_params_init(&p);
     p.model_path = modelPath ? modelPath : "";
     p.vae_path = vaePath ? vaePath : "";
-    p.t5xxl_path = t5xxlPath ? t5xxlPath : "";
+    // Pass through nullptr when no T5XXL path is provided. Some pipelines
+    // distinguish between null and empty string; using nullptr ensures the
+    // text encoder is selected correctly for SD 1.x models.
+    p.t5xxl_path = t5xxlPath; // keep null if not provided
     p.free_params_immediately = true;
     p.n_threads = nThreads > 0 ? nThreads : get_num_physical_cores();
     p.offload_params_to_cpu = offloadToCpu;

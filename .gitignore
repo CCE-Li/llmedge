@@ -47,6 +47,7 @@ ktlint.bat
 # Kotlin / Android extras
 out/
 .env*
+backups/
 
 # Native/C++ artifacts
 bin/

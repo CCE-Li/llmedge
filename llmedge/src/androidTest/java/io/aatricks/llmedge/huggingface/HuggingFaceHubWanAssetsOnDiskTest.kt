@@ -10,16 +10,18 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class HuggingFaceHubWanAssetsOnDiskTest {
     @Test
-    fun ensureWanAssetsOnDiskUnknownModelThrows() = runBlocking {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val context = instrumentation.targetContext
-        assertThrows(IllegalArgumentException::class.java) {
-            runBlocking {
-                HuggingFaceHub.ensureWanAssetsOnDisk(
-                    context = context,
-                    wanModelId = "wan/this-does-not-exist",
-                    preferSystemDownloader = false,
-                )
+    fun ensureWanAssetsOnDiskUnknownModelThrows() {
+        runBlocking {
+            val instrumentation = InstrumentationRegistry.getInstrumentation()
+            val context = instrumentation.targetContext
+            assertThrows(IllegalArgumentException::class.java) {
+                runBlocking {
+                    HuggingFaceHub.ensureWanAssetsOnDisk(
+                        context = context,
+                        wanModelId = "wan/this-does-not-exist",
+                        preferSystemDownloader = false,
+                    )
+                }
             }
         }
     }

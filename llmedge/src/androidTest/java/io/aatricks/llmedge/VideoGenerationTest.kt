@@ -16,6 +16,16 @@ class VideoGenerationTest : BaseVideoIntegrationTest() {
         val frames = buildFrames(frameCount = 4, width = 256, height = 256)
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
                     prompt: String,
@@ -31,7 +41,7 @@ class VideoGenerationTest : BaseVideoIntegrationTest() {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
-                ): Array<ByteArray> = frames.map { it.copyOf() }.toTypedArray()
+                ): Array<ByteArray>? = frames.map { it.copyOf() }.toTypedArray()
 
                 override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
 

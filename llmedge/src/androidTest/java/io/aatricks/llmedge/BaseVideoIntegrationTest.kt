@@ -16,6 +16,66 @@ abstract class BaseVideoIntegrationTest {
     @Before
     fun baseSetUp() {
         StableDiffusion.enableNativeBridgeForTests()
+        // Provide a default stubbed native bridge for all video tests.
+        // Individual tests can override this with their own behavior.
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                private var cb: StableDiffusion.VideoProgressCallback? = null
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                ): ByteArray? {
+                    // Simple black image stub
+                    return ByteArray((width * height * 3).coerceAtLeast(0)) { 0 }
+                }
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                ): Array<ByteArray>? {
+                    // Deterministic grayscale frames
+                    val frames = Array(videoFrames.coerceAtLeast(0)) { index ->
+                        val bytes = ByteArray((width * height * 3).coerceAtLeast(0))
+                        var i = 0
+                        val v = (index * 0x10) and 0xFF
+                        val b = v.toByte()
+                        while (i < bytes.size) {
+                            bytes[i++] = b
+                            bytes[i++] = b
+                            bytes[i++] = b
+                        }
+                        bytes
+                    }
+                    // Emit basic progress per frame
+                    for (i in 0 until videoFrames) {
+                        cb?.onProgress(i + 1, steps, i + 1, videoFrames, 0.01f)
+                    }
+                    return frames
+                }
+                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {
+                    cb = callback
+                }
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
     }
 
     @After

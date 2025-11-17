@@ -35,6 +35,7 @@ class StableDiffusion private constructor(
         private const val MIN_FRAME_BATCH = 4
         private const val MAX_FRAME_BATCH = 8
         @Volatile private var isNativeLibraryAvailable: Boolean
+        @Volatile private var isJniLinked: Boolean = false
         
         // T098: Model metadata cache to avoid re-parsing GGUF headers
         private val metadataCache = mutableMapOf<String, VideoModelMetadata>()
@@ -73,6 +74,26 @@ class StableDiffusion private constructor(
                      initHeight,
                  )
 
+                 override fun txt2img(
+                     handle: Long,
+                     prompt: String,
+                     negative: String,
+                     width: Int,
+                     height: Int,
+                     steps: Int,
+                     cfg: Float,
+                     seed: Long,
+                 ): ByteArray? = instance.nativeTxt2Img(
+                     handle,
+                     prompt,
+                     negative,
+                     width,
+                     height,
+                     steps,
+                     cfg,
+                     seed,
+                 )
+
                  override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {
                      instance.nativeSetProgressCallback(handle, callback)
                  }
@@ -93,6 +114,7 @@ class StableDiffusion private constructor(
                 try {
                     System.loadLibrary("sdcpp")
                     check(nativeCheckBindings()) { "Failed to link StableDiffusion JNI bindings" }
+                    isJniLinked = true
                 } catch (e: UnsatisfiedLinkError) {
                     Log.e(LOG_TAG, "Failed to load sdcpp native library", e)
                     throw e
@@ -112,6 +134,16 @@ class StableDiffusion private constructor(
 
         internal fun resetNativeBridgeForTests() {
             nativeBridgeProvider = defaultNativeBridgeProvider
+        }
+
+        private fun isLikelyVaeFilename(name: String): Boolean {
+            val n = name.lowercase(Locale.US)
+            // Common VAE indicators in community repos
+            val vaeHints = listOf("vae", "baked_vae", "baked vae", "vae-ft", "vae-ft-mse", "taesd")
+            if (n.endsWith(".safetensors") || n.endsWith(".pt") || n.endsWith(".ckpt")) {
+                if (vaeHints.any { n.contains(it) }) return true
+            }
+            return false
         }
 
         @JvmStatic
@@ -269,11 +301,15 @@ class StableDiffusion private constructor(
                     resolvedT5xxlPath = t5xxlPath
                 } catch (iae: IllegalArgumentException) {
                     iae.printStackTrace()
+                    // If the provided filename looks like a VAE file, do NOT use it to resolve the model path.
+                    // Some example code passes the VAE filename via `filename` while also supplying `vaePath`.
+                    // In that case we should pick the best candidate model file from the repo instead of the VAE.
+                    val filenameForModel = filename?.takeIf { !isLikelyVaeFilename(it) }
                     val alt = HuggingFaceHub.ensureRepoFileOnDisk(
                         context = context,
                         modelId = modelId,
                         revision = "main",
-                        filename = filename,
+                        filename = filenameForModel,
                         allowedExtensions = listOf(".gguf", ".safetensors", ".ckpt", ".pt", ".bin"),
                         token = token,
                         forceDownload = forceDownload,
@@ -493,6 +529,17 @@ class StableDiffusion private constructor(
     )
 
     internal interface NativeBridge {
+        fun txt2img(
+            handle: Long,
+            prompt: String,
+            negative: String,
+            width: Int,
+            height: Int,
+            steps: Int,
+            cfg: Float,
+            seed: Long,
+        ): ByteArray?
+
         fun txt2vid(
             handle: Long,
             prompt: String,
@@ -644,7 +691,7 @@ class StableDiffusion private constructor(
 
     suspend fun txt2img(params: GenerateParams): Bitmap = withContext(Dispatchers.Default) {
         val bytes = generationMutex.withLock {
-            nativeTxt2Img(
+            nativeBridge.txt2img(
                 handle,
                 params.prompt,
                 params.negative,
@@ -677,7 +724,14 @@ class StableDiffusion private constructor(
         if (cancellationRequested.get()) {
             cancellationRequested.set(false)
         }
-        nativeDestroy(handle)
+        // In test environments where native loading is disabled, skip JNI calls entirely
+        if (java.lang.Boolean.getBoolean("llmedge.disableNativeLoad")) {
+            modelMetadata = null
+            return
+        }
+        if (isJniLinked) {
+            nativeDestroy(handle)
+        }
         modelMetadata = null
     }
     

@@ -28,6 +28,7 @@ nav:
   - Architecture: architecture.md
   - Quirks & Troubleshooting: quirks.md
   - FAQ: faq.md
+  - Testing : testing.md
   - Contributing: contributing.md
 
 plugins:

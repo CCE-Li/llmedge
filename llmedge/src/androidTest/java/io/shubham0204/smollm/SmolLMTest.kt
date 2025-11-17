@@ -96,8 +96,8 @@ class SmolLMTest {
                 reader.close()
             }
 
-            // Avoid loading and running heavy native inference on emulators / unsupported ABIs
-            if (!isEmulator() && isSupportedAbi()) {
+            // Allow running inference on supported ABIs (including ARM-based emulators)
+            if (isSupportedAbi()) {
                 inferenceReady = runCatching {
                     smolLM.load(
                         modelFile.absolutePath,

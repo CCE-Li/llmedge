@@ -17,6 +17,17 @@ class VideoProgressCallbackTest : BaseVideoIntegrationTest() {
             object : StableDiffusion.NativeBridge {
                 private var callback: StableDiffusion.VideoProgressCallback? = null
 
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                ): ByteArray? = null
+
                 override fun txt2vid(
                     handle: Long,
                     prompt: String,
@@ -32,7 +43,7 @@ class VideoProgressCallbackTest : BaseVideoIntegrationTest() {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
-                ): Array<ByteArray> {
+                ): Array<ByteArray>? {
                     repeat(videoFrames) { index ->
                         callback?.onProgress(
                             step = index + 1,

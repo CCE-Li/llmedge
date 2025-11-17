@@ -46,6 +46,16 @@ class StableDiffusionTxt2VidTest {
         val progressRegistrations = mutableListOf<StableDiffusion.VideoProgressCallback?>()
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
                     prompt: String,
@@ -151,6 +161,16 @@ class StableDiffusionTxt2VidTest {
         var capturedBytes: ByteArray? = null
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
                     prompt: String,
@@ -209,6 +229,16 @@ class StableDiffusionTxt2VidTest {
     fun txt2vidThrowsWhenNativeReturnsNoFrames() = runTest {
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
                     prompt: String,
@@ -249,6 +279,16 @@ class StableDiffusionTxt2VidTest {
     fun txt2vidPropagatesCancellationWhenFlagged() = runTest {
         StableDiffusion.overrideNativeBridgeForTests { instance ->
             object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
                     prompt: String,
@@ -294,6 +334,16 @@ class StableDiffusionTxt2VidTest {
         val setProgressInvocations = mutableListOf<StableDiffusion.VideoProgressCallback?>()
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
                     prompt: String,

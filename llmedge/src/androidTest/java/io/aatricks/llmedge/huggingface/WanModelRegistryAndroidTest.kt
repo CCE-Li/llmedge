@@ -15,8 +15,9 @@ class WanModelRegistryAndroidTest {
         val context = instrumentation.targetContext
         val entry = WanModelRegistry.findById(context, "wan/Wan2.1-T2V-1.3B")
         assertNotNull("Registry should contain Wan2.1-T2V-1.3B", entry)
-        assertEquals("Wan2.1-T2V-1.3B", entry?.modelId)
-        assertEquals("Wan2.1-T2V-1.3B-Q3_K_S.gguf", entry?.filename)
+        assertEquals("wan/Wan2.1-T2V-1.3B", entry?.modelId)
+        // The registry contains multiple entries for the same modelId; first entry is Q4_K_M
+        assertEquals("Wan2.1-T2V-1.3B-Q4_K_M.gguf", entry?.filename)
         assertEquals("city96/umt5-xxl-encoder-gguf", entry?.t5ModelId)
     }
 }

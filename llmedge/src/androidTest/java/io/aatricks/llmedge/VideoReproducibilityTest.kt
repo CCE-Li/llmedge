@@ -24,6 +24,16 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
      */
     private fun createDeterministicStub(seed: Long): StableDiffusion.NativeBridge {
         return object : StableDiffusion.NativeBridge {
+            override fun txt2img(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+            ): ByteArray? = null
             override fun txt2vid(
                 handle: Long,
                 prompt: String,
@@ -39,7 +49,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                 initImage: ByteArray?,
                 initWidth: Int,
                 initHeight: Int,
-            ): Array<ByteArray> {
+            ): Array<ByteArray>? {
                 // Generate deterministic frames based on seed
                 return Array(videoFrames) { frameIndex ->
                     val bytes = ByteArray(width * height * 3)
@@ -65,6 +75,16 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
      */
     private fun createRandomStub(): StableDiffusion.NativeBridge {
         return object : StableDiffusion.NativeBridge {
+            override fun txt2img(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+            ): ByteArray? = null
             override fun txt2vid(
                 handle: Long,
                 prompt: String,
@@ -80,7 +100,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                 initImage: ByteArray?,
                 initWidth: Int,
                 initHeight: Int,
-            ): Array<ByteArray> {
+            ): Array<ByteArray>? {
                 // Generate random frames (ignoring seed parameter to simulate randomness)
                 val actualSeed = System.nanoTime()
                 return Array(videoFrames) { frameIndex ->

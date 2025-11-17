@@ -41,6 +41,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 5. [Technologies](#technologies)  
 6. [Memory Metrics](#memory-metrics)  
 7. [Notes](#notes)
+8. [Testing](#testing)
 
 ---
 
@@ -633,3 +634,7 @@ The library includes consumer ProGuard rules. If you need to add custom rules:
 
 This project builds upon work by [Shubham Panchal](https://github.com/shubham0204) and [ggerganov](https://github.com/ggerganov).
 See [CREDITS.md](CREDITS.md) for full details.
+
+## Testing
+
+Looking to run unit and instrumentation tests locally, including optional native txt2img E2E checks? See the step-by-step guide in [docs/testing.md](docs/testing.md).
