@@ -422,7 +422,9 @@ object HuggingFaceHub {
         filename: String?,
         preferredQuantizations: List<String>,
     ): HFModelTree.HFModelFile? {
-        val candidates = files.filter { it.type == "file" && it.path.endsWith(".gguf", ignoreCase = true) }
+        // NOTE: The model specs endpoint (siblings list) does not populate a 'type' field.
+        // Treat null type as a file entry.
+        val candidates = files.filter { (it.type == "file" || it.type == null) && it.path.endsWith(".gguf", ignoreCase = true) }
         if (candidates.isEmpty()) {
             return null
         }
