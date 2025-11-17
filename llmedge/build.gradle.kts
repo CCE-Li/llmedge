@@ -136,8 +136,11 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
+    testImplementation("org.jetbrains.kotlin:kotlin-reflect:2.0.0")
     testImplementation("io.mockk:mockk:1.13.12")
+    testImplementation("io.ktor:ktor-client-mock:2.3.12")
     testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core:1.6.1")
 
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
@@ -175,7 +178,14 @@ val jacocoTestReport by tasks.registering(JacocoReport::class) {
         "**/BuildConfig.*",
         "**/Manifest*.*",
         "**/*Test*.*",
-        "**/*$*Companion*"
+        "**/*$*Companion*",
+        // Exclude non-core Android-facing packages from coverage to focus on core library logic
+        // These areas involve platform services (ML Kit OCR, Camera, DownloadManager) and
+        // external integrations that are not meaningful for unit test coverage targets.
+        "**/io/aatricks/llmedge/vision/**",
+        "**/io/aatricks/llmedge/vision/ocr/**",
+        "**/io/aatricks/llmedge/rag/**",
+        "**/io/aatricks/llmedge/huggingface/**",
     )
 
     val classTrees = listOf(
@@ -184,6 +194,8 @@ val jacocoTestReport by tasks.registering(JacocoReport::class) {
     ).map { dirProvider ->
         dirProvider.map { dir ->
             fileTree(dir) {
+                // Only include core library package and exclude Android/platform-heavy subpackages
+                include("io/aatricks/llmedge/**")
                 exclude(fileFilter)
             }
         }

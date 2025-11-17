@@ -99,7 +99,7 @@ internal class HFModelSearch(
             nextPageUrl = null
             return
         }
-        val regex = """<(https?:\\/\/[^>]+)>;\\s+rel=\"([^\"]+)\""".toRegex()
+            val regex = """<([^>]+)>;\s*rel=\"([^\"]+)\"""".toRegex()
         val links = regex.findAll(linkHeader).associate { match ->
             val (url, rel) = match.destructured
             rel to url

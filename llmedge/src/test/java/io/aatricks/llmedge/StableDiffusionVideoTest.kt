@@ -1,7 +1,7 @@
 package io.aatricks.llmedge
 
 import android.content.Context
-import io.mockk.mockk
+import io.mockk.*
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -13,6 +13,40 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Suppress("unused")
 private val disableNativeLoadForTests = run {
     System.setProperty("llmedge.disableNativeLoad", "true")
+    StableDiffusion.enableNativeBridgeForTests()
+    StableDiffusion.overrideNativeBridgeForTests { instance ->
+        object : StableDiffusion.NativeBridge {
+            override fun txt2img(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+            ): ByteArray? = null
+            override fun txt2vid(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                videoFrames: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                scheduler: StableDiffusion.Scheduler,
+                strength: Float,
+                initImage: ByteArray?,
+                initWidth: Int,
+                initHeight: Int,
+            ): Array<ByteArray>? = arrayOf(byteArrayOf(1, 2, 3))
+
+            override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
+            override fun cancelGeneration(handle: Long) {}
+        }
+    }
     true
 }
 
@@ -103,7 +137,7 @@ class StableDiffusionVideoTest {
 
         val error = result.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
-        assertTrue(error?.message?.contains("modelPath") == true)
+        assertTrue(error?.message?.contains("modelPath or modelId") == true)
     }
 
     @Test

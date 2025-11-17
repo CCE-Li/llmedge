@@ -21,6 +21,7 @@ object WanModelRegistry {
     private val json = Json { ignoreUnknownKeys = true }
 
     fun loadFromAssets(context: Context): List<WanModelEntry> {
+        // Asset name for model registry
         val assetName = "wan-models/model-registry.json"
         val input: InputStream = context.assets.open(assetName)
         val text = input.bufferedReader().use { it.readText() }
