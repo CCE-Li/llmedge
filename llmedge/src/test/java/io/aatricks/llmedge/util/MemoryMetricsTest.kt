@@ -1,11 +1,16 @@
 package io.aatricks.llmedge.util
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class MemoryMetricsTest {
 
@@ -36,4 +41,16 @@ class MemoryMetricsTest {
     }
 
 
+    @Test
+    fun `snapshot and toPretty produce sane output`() {
+        val context: Context = ApplicationProvider.getApplicationContext()
+        val snap = MemoryMetrics.snapshot(context)
+        // Basic invariants: total >= avail; PSS non-negative
+        assertTrue(snap.totalSystemMemBytes >= snap.availSystemMemBytes)
+        assertTrue(snap.totalPssKb >= 0)
+        assertTrue(snap.nativePssKb >= 0)
+        val pretty = snap.toPretty(context)
+        assertTrue(pretty.contains("System memory"))
+        assertTrue(pretty.contains("App PSS"))
+    }
 }

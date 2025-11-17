@@ -9,6 +9,16 @@ import java.util.concurrent.atomic.AtomicReference
  * Allows different test scenarios to be simulated.
  */
 class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
+    override fun txt2img(
+        handle: Long,
+        prompt: String,
+        negative: String,
+        width: Int,
+        height: Int,
+        steps: Int,
+        cfg: Float,
+        seed: Long,
+    ): ByteArray? = null
 
     // Configuration options
     var shouldFailTxt2Vid = false

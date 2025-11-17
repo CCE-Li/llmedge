@@ -41,6 +41,25 @@ class StableDiffusion private constructor(
         
         private val defaultNativeBridgeProvider: (StableDiffusion) -> NativeBridge = { instance ->
             object : NativeBridge {
+                 override fun txt2img(
+                     handle: Long,
+                     prompt: String,
+                     negative: String,
+                     width: Int,
+                     height: Int,
+                     steps: Int,
+                     cfg: Float,
+                     seed: Long,
+                 ): ByteArray? = instance.nativeTxt2Img(
+                     handle,
+                     prompt,
+                     negative,
+                     width,
+                     height,
+                     steps,
+                     cfg,
+                     seed,
+                 )
                  override fun txt2vid(
                      handle: Long,
                      prompt: String,
@@ -546,6 +565,16 @@ class StableDiffusion private constructor(
     )
 
     internal interface NativeBridge {
+        fun txt2img(
+            handle: Long,
+            prompt: String,
+            negative: String,
+            width: Int,
+            height: Int,
+            steps: Int,
+            cfg: Float,
+            seed: Long,
+        ): ByteArray?
         fun txt2vid(
             handle: Long,
             prompt: String,
@@ -697,7 +726,7 @@ class StableDiffusion private constructor(
 
     suspend fun txt2img(params: GenerateParams): Bitmap = withContext(Dispatchers.Default) {
         val bytes = generationMutex.withLock {
-            nativeTxt2Img(
+            nativeBridge.txt2img(
                 handle,
                 params.prompt,
                 params.negative,

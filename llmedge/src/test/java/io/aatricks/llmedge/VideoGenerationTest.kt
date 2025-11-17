@@ -28,6 +28,16 @@ class VideoGenerationTest {
         StableDiffusion.overrideNativeBridgeForTests { instance ->
             object : StableDiffusion.NativeBridge {
                 private val cancellationField = StableDiffusion::class.java.getDeclaredField("cancellationRequested").apply { isAccessible = true }
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                ): ByteArray? = null
 
                 override fun txt2vid(
                     handle: Long,
@@ -144,6 +154,16 @@ class VideoGenerationTest {
         StableDiffusion.overrideNativeBridgeForTests { instance ->
             object : StableDiffusion.NativeBridge {
                 private val cancellationField = StableDiffusion::class.java.getDeclaredField("cancellationRequested").apply { isAccessible = true }
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                ): ByteArray? = null
 
                 override fun txt2vid(
                     handle: Long,

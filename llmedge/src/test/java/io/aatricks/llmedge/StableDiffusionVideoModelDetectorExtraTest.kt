@@ -9,6 +9,16 @@ private val disableNativeLoadForTests = run {
     StableDiffusion.enableNativeBridgeForTests()
     StableDiffusion.overrideNativeBridgeForTests { instance ->
         object : StableDiffusion.NativeBridge {
+            override fun txt2img(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+            ): ByteArray? = null
             override fun txt2vid(
                 handle: Long,
                 prompt: String,
