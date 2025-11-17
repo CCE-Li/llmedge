@@ -191,11 +191,14 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeEstimateModelParamsMemoryDetailed
         backend = ggml_backend_vk_init(deviceIndex);
     }
 #endif
-    jlong clip = (jlong)model_loader.get_params_mem_size_prefix(backend, std::string("text_encoders."), GGML_TYPE_COUNT);
-    jlong diffusion = (jlong)model_loader.get_params_mem_size_prefix(backend, std::string("model.diffusion_model."), GGML_TYPE_COUNT);
-    jlong vae = (jlong)model_loader.get_params_mem_size_prefix(backend, std::string("vae."), GGML_TYPE_COUNT);
-    jlong control = (jlong)model_loader.get_params_mem_size_prefix(backend, std::string("control_model."), GGML_TYPE_COUNT);
-    jlong pmid = (jlong)model_loader.get_params_mem_size_prefix(backend, std::string("pmid."), GGML_TYPE_COUNT);
+    // Detailed per-prefix parameter memory estimation API was removed upstream.
+    // As a best-effort fallback, return zeros for subcomponents and provide the total.
+    // Callers currently only rely on the total to make offload decisions.
+    jlong clip = (jlong)0;
+    jlong diffusion = (jlong)0;
+    jlong vae = (jlong)0;
+    jlong control = (jlong)0;
+    jlong pmid = (jlong)0;
     jlong total = (jlong)model_loader.get_params_mem_size(backend, GGML_TYPE_COUNT);
     if (backend) ggml_backend_free(backend);
     env->ReleaseStringUTFChars(jModelPath, modelPath);
