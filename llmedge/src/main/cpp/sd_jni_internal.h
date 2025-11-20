@@ -7,6 +7,7 @@ struct sd_ctx_t;
 
 struct SdHandle {
     sd_ctx_t* ctx = nullptr;
+    void* t5_ctx = nullptr; // Pointer to T5CLIPEmbedder for T5-only mode
     int last_width = 0;
     int last_height = 0;
     JavaVM* jvm = nullptr;

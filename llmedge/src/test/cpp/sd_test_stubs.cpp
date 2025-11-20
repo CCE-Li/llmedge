@@ -142,3 +142,120 @@ bool convert(const char*, const char*, const char*, enum sd_type_t, const char*)
 bool preprocess_canny(sd_image_t, float, float, float, float, bool) { return true; }
 
 }  // extern "C"
+
+// Mock ModelLoader for tests
+// #include "model.h" // Do not include model.h to avoid compilation errors
+
+// Define minimal ModelLoader mock
+#include <string>
+#include <map>
+#include <cstdlib>
+
+enum SDVersion {
+    VERSION_SD1,
+    VERSION_COUNT
+};
+
+struct TensorStorage {
+    ggml_type type;
+    ggml_type expected_type;
+};
+
+class ModelLoader {
+public:
+    bool init_from_file(const std::string&, const std::string& = "");
+    int64_t get_params_mem_size(ggml_backend_t, ggml_type);
+    std::map<ggml_type, uint32_t> get_wtype_stat() { return {}; }
+    std::map<ggml_type, uint32_t> get_conditioner_wtype_stat() { return {}; }
+    std::map<ggml_type, uint32_t> get_diffusion_model_wtype_stat() { return {}; }
+    std::map<ggml_type, uint32_t> get_vae_wtype_stat() { return {}; }
+    void convert_tensors_name() {}
+    SDVersion get_sd_version() { return VERSION_SD1; }
+    std::map<std::string, TensorStorage>& get_tensor_storage_map() { 
+        static std::map<std::string, TensorStorage> m; 
+        return m; 
+    }
+    void set_wtype_override(ggml_type, const std::string&) {}
+};
+
+bool ModelLoader::init_from_file(const std::string&, const std::string&) { return true; }
+int64_t ModelLoader::get_params_mem_size(ggml_backend_t, ggml_type) { return 1024 * 1024; }
+
+extern "C" {
+
+// Mock ggml_backend_free
+void ggml_backend_free(ggml_backend_t) {}
+
+sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* sd_vid_gen_params) {
+    (void)sd_ctx;
+    (void)sd_vid_gen_params;
+
+    sd_condition_raw_t* cond = (sd_condition_raw_t*)calloc(1, sizeof(sd_condition_raw_t));
+    if (!cond) return nullptr;
+
+    // c_crossattn: 2D tensor shaped as [4, 4] with deterministic values
+    cond->c_crossattn.ndims = 2;
+    cond->c_crossattn.ne[0] = 4;
+    cond->c_crossattn.ne[1] = 4;
+    cond->c_crossattn.ne[2] = 0;
+    cond->c_crossattn.ne[3] = 0;
+    size_t crossCount = (size_t)cond->c_crossattn.ne[0] * cond->c_crossattn.ne[1];
+    cond->c_crossattn.data = (float*)malloc(sizeof(float) * crossCount);
+    if (cond->c_crossattn.data) {
+        for (size_t i = 0; i < crossCount; ++i) {
+            cond->c_crossattn.data[i] = 0.05f * (float)(i + 1);
+        }
+    }
+
+    // c_vector: 1D tensor shaped as [1]
+    cond->c_vector.ndims = 1;
+    cond->c_vector.ne[0] = 1;
+    cond->c_vector.ne[1] = 0;
+    cond->c_vector.ne[2] = 0;
+    cond->c_vector.ne[3] = 0;
+    cond->c_vector.data = (float*)malloc(sizeof(float) * 1);
+    if (cond->c_vector.data) {
+        cond->c_vector.data[0] = 1.0f;  // dummy scalar
+    }
+
+    // c_concat: not used in basic tests; set to zero-sized entry
+    cond->c_concat.ndims = 0;
+    cond->c_concat.ne[0] = 0;
+    cond->c_concat.ne[1] = 0;
+    cond->c_concat.ne[2] = 0;
+    cond->c_concat.ne[3] = 0;
+    cond->c_concat.data = nullptr;
+
+    return cond;
+}
+
+void sd_free_condition(sd_condition_raw_t* cond) {
+    if (!cond) return;
+
+    if (cond->c_crossattn.data) {
+        free(cond->c_crossattn.data);
+        cond->c_crossattn.data = nullptr;
+    }
+    if (cond->c_vector.data) {
+        free(cond->c_vector.data);
+        cond->c_vector.data = nullptr;
+    }
+    if (cond->c_concat.data) {
+        free(cond->c_concat.data);
+        cond->c_concat.data = nullptr;
+    }
+    free(cond);
+}
+
+sd_image_t* sd_generate_video_with_precomputed_condition(sd_ctx_t* sd_ctx,
+                                                        const sd_vid_gen_params_t* sd_vid_gen_params,
+                                                        const sd_condition_raw_t* cond,
+                                                        const sd_condition_raw_t* uncond,
+                                                        int* num_frames_out) {
+    (void)cond;
+    (void)uncond;
+    // For test purposes: forward to the standard generate_video stub
+    return generate_video(sd_ctx, sd_vid_gen_params, num_frames_out);
+}
+
+}  // extern "C"

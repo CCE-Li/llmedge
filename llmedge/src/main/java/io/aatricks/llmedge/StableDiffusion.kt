@@ -24,8 +24,10 @@ class StableDiffusion private constructor(
     private val generationMutex = Mutex()
     private var modelMetadata: VideoModelMetadata? = null
     private val cancellationRequested = AtomicBoolean(false)
+
     @Volatile
     private var cachedProgressCallback: VideoProgressCallback? = null
+
     @Volatile
     private var lastGenerationMetrics: GenerationMetrics? = null
     private val nativeBridge: NativeBridge = Companion.nativeBridgeProvider(this)
@@ -36,6 +38,7 @@ class StableDiffusion private constructor(
         private const val MEMORY_PRESSURE_THRESHOLD = 0.85f
         private const val MIN_FRAME_BATCH = 4
         private const val MAX_FRAME_BATCH = 8
+
         @Volatile
         private var isNativeLibraryAvailable: Boolean
 
@@ -96,6 +99,91 @@ class StableDiffusion private constructor(
                     initHeight,
                 )
 
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int
+                ): PrecomputedCondition? {
+                    val raw = instance.nativePrecomputeCondition(handle, prompt, negative, width, height, clipSkip)
+                        ?: return null
+                    // Array layout: [float[] cross, int[] crossDims, float[] vector, int[] vectorDims, float[] concat, int[] concatDims]
+                    val cross = raw.getOrNull(0) as? FloatArray
+                    val crossDims = raw.getOrNull(1) as? IntArray
+                    val vector = raw.getOrNull(2) as? FloatArray
+                    val vectorDims = raw.getOrNull(3) as? IntArray
+                    val concat = raw.getOrNull(4) as? FloatArray
+                    val concatDims = raw.getOrNull(5) as? IntArray
+                    return PrecomputedCondition(
+                        cCrossAttn = cross,
+                        cCrossAttnDims = crossDims,
+                        cVector = vector,
+                        cVectorDims = vectorDims,
+                        cConcat = concat,
+                        cConcatDims = concatDims
+                    )
+                }
+
+                override fun txt2vidWithPrecomputedCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    scheduler: Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    cond: PrecomputedCondition?,
+                    uncond: PrecomputedCondition?,
+                ): Array<ByteArray>? {
+                    val condArr = cond?.let {
+                        arrayOf<Any?>(
+                            it.cCrossAttn,
+                            it.cCrossAttnDims,
+                            it.cVector,
+                            it.cVectorDims,
+                            it.cConcat,
+                            it.cConcatDims
+                        )
+                    }
+                    val uncondArr = uncond?.let {
+                        arrayOf<Any?>(
+                            it.cCrossAttn,
+                            it.cCrossAttnDims,
+                            it.cVector,
+                            it.cVectorDims,
+                            it.cConcat,
+                            it.cConcatDims
+                        )
+                    }
+                    return instance.nativeTxt2VidWithPrecomputedCondition(
+                        handle,
+                        prompt,
+                        negative,
+                        width,
+                        height,
+                        videoFrames,
+                        steps,
+                        cfg,
+                        seed,
+                        schedulerToNativeSampleMethod(scheduler),
+                        strength,
+                        initImage,
+                        initWidth,
+                        initHeight,
+                        condArr,
+                        uncondArr,
+                    )
+                }
+
                 override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {
                     instance.nativeSetProgressCallback(handle, callback)
                 }
@@ -105,6 +193,7 @@ class StableDiffusion private constructor(
                 }
             }
         }
+
         @Volatile
         private var nativeBridgeProvider: (StableDiffusion) -> NativeBridge = defaultNativeBridgeProvider
 
@@ -576,6 +665,20 @@ class StableDiffusion private constructor(
         )
     }
 
+    /**
+     * Container for precomputed text-conditioning arrays returned by the
+     * native `sd_precompute_condition` API. Each field is optional and
+     * will be null if that tensor is not used for the given model / prompt.
+     */
+    data class PrecomputedCondition(
+        val cCrossAttn: FloatArray? = null,
+        val cCrossAttnDims: IntArray? = null,
+        val cVector: FloatArray? = null,
+        val cVectorDims: IntArray? = null,
+        val cConcat: FloatArray? = null,
+        val cConcatDims: IntArray? = null,
+    )
+
     internal data class VideoModelMetadata(
         val architecture: String?,
         val modelType: String?,
@@ -613,6 +716,63 @@ class StableDiffusion private constructor(
             initWidth: Int,
             initHeight: Int,
         ): Array<ByteArray>?
+
+        /**
+         * Precompute text conditioning for the provided prompt and related settings.
+         * By default it returns null; defaultNativeBridgeProvider implements it by
+         * forwarding to the native precompute binding and converting the result.
+         */
+        fun precomputeCondition(
+            handle: Long,
+            prompt: String,
+            negative: String,
+            width: Int,
+            height: Int,
+            clipSkip: Int,
+        ): PrecomputedCondition? {
+            return null
+        }
+
+        /**
+         * Generate video using precomputed conditions (cond / uncond).
+         * Default implementation falls back to txt2vid (ignoring precomputed arrays).
+         */
+        fun txt2vidWithPrecomputedCondition(
+            handle: Long,
+            prompt: String,
+            negative: String,
+            width: Int,
+            height: Int,
+            videoFrames: Int,
+            steps: Int,
+            cfg: Float,
+            seed: Long,
+            scheduler: Scheduler,
+            strength: Float,
+            initImage: ByteArray?,
+            initWidth: Int,
+            initHeight: Int,
+            cond: PrecomputedCondition?,
+            uncond: PrecomputedCondition?,
+        ): Array<ByteArray>? {
+            // Fallback: ignore precomputed condition and call plain txt2vid
+            return txt2vid(
+                handle,
+                prompt,
+                negative,
+                width,
+                height,
+                videoFrames,
+                steps,
+                cfg,
+                seed,
+                scheduler,
+                strength,
+                initImage,
+                initWidth,
+                initHeight
+            )
+        }
 
         fun setProgressCallback(handle: Long, callback: VideoProgressCallback?)
 
@@ -824,6 +984,34 @@ class StableDiffusion private constructor(
 
     private external fun nativeCancelGeneration(handle: Long)
 
+    private external fun nativePrecomputeCondition(
+        handle: Long,
+        prompt: String,
+        negative: String,
+        width: Int,
+        height: Int,
+        clipSkip: Int,
+    ): Array<Any?>?
+
+    private external fun nativeTxt2VidWithPrecomputedCondition(
+        handle: Long,
+        prompt: String,
+        negative: String?,
+        width: Int,
+        height: Int,
+        videoFrames: Int,
+        steps: Int,
+        cfg: Float,
+        seed: Long,
+        scheduler: Int,
+        strength: Float,
+        initImage: ByteArray?,
+        initWidth: Int,
+        initHeight: Int,
+        cond: Array<Any?>?,
+        uncond: Array<Any?>?,
+    ): Array<ByteArray>?
+
     private fun bitmapToRgbBytes(bitmap: Bitmap): Triple<ByteArray, Int, Int> {
         val safeBitmap = if (bitmap.config == Bitmap.Config.ARGB_8888) {
             bitmap
@@ -864,6 +1052,122 @@ class StableDiffusion private constructor(
             index = end
         }
         return bitmaps
+    }
+
+    /**
+     * Wrapper that calls the native PrecomputeCondition API and converts to a Kotlin type.
+     */
+    fun precomputeCondition(
+        prompt: String,
+        negative: String = "",
+        width: Int = 512,
+        height: Int = 512,
+        clipSkip: Int = -1
+    ): PrecomputedCondition? {
+        // Delegate to the native bridge (which will call into JNI nativePrecomputeCondition by default)
+        return nativeBridge.precomputeCondition(handle, prompt, negative, width, height, clipSkip)
+    }
+
+    /**
+     * Variant of txt2vid that accepts precomputed conditioning for both cond/uncond
+     * This provides a convenience wrapper around the nativeTxt2VidWithPrecomputedCondition binding.
+     */
+    suspend fun txt2VidWithPrecomputedCondition(
+        params: VideoGenerateParams,
+        cond: PrecomputedCondition,
+        uncond: PrecomputedCondition? = null,
+        onProgress: VideoProgressCallback? = null,
+    ): List<Bitmap> = withContext(Dispatchers.IO) {
+        check(isNativeLibraryAvailable) { "Video generation is unavailable on this platform" }
+        params.validate().getOrThrow()
+        check(isVideoModel()) { "Loaded model is not a video model (use txt2img instead)" }
+
+        val estimatedBytes = estimateFrameFootprintBytes(
+            width = params.width,
+            height = params.height,
+            frameCount = params.videoFrames,
+        )
+        warnIfLowMemory(estimatedBytes)
+
+        val (initBytes, initWidth, initHeight) = params.initImage?.let { bitmapToRgbBytes(it) }
+            ?: Triple(null, 0, 0)
+
+        val tempCallback = onProgress
+        if (tempCallback != null) {
+            nativeBridge.setProgressCallback(handle, tempCallback)
+        }
+
+        val startNanos = System.nanoTime()
+        val memoryBefore = readNativeMemoryMb()
+        val frameBytes = try {
+            generationMutex.withLock {
+                cancellationRequested.set(false)
+                nativeBridge.txt2vidWithPrecomputedCondition(
+                    handle,
+                    params.prompt,
+                    params.negative,
+                    params.width,
+                    params.height,
+                    params.videoFrames,
+                    params.steps,
+                    params.cfgScale,
+                    params.seed,
+                    params.scheduler,
+                    params.strength,
+                    initBytes,
+                    initWidth,
+                    initHeight,
+                    cond,
+                    uncond,
+                ) ?: throw IllegalStateException("Video generation failed")
+            }
+        } catch (t: Throwable) {
+            if (cancellationRequested.get()) {
+                cancellationRequested.set(false)
+                throw CancellationException("Video generation cancelled", t)
+            }
+            throw t
+        } finally {
+            cancellationRequested.set(false)
+        }
+
+        if (frameBytes.isEmpty()) {
+            throw IllegalStateException("Video generation returned no frames")
+        }
+
+        if (frameBytes.size != params.videoFrames) {
+            Log.w(
+                LOG_TAG,
+                "Expected ${params.videoFrames} frames but received ${frameBytes.size}",
+            )
+        }
+
+        val conversionStart = System.nanoTime()
+        val bitmaps = convertFramesToBitmaps(frameBytes, params.width, params.height)
+        val conversionSeconds = ((System.nanoTime() - conversionStart) / 1_000_000_000f)
+        val totalSeconds = ((System.nanoTime() - startNanos) / 1_000_000_000f)
+        val memoryAfter = readNativeMemoryMb()
+
+        lastGenerationMetrics = GenerationMetrics(
+            totalTimeSeconds = totalSeconds,
+            framesPerSecond = if (totalSeconds > 0f) bitmaps.size / totalSeconds else 0f,
+            timePerStep = if (params.steps > 0 && params.videoFrames > 0) {
+                totalSeconds / (params.steps * params.videoFrames)
+            } else {
+                0f
+            },
+            peakMemoryUsageMb = maxOf(memoryBefore, memoryAfter),
+            vulkanEnabled = false,
+            frameConversionTimeSeconds = conversionSeconds,
+        )
+
+        warnIfLowMemory(estimatedBytes)
+
+        if (tempCallback != null) {
+            nativeBridge.setProgressCallback(handle, cachedProgressCallback)
+        }
+
+        bitmaps
     }
 
     private fun rgbBytesToBitmap(bytes: ByteArray, width: Int, height: Int): Bitmap {
