@@ -552,6 +552,398 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     return result;
 }
 
+// JNI wrapper: precompute condition for a given prompt & video params
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_io_aatricks_llmedge_StableDiffusion_nativePrecomputeCondition(
+        JNIEnv* env, jobject thiz, jlong handlePtr,
+        jstring jPrompt, jstring jNegative,
+        jint width, jint height, jint clipSkip) {
+    (void)thiz;
+    if (handlePtr == 0) {
+        throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion not initialized");
+        return nullptr;
+    }
+    auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
+
+    const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
+    const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+
+    sd_vid_gen_params_t gen{};
+    sd_vid_gen_params_init(&gen);
+    gen.prompt = prompt;
+    gen.negative_prompt = negative;
+    gen.width = width;
+    gen.height = height;
+    gen.clip_skip = clipSkip;
+
+    sd_condition_raw_t* cond = nullptr;
+    try {
+        cond = sd_precompute_condition(handle->ctx, &gen);
+    } catch (const std::exception& e) {
+        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
+        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
+        // Convert to Java exception
+        throwJavaException(env, "java/lang/RuntimeException", e.what());
+        return nullptr;
+    }
+
+    if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
+    if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
+
+    if (!cond) {
+        return nullptr;
+    }
+
+    // We'll return an Object[] = {float[] cross, int[] cross_dims, float[] vec, int[] vec_dims, float[] concat, int[] concat_dims}
+    jclass objClass = env->FindClass("java/lang/Object");
+    if (!objClass) {
+        sd_free_condition(cond);
+        throwJavaException(env, "java/lang/RuntimeException", "Unable to find java/lang/Object");
+        return nullptr;
+    }
+
+    jobjectArray result = env->NewObjectArray(6, objClass, nullptr);
+    if (!result) {
+        sd_free_condition(cond);
+        throwJavaException(env, "java/lang/OutOfMemoryError", "Unable to allocate result array");
+        return nullptr;
+    }
+
+    // Helper lambda to push arrays
+    auto push_tensor = [&](sd_tensor_raw_t* t, int data_index, int dims_index) {
+        if (t == nullptr || t->ndims == 0 || t->data == nullptr) {
+            env->SetObjectArrayElement(result, data_index, nullptr);
+            env->SetObjectArrayElement(result, dims_index, nullptr);
+            return;
+        }
+        size_t count = 1;
+        for (int i = 0; i < t->ndims; ++i) count *= (size_t)t->ne[i];
+
+        jfloatArray floatArr = env->NewFloatArray(static_cast<jsize>(count));
+        if (!floatArr) {
+            env->SetObjectArrayElement(result, data_index, nullptr);
+        } else {
+            env->SetFloatArrayRegion(floatArr, 0, static_cast<jsize>(count), reinterpret_cast<const jfloat*>(t->data));
+            env->SetObjectArrayElement(result, data_index, floatArr);
+            env->DeleteLocalRef(floatArr);
+        }
+
+        jintArray dimsArr = env->NewIntArray(t->ndims);
+        if (!dimsArr) {
+            env->SetObjectArrayElement(result, dims_index, nullptr);
+        } else {
+            jint dims[4] = {0,0,0,0};
+            for (int i = 0; i < t->ndims && i < 4; ++i) dims[i] = t->ne[i];
+            env->SetIntArrayRegion(dimsArr, 0, t->ndims, dims);
+            env->SetObjectArrayElement(result, dims_index, dimsArr);
+            env->DeleteLocalRef(dimsArr);
+        }
+    };
+
+    push_tensor(cond->c_crossattn, 0, 1);
+    push_tensor(cond->c_vector, 2, 3);
+    push_tensor(cond->c_concat, 4, 5);
+
+    // Free native cond buffers
+    sd_free_condition(cond);
+
+    return result;
+}
+
+// JNI wrapper: generate video using precomputed conditions (cond and optionally uncond)
+// condArr/uncondArr are Object[] with layout matching nativePrecomputeCondition result
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
+        JNIEnv* env, jobject thiz, jlong handlePtr,
+        jstring jPrompt, jstring jNegative,
+        jint width, jint height,
+        jint videoFrames, jint steps, jfloat cfg, jlong seed,
+        jint jScheduler, jfloat jStrength,
+        jbyteArray jInitImage, jint initWidth, jint initHeight,
+        jobjectArray condArr, jobjectArray uncondArr) {
+    (void)thiz;
+    if (handlePtr == 0) {
+        throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion not initialized");
+        return nullptr;
+    }
+    if (width <= 0 || height <= 0 || videoFrames <= 0) {
+        throwJavaException(env, "java/lang/IllegalArgumentException", "Invalid video dimensions or frame count");
+        return nullptr;
+    }
+
+    auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
+    handle->cancellationRequested.store(false);
+    handle->totalFrames = std::max(1, static_cast<int>(videoFrames));
+    handle->currentFrame = 0;
+
+    const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
+    const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+
+    auto releaseStrings = [&]() {
+        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
+        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
+    };
+
+    sd_sample_params_t sample{};
+    sd_sample_params_init(&sample);
+    if (steps > 0) sample.sample_steps = steps;
+    if (cfg > 0.f) sample.guidance.txt_cfg = cfg;
+
+    sd_vid_gen_params_t gen{};
+    sd_vid_gen_params_init(&gen);
+    gen.prompt = prompt;
+    gen.negative_prompt = negative;
+    gen.width = width;
+    gen.height = height;
+    gen.video_frames = videoFrames;
+    gen.sample_params = sample;
+    gen.seed = seed;
+    // Map scheduler enum if provided
+    if (jScheduler >= 0) {
+        enum scheduler_t s = static_cast<enum scheduler_t>(jScheduler);
+        gen.sample_params.scheduler = s;
+    }
+    gen.strength = jStrength;
+
+    std::vector<uint8_t> initImageData;
+    if (jInitImage != nullptr) {
+        jsize initSize = env->GetArrayLength(jInitImage);
+        if (initSize > 0) {
+            initImageData.resize(static_cast<size_t>(initSize));
+            env->GetByteArrayRegion(jInitImage, 0, initSize,
+                                    reinterpret_cast<jbyte*>(initImageData.data()));
+            if (env->ExceptionCheck()) {
+                releaseStrings();
+                return nullptr;
+            }
+            gen.init_image.width = initWidth;
+            gen.init_image.height = initHeight;
+            gen.init_image.channel = 3;
+            gen.init_image.data = initImageData.data();
+        }
+    }
+
+    // Convert condArr/uncondArr to sd_condition_raw_t structures
+    auto build_condition_from_objarr = [&](jobjectArray arr) -> sd_condition_raw_t* {
+        if (!arr) return nullptr;
+        jsize arrlen = env->GetArrayLength(arr);
+        if (arrlen < 6) return nullptr;
+
+        sd_condition_raw_t* cond = (sd_condition_raw_t*)calloc(1, sizeof(sd_condition_raw_t));
+        if (!cond) return nullptr;
+
+        // Helper to fill sd_tensor_raw_t* from (float[], int[])
+        auto build_tensor = [&](int dataIndex, int dimsIndex) -> sd_tensor_raw_t* {
+            jobject dataObj = env->GetObjectArrayElement(arr, dataIndex);
+            jobject dimsObj = env->GetObjectArrayElement(arr, dimsIndex);
+            if (!dataObj || !dimsObj) {
+                if (dataObj) env->DeleteLocalRef(dataObj);
+                if (dimsObj) env->DeleteLocalRef(dimsObj);
+                return nullptr;
+            }
+            jfloatArray jFloatArr = static_cast<jfloatArray>(dataObj);
+            jintArray jDimsArr = static_cast<jintArray>(dimsObj);
+
+            jsize dataLen = env->GetArrayLength(jFloatArr);
+            jsize dimsLen = env->GetArrayLength(jDimsArr);
+            if (dimsLen <= 0 || dimsLen > 4) {
+                env->DeleteLocalRef(dataObj);
+                env->DeleteLocalRef(dimsObj);
+                return nullptr;
+            }
+            sd_tensor_raw_t* t = (sd_tensor_raw_t*)calloc(1, sizeof(sd_tensor_raw_t));
+            t->ndims = dimsLen;
+            for (int i = 0; i < 4; ++i) t->ne[i] = 0;
+            jint dims[4] = {0,0,0,0};
+            env->GetIntArrayRegion(jDimsArr, 0, dimsLen, dims);
+            size_t expectedLen = 1;
+            for (int i = 0; i < dimsLen; ++i) {
+                t->ne[i] = dims[i];
+                expectedLen *= (size_t)dims[i];
+            }
+            // If expectedLen doesn't match dataLen, still copy as-is but it's an error case
+            t->data = (float*)malloc(sizeof(float) * static_cast<size_t>(dataLen));
+            if (!t->data) {
+                free(t);
+                env->DeleteLocalRef(dataObj);
+                env->DeleteLocalRef(dimsObj);
+                return nullptr;
+            }
+            env->GetFloatArrayRegion(jFloatArr, 0, dataLen, reinterpret_cast<jfloat*>(t->data));
+            env->DeleteLocalRef(dataObj);
+            env->DeleteLocalRef(dimsObj);
+            return t;
+        };
+
+        cond->c_crossattn = build_tensor(0, 1);
+        cond->c_vector = build_tensor(2, 3);
+        cond->c_concat = build_tensor(4, 5);
+
+        return cond;
+    };
+
+    sd_condition_raw_t* cond_use = build_condition_from_objarr(condArr);
+    sd_condition_raw_t* uncond_use = build_condition_from_objarr(uncondArr);
+
+    handle->stepsPerFrame = sample.sample_steps > 0 ? sample.sample_steps : 0;
+    handle->totalSteps = handle->stepsPerFrame * handle->totalFrames;
+
+    // Ensure progress callback is wired for cancellation even if Kotlin-side callback is null.
+    if (!handle->progressCallbackGlobalRef) {
+        sd_set_progress_callback(sd_video_progress_wrapper, handle);
+    }
+
+    sd_image_t* frames = nullptr;
+    int numFrames = 0;
+    try {
+        frames = sd_generate_video_with_precomputed_condition(handle->ctx, &gen, cond_use, uncond_use, &numFrames);
+    } catch (const std::exception& e) {
+        releaseStrings();
+        if (cond_use) {
+            if (cond_use->c_crossattn) { free(cond_use->c_crossattn->data); free(cond_use->c_crossattn); }
+            if (cond_use->c_vector) { free(cond_use->c_vector->data); free(cond_use->c_vector); }
+            if (cond_use->c_concat) { free(cond_use->c_concat->data); free(cond_use->c_concat); }
+            free(cond_use);
+        }
+        if (uncond_use) {
+            if (uncond_use->c_crossattn) { free(uncond_use->c_crossattn->data); free(uncond_use->c_crossattn); }
+            if (uncond_use->c_vector) { free(uncond_use->c_vector->data); free(uncond_use->c_vector); }
+            if (uncond_use->c_concat) { free(uncond_use->c_concat->data); free(uncond_use->c_concat); }
+            free(uncond_use);
+        }
+        const char* clazz = handle->cancellationRequested.load()
+                ? "java/util/concurrent/CancellationException"
+                : "java/lang/RuntimeException";
+        throwJavaException(env, clazz, e.what());
+        return nullptr;
+    }
+
+    releaseStrings();
+
+    // Free condition buffers built from Java arrays
+    if (cond_use) {
+        if (cond_use->c_crossattn) { free(cond_use->c_crossattn->data); free(cond_use->c_crossattn); }
+        if (cond_use->c_vector) { free(cond_use->c_vector->data); free(cond_use->c_vector); }
+        if (cond_use->c_concat) { free(cond_use->c_concat->data); free(cond_use->c_concat); }
+        free(cond_use);
+    }
+    if (uncond_use) {
+        if (uncond_use->c_crossattn) { free(uncond_use->c_crossattn->data); free(uncond_use->c_crossattn); }
+        if (uncond_use->c_vector) { free(uncond_use->c_vector->data); free(uncond_use->c_vector); }
+        if (uncond_use->c_concat) { free(uncond_use->c_concat->data); free(uncond_use->c_concat); }
+        free(uncond_use);
+    }
+
+    if (!frames || numFrames <= 0) {
+        if (frames) {
+            sd_jni_notify_frame_array_freed(frames);
+            free(frames);
+        }
+        throwJavaException(env, "java/lang/IllegalStateException", "Video generation failed");
+        if (!handle->progressCallbackGlobalRef) {
+            sd_set_progress_callback(nullptr, nullptr);
+        }
+        return nullptr;
+    }
+
+    jclass byteArrayClass = env->FindClass("[B");
+    if (!byteArrayClass) {
+        for (int i = 0; i < numFrames; ++i) {
+            if (frames[i].data) {
+                sd_jni_notify_frame_buffer_freed(frames[i].data);
+                free(frames[i].data);
+            }
+        }
+        sd_jni_notify_frame_array_freed(frames);
+        free(frames);
+        if (!handle->progressCallbackGlobalRef) {
+            sd_set_progress_callback(nullptr, nullptr);
+        }
+        return nullptr;
+    }
+
+    jobjectArray result = env->NewObjectArray(numFrames, byteArrayClass, nullptr);
+    if (!result) {
+        for (int i = 0; i < numFrames; ++i) {
+            if (frames[i].data) {
+                sd_jni_notify_frame_buffer_freed(frames[i].data);
+                free(frames[i].data);
+            }
+        }
+        sd_jni_notify_frame_array_freed(frames);
+        free(frames);
+        throwJavaException(env, "java/lang/OutOfMemoryError", "Unable to allocate video frame array");
+        if (!handle->progressCallbackGlobalRef) {
+            sd_set_progress_callback(nullptr, nullptr);
+        }
+        return nullptr;
+    }
+
+    for (int i = 0; i < numFrames; ++i) {
+        if (!frames[i].data) {
+            for (int j = i; j < numFrames; ++j) {
+                if (frames[j].data) {
+                    sd_jni_notify_frame_buffer_freed(frames[j].data);
+                    free(frames[j].data);
+                }
+            }
+            sd_jni_notify_frame_array_freed(frames);
+            free(frames);
+            throwJavaException(env, "java/lang/IllegalStateException", "Missing frame data");
+            if (!handle->progressCallbackGlobalRef) {
+                sd_set_progress_callback(nullptr, nullptr);
+            }
+            return nullptr;
+        }
+        const size_t byteCount = static_cast<size_t>(frames[i].width) * frames[i].height * frames[i].channel;
+        jbyteArray frameBytes = env->NewByteArray(static_cast<jsize>(byteCount));
+        if (!frameBytes) {
+            for (int j = i; j < numFrames; ++j) {
+                if (frames[j].data) {
+                    sd_jni_notify_frame_buffer_freed(frames[j].data);
+                    free(frames[j].data);
+                }
+            }
+            sd_jni_notify_frame_array_freed(frames);
+            free(frames);
+            throwJavaException(env, "java/lang/OutOfMemoryError", "Unable to allocate frame buffer");
+            if (!handle->progressCallbackGlobalRef) {
+                sd_set_progress_callback(nullptr, nullptr);
+            }
+            return nullptr;
+        }
+        env->SetByteArrayRegion(frameBytes, 0, static_cast<jsize>(byteCount),
+                                 reinterpret_cast<jbyte*>(frames[i].data));
+        if (env->ExceptionCheck()) {
+            env->DeleteLocalRef(frameBytes);
+            for (int j = i; j < numFrames; ++j) {
+                if (frames[j].data) {
+                    sd_jni_notify_frame_buffer_freed(frames[j].data);
+                    free(frames[j].data);
+                }
+            }
+            sd_jni_notify_frame_array_freed(frames);
+            free(frames);
+            if (!handle->progressCallbackGlobalRef) {
+                sd_set_progress_callback(nullptr, nullptr);
+            }
+            return nullptr;
+        }
+        env->SetObjectArrayElement(result, i, frameBytes);
+        env->DeleteLocalRef(frameBytes);
+        sd_jni_notify_frame_buffer_freed(frames[i].data);
+        free(frames[i].data);
+    }
+
+    sd_jni_notify_frame_array_freed(frames);
+    free(frames);
+    if (!handle->progressCallbackGlobalRef) {
+        sd_set_progress_callback(nullptr, nullptr);
+    }
+    handle->cancellationRequested.store(false);
+    return result;
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_io_aatricks_llmedge_StableDiffusion_nativeSetProgressCallback(
         JNIEnv* env, jobject, jlong handlePtr, jobject progressCallback) {
