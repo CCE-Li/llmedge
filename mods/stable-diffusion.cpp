@@ -154,34 +154,55 @@ public:
     }
 
     void init_backend() {
+        const bool prefer_cpu_backend = offload_params_to_cpu;
 #ifdef SD_USE_CUDA
-        LOG_DEBUG("Using CUDA backend");
-        backend = ggml_backend_cuda_init(0);
+        if (!prefer_cpu_backend) {
+            LOG_DEBUG("Using CUDA backend");
+            backend = ggml_backend_cuda_init(0);
+        } else {
+            LOG_INFO("Skipping CUDA backend because offload_params_to_cpu=true");
+        }
 #endif
 #ifdef SD_USE_METAL
-        LOG_DEBUG("Using Metal backend");
-        backend = ggml_backend_metal_init();
+        if (!prefer_cpu_backend) {
+            LOG_DEBUG("Using Metal backend");
+            backend = ggml_backend_metal_init();
+        } else {
+            LOG_INFO("Skipping Metal backend because offload_params_to_cpu=true");
+        }
 #endif
 #ifdef SD_USE_VULKAN
-        LOG_DEBUG("Using Vulkan backend");
-        for (int device = 0; device < ggml_backend_vk_get_device_count(); ++device) {
-            backend = ggml_backend_vk_init(device);
-        }
-        if (!backend) {
-            LOG_WARN("Failed to initialize Vulkan backend");
+        if (!prefer_cpu_backend) {
+            LOG_DEBUG("Using Vulkan backend");
+            for (int device = 0; device < ggml_backend_vk_get_device_count(); ++device) {
+                backend = ggml_backend_vk_init(device);
+            }
+            if (!backend) {
+                LOG_WARN("Failed to initialize Vulkan backend");
+            }
+        } else {
+            LOG_INFO("Skipping Vulkan backend because offload_params_to_cpu=true");
         }
 #endif
 #ifdef SD_USE_OPENCL
-        LOG_DEBUG("Using OpenCL backend");
-        // ggml_log_set(ggml_log_callback_default, nullptr); // Optional ggml logs
-        backend = ggml_backend_opencl_init();
-        if (!backend) {
-            LOG_WARN("Failed to initialize OpenCL backend");
+        if (!prefer_cpu_backend) {
+            LOG_DEBUG("Using OpenCL backend");
+            // ggml_log_set(ggml_log_callback_default, nullptr); // Optional ggml logs
+            backend = ggml_backend_opencl_init();
+            if (!backend) {
+                LOG_WARN("Failed to initialize OpenCL backend");
+            }
+        } else {
+            LOG_INFO("Skipping OpenCL backend because offload_params_to_cpu=true");
         }
 #endif
 #ifdef SD_USE_SYCL
-        LOG_DEBUG("Using SYCL backend");
-        backend = ggml_backend_sycl_init(0);
+        if (!prefer_cpu_backend) {
+            LOG_DEBUG("Using SYCL backend");
+            backend = ggml_backend_sycl_init(0);
+        } else {
+            LOG_INFO("Skipping SYCL backend because offload_params_to_cpu=true");
+        }
 #endif
 
         if (!backend) {
@@ -3369,7 +3390,7 @@ SD_API sd_image_t* generate_video(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* s
     }
 
     struct ggml_init_params params;
-    params.mem_size   = static_cast<size_t>(128 * 1024) * 1024;  // 128M
+    params.mem_size   = static_cast<size_t>(1024 * 1024) * 1024;  // 1G
     params.mem_buffer = nullptr;
     params.no_alloc   = false;
     // LOG_DEBUG("mem_size %u ", params.mem_size);
@@ -3732,7 +3753,7 @@ SD_API sd_image_t* generate_video(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* s
 }
 
 // ------------------------------------------------------------------
-// Utilities for precompute/transfer of conditions across contexts
+// Helper functions for sd_condition_raw_t
 // ------------------------------------------------------------------
 
 static void copy_ggml_tensor_to_sd_tensor_raw(struct ggml_tensor* tensor, sd_tensor_raw_t* dst) {
@@ -3875,7 +3896,7 @@ static void free_sd_tensor_raw_data(sd_tensor_raw_t* t) {
 }
 
 // ------------------------------------------------------------------
-// sd_precompute_condition: Build SDCondition outside of a diffusion context
+// sd_precompute_condition
 // ------------------------------------------------------------------
 
 SD_API sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* sd_vid_gen_params) {
@@ -3932,6 +3953,10 @@ SD_API sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx, const sd_vi
     return raw;
 }
 
+// ------------------------------------------------------------------
+// sd_free_condition
+// ------------------------------------------------------------------
+
 SD_API void sd_free_condition(sd_condition_raw_t* cond) {
     if (!cond) return;
     free_sd_tensor_raw_data(&cond->c_crossattn);
@@ -3942,12 +3967,6 @@ SD_API void sd_free_condition(sd_condition_raw_t* cond) {
 
 // ------------------------------------------------------------------
 // sd_generate_video_with_precomputed_condition
-// - This is similar to generate_video() but uses precomputed condition(s)
-//   provided by sd_precompute_condition() to avoid re-loading text encoder
-//   weights when performing generation.
-// - This implementation keeps most of the core sample + decode flow from
-//   the original generate_video() function, but uses the cond and uncond
-//   supplied to avoid invoking cond_stage_model.
 // ------------------------------------------------------------------
 
 SD_API sd_image_t* sd_generate_video_with_precomputed_condition(sd_ctx_t* sd_ctx,
@@ -4208,4 +4227,3 @@ SD_API sd_image_t* sd_generate_video_with_precomputed_condition(sd_ctx_t* sd_ctx
     LOG_INFO("sd_generate_video_with_precomputed_condition completed in %.2fs", 0.f); // Could compute time if needed.
     return result_images;
 }
-

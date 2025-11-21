@@ -198,32 +198,6 @@ typedef struct {
     uint8_t* data;
 } sd_image_t;
 
-/**
- * Raw tensor representation for inter-context transfer.
- *
- * This allows the caller to receive a CPU float buffer with a
- * simple shape descriptor (ndims/ne[]) for each dimension so it can
- * be reconstructed into a ggml tensor in a separate context.
- */
-typedef struct {
-    // Number of valid dimensions (1..4)
-    int32_t ndims;
-    // extents for each dimension; unused entries are 0
-    int32_t ne[4];
-    // contiguous float array of size product(ne[0..ndims-1])
-    float* data;
-} sd_tensor_raw_t;
-
-/**
- * Encoded condition triple (c_crossattn, c_vector, c_concat) emitted
- * by text encoders/conditioners. Each entry is a simple sd_tensor_raw_t.
- */
-typedef struct {
-    sd_tensor_raw_t c_crossattn;
-    sd_tensor_raw_t c_vector;
-    sd_tensor_raw_t c_concat;  // may be zero-length (ndims == 0) when unused
-} sd_condition_raw_t;
-
 typedef struct {
     int* layers;
     size_t layer_count;
@@ -305,6 +279,25 @@ typedef struct {
     sd_easycache_params_t easycache;
 } sd_vid_gen_params_t;
 
+typedef struct {
+    // Number of valid dimensions (1..4)
+    int32_t ndims;
+    // extents for each dimension; unused entries are 0
+    int32_t ne[4];
+    // contiguous float array of size product(ne[0..ndims-1])
+    float* data;
+} sd_tensor_raw_t;
+
+/**
+ * Encoded condition triple (c_crossattn, c_vector, c_concat) emitted
+ * by text encoders/conditioners. Each entry is a simple sd_tensor_raw_t.
+ */
+typedef struct {
+    sd_tensor_raw_t c_crossattn;
+    sd_tensor_raw_t c_vector;
+    sd_tensor_raw_t c_concat;  // may be zero-length (ndims == 0) when unused
+} sd_condition_raw_t;
+
 typedef struct sd_ctx_t sd_ctx_t;
 
 typedef void (*sd_log_cb_t)(enum sd_log_level_t level, const char* text, void* data);
@@ -351,6 +344,15 @@ SD_API sd_image_t* generate_image(sd_ctx_t* sd_ctx, const sd_img_gen_params_t* s
 SD_API void sd_vid_gen_params_init(sd_vid_gen_params_t* sd_vid_gen_params);
 SD_API sd_image_t* generate_video(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* sd_vid_gen_params, int* num_frames_out);
 
+SD_API sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* sd_vid_gen_params);
+SD_API void sd_free_condition(sd_condition_raw_t* cond);
+SD_API sd_image_t* sd_generate_video_with_precomputed_condition(
+    sd_ctx_t* sd_ctx,
+    const sd_vid_gen_params_t* sd_vid_gen_params,
+    const sd_condition_raw_t* cond,
+    const sd_condition_raw_t* uncond,
+    int* num_frames_out);
+
 typedef struct upscaler_ctx_t upscaler_ctx_t;
 
 SD_API upscaler_ctx_t* new_upscaler_ctx(const char* esrgan_path,
@@ -377,65 +379,6 @@ SD_API bool preprocess_canny(sd_image_t image,
                              float weak,
                              float strong,
                              bool inverse);
-
-/* ---------------------------------------------------------------------------
- * Progressive model loading helpers
- *
- * These APIs enable precomputing conditioning (text encoder / CLIP
- * outputs) in one sd context and then running the diffusion/first-stage
- * pipeline in a different sd context using the precomputed condition.
- *
- * Use this when you want to instantiate a T5/CLIP-only context to
- * produce conditions, free the text encoder params, and then create
- * a diffusion-only context for the heavy sampling.
- *
- * The sd_precompute_condition() call returns ownership of dynamically
- * allocated CPU-side float buffers encapsulated in sd_condition_raw_t.
- * The caller MUST call sd_free_condition() to free the buffer.
- *
- * The sd_generate_video_with_precomputed_condition() provides the
- * same contract as sd_generate_video(), but accepts precomputed
- * conditioning in place of invoking the text encoder(s).
- * --------------------------------------------------------------------------*/
-
-/**
- * Precompute condition arrays for video/inpainting/image generation.
- *
- * The sd_ctx provided should have a cond_stage_model (T5/CLIP) and
- * any associated components required for encoding; it should be
- * configured so only the text encoder and clip/vision components are
- * allocated.
- *
- * The returned sd_condition_raw_t is allocated by the library and must
- * be freed with sd_free_condition().
- */
-SD_API sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx,
-                                                   const sd_vid_gen_params_t* sd_vid_gen_params);
-
-/**
- * Free condition buffer allocated by sd_precompute_condition.
- */
-SD_API void sd_free_condition(sd_condition_raw_t* cond);
-
-/**
- * Generate video using precomputed conditions (cond and optional uncond).
- *
- * The sd_ctx passed here should be instantiated without the T5 text
- * encoder loaded, but with diffusion and first-stage models present,
- * or otherwise configured to be the diffusion-only runner.
- *
- * cond/uncond may be NULL if not used. The function will internally
- * construct temporary ggml tensors from the raw condition arrays and
- * free them after use (the raw sd_condition_raw_t remains unchanged).
- *
- * Returns sd_image_t* frames (caller must free).
- */
-SD_API sd_image_t* sd_generate_video_with_precomputed_condition(
-    sd_ctx_t* sd_ctx,
-    const sd_vid_gen_params_t* sd_vid_gen_params,
-    const sd_condition_raw_t* cond,
-    const sd_condition_raw_t* uncond,
-    int* num_frames_out);
 
 #ifdef __cplusplus
 }
