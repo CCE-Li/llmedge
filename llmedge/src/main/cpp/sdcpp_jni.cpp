@@ -30,20 +30,6 @@ inline int __android_log_print(int, const char*, const char* format, ...) {
 #include "conditioner.hpp"
 #include "ggml-backend.h"
 
-// Define missing types for video generation
-
-
-
-
-// Forward declarations for missing functions
-sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* sd_vid_gen_params);
-void sd_free_condition(sd_condition_raw_t* cond);
-sd_image_t* sd_generate_video_with_precomputed_condition(sd_ctx_t* sd_ctx,
-                                                        const sd_vid_gen_params_t* sd_vid_gen_params,
-                                                        const sd_condition_raw_t* cond,
-                                                        const sd_condition_raw_t* uncond,
-                                                        int* num_frames_out);
-
 #define LOG_TAG "SmolSD"
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -798,6 +784,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
         jint jScheduler, jfloat jStrength,
         jbyteArray jInitImage, jint initWidth, jint initHeight,
         jobjectArray condArr, jobjectArray uncondArr) {
+    ALOGE("!!! CUSTOM DEBUG BUILD - FIX APPLIED !!!");
     (void)thiz;
     if (handlePtr == 0) {
         throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion not initialized");
@@ -1144,5 +1131,3 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCancelGeneration(
     auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
     handle->cancellationRequested.store(true);
 }
-
-
