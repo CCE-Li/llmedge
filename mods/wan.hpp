@@ -2140,6 +2140,7 @@ namespace WAN {
 
     private:
         std::vector<float> pe_vec;
+        std::vector<ggml_backend_t> backends;
 
     public:
         WanRunner(ggml_backend_t backend,
@@ -2148,8 +2149,9 @@ namespace WAN {
                   const std::string prefix                       = "",
                   SDVersion version                              = VERSION_WAN2)
             : GGMLRunner(backend, offload_params_to_cpu) {
+            LOG_INFO("WanRunner: offload_params_to_cpu = %d", offload_params_to_cpu);
             if (!ggml_backend_is_cpu(backend)) {
-                std::vector<ggml_backend_t> backends = { backend };
+                backends = { backend };
                 // Always add a CPU backend for fallback
                 cpu_backend = ggml_backend_cpu_init();
                 backends.push_back(cpu_backend);
@@ -2379,6 +2381,10 @@ namespace WAN {
             auto get_graph = [&]() -> struct ggml_cgraph* {
                 return build_graph(x, timesteps, context, clip_fea, c_concat, time_dim_concat, vace_context, vace_strength);
             };
+
+            if (sched) {
+                ggml_backend_sched_reset(sched);
+            }
 
             GGMLRunner::compute(get_graph, n_threads, true, output, output_ctx);
         }
