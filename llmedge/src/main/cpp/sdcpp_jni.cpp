@@ -233,7 +233,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         jint nThreads,
         jboolean offloadToCpu,
         jboolean keepClipOnCpu,
-        jboolean keepVaeOnCpu) {
+        jboolean keepVaeOnCpu,
+        jboolean flashAttn) {
     (void)clazz;
     const char* modelPath = jModelPath ? env->GetStringUTFChars(jModelPath, nullptr) : nullptr;
     const char* vaePath   = jVaePath   ? env->GetStringUTFChars(jVaePath,   nullptr) : nullptr;
@@ -245,10 +246,11 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     ALOGI("  modelPath=%s", modelPath ? modelPath : "NULL");
     ALOGI("  vaePath=%s", vaePath ? vaePath : "NULL");
     ALOGI("  t5xxlPath=%s", t5xxlPath ? t5xxlPath : "NULL");
-    ALOGI("  offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s",
+    ALOGI("  offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s",
           offloadToCpu ? "true" : "false",
           keepClipOnCpu ? "true" : "false",
-          keepVaeOnCpu ? "true" : "false");
+          keepVaeOnCpu ? "true" : "false",
+          flashAttn ? "true" : "false");
 
     sd_ctx_params_t p{};
     sd_ctx_params_init(&p);
@@ -264,7 +266,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     p.keep_clip_on_cpu = keepClipOnCpu;
     p.keep_clip_on_cpu = keepClipOnCpu;
     p.keep_vae_on_cpu = keepVaeOnCpu;
-    p.diffusion_flash_attn = true;
+    p.diffusion_flash_attn = flashAttn;
 
     sd_ctx_t* ctx = new_sd_ctx(&p);
 
