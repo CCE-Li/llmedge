@@ -290,6 +290,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
              ModelLoader model_loader;
              if (model_loader.init_from_file(modelPath, "text_encoders.t5xxl.transformer.")) {
                  ALOGI("ModelLoader initialized for T5");
+                 model_loader.convert_tensors_name();
                  
                  ggml_backend_t backend = nullptr;
                  #ifdef SD_USE_VULKAN
