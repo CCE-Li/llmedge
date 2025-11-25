@@ -2149,7 +2149,7 @@ namespace WAN {
                   const std::string prefix                       = "",
                   SDVersion version                              = VERSION_WAN2)
             : GGMLRunner(backend, offload_params_to_cpu) {
-            LOG_INFO("WanRunner: offload_params_to_cpu = %d", offload_params_to_cpu);
+        
             if (!ggml_backend_is_cpu(backend)) {
                 backends = { backend };
                 // Always add a CPU backend for fallback
@@ -2346,6 +2346,7 @@ namespace WAN {
             }
 
             auto runner_ctx = get_context();
+        
 
             struct ggml_tensor* out = wan.forward(&runner_ctx,
                                                   x,

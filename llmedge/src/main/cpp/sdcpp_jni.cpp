@@ -262,7 +262,9 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     p.n_threads = nThreads > 0 ? nThreads : get_num_physical_cores();
     p.offload_params_to_cpu = offloadToCpu;
     p.keep_clip_on_cpu = keepClipOnCpu;
+    p.keep_clip_on_cpu = keepClipOnCpu;
     p.keep_vae_on_cpu = keepVaeOnCpu;
+    p.diffusion_flash_attn = true;
 
     sd_ctx_t* ctx = new_sd_ctx(&p);
 
