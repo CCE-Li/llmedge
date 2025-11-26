@@ -30,18 +30,111 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
     internal interface NativeBridge {
         fun txt2img(
-            handle: Long,
-            prompt: String,
-            negative: String,
-            width: Int,
-            height: Int,
-            steps: Int,
-            cfg: Float,
-            seed: Long
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long
         ): ByteArray?
 
         fun txt2vid(
-            handle: Long,
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                videoFrames: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                scheduler: Scheduler,
+                strength: Float,
+                initImage: ByteArray?,
+                initWidth: Int,
+                initHeight: Int
+        ): Array<ByteArray>?
+
+        fun precomputeCondition(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                clipSkip: Int
+        ): PrecomputedCondition?
+
+        fun txt2vidWithPrecomputedCondition(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                videoFrames: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                scheduler: Scheduler,
+                strength: Float,
+                initImage: ByteArray?,
+                initWidth: Int,
+                initHeight: Int,
+                cond: PrecomputedCondition?,
+                uncond: PrecomputedCondition?
+        ): Array<ByteArray>?
+
+        fun setProgressCallback(handle: Long, callback: VideoProgressCallback?)
+        fun cancelGeneration(handle: Long)
+
+        fun txt2ImgWithPrecomputedCondition(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                cond: PrecomputedCondition?,
+                uncond: PrecomputedCondition?
+        ): ByteArray?
+    }
+
+    /** Generates an image from text. */
+    fun txt2img(
+            prompt: String,
+            negative: String = "",
+            width: Int = 512,
+            height: Int = 512,
+            steps: Int = 20,
+            cfg: Float = 7.0f,
+            seed: Long = 42L
+    ): ByteArray? {
+        return nativeBridge.txt2img(handle, prompt, negative, width, height, steps, cfg, seed)
+    }
+
+    // Correction: txt2vid signature in NativeBridge takes initImage: ByteArray?, initWidth: Int,
+    // initHeight: Int.
+    // VideoGenerateParams has initImage: Bitmap?.
+    // I need to convert Bitmap to ByteArray (RGB/RGBA?) and get dims.
+    // For now, to avoid complexity in this file, I will change the public wrapper to take explicit
+    // args or handle it.
+    // But LLMEdgeManager calls it with VideoGenerateParams.
+    // Let's look at VideoGenerateParams definition again.
+    // It has `val initImage: Bitmap? = null`.
+
+    // I will implement a simple bitmapToBytes here or use a helper if available.
+    // Since I can't easily see ImageUtils, I'll use a standard Android way if possible, or just
+    // pass null for now if I can't convert.
+    // But wait, the user wants it to work.
+    // I'll assume for now that I can use a simple buffer copy if I had the bitmap.
+    // Let's defer the Bitmap conversion to the caller or add a simple one.
+    // Actually, LLMEdgeManager passes VideoGenerateParams.
+    // I'll overload txt2vid or just implement it.
+
+    fun txt2vid(
             prompt: String,
             negative: String,
             width: Int,
@@ -55,296 +148,48 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             initImage: ByteArray?,
             initWidth: Int,
             initHeight: Int
-        ): Array<ByteArray>?
-
-        fun precomputeCondition(
-            handle: Long,
-            prompt: String,
-            negative: String,
-            width: Int,
-            height: Int,
-            clipSkip: Int
-        ): PrecomputedCondition?
-
-        fun txt2vidWithPrecomputedCondition(
-            handle: Long,
-            prompt: String,
-            negative: String,
-            width: Int,
-            height: Int,
-            videoFrames: Int,
-            steps: Int,
-            cfg: Float,
-            seed: Long,
-            scheduler: Scheduler,
-            strength: Float,
-            initImage: ByteArray?,
-            initWidth: Int,
-            initHeight: Int,
-            cond: PrecomputedCondition?,
-            uncond: PrecomputedCondition?
-        ): Array<ByteArray>?
-
-        fun setProgressCallback(handle: Long, callback: VideoProgressCallback?)
-        fun cancelGeneration(handle: Long)
-
-        fun txt2ImgWithPrecomputedCondition(
-            handle: Long,
-            prompt: String,
-            negative: String,
-            width: Int,
-            height: Int,
-            steps: Int,
-            cfg: Float,
-            seed: Long,
-            cond: PrecomputedCondition?,
-            uncond: PrecomputedCondition?
-        ): ByteArray?
-    }
-
-    }
-
-    /**
-     * Generates an image from text.
-     */
-    fun txt2img(
-        prompt: String,
-        negative: String = "",
-        width: Int = 512,
-        height: Int = 512,
-        steps: Int = 20,
-        cfg: Float = 7.0f,
-        seed: Long = 42L
-    ): ByteArray? {
-        return nativeBridge.txt2img(handle, prompt, negative, width, height, steps, cfg, seed)
-    }
-
-    /**
-     * Generates a video from text.
-     */
-    fun txt2vid(
-        params: VideoGenerateParams
     ): Array<ByteArray>? {
         return nativeBridge.txt2vid(
-            handle,
-            params.prompt,
-            params.negative,
-            params.width,
-            params.height,
-            params.videoFrames,
-            params.steps,
-            params.cfgScale,
-            params.seed,
-            params.scheduler,
-            params.strength,
-            params.initImage?.let { io.aatricks.llmedge.vision.ImageUtils.bitmapToBytes(it) }, // Helper needed? Or assume ByteArray?
-            // Wait, VideoGenerateParams takes Bitmap for initImage. 
-            // nativeBridge takes ByteArray. I need to convert.
-            // But I don't have ImageUtils imported here or available easily?
-            // Let's check imports.
-            // import android.graphics.Bitmap is there.
-            // I can do a simple conversion if needed, or pass null if not supported yet.
-            // Actually, let's look at how it was done before.
-            // The JNI expects ByteArray.
-            // I'll add a helper or do it inline.
-            params.width, // initWidth - assuming same as target for now or 0 if null
-            params.height // initHeight
-        )
-    }
-    
-    // Correction: txt2vid signature in NativeBridge takes initImage: ByteArray?, initWidth: Int, initHeight: Int.
-    // VideoGenerateParams has initImage: Bitmap?.
-    // I need to convert Bitmap to ByteArray (RGB/RGBA?) and get dims.
-    // For now, to avoid complexity in this file, I will change the public wrapper to take explicit args or handle it.
-    // But LLMEdgeManager calls it with VideoGenerateParams.
-    // Let's look at VideoGenerateParams definition again.
-    // It has `val initImage: Bitmap? = null`.
-    
-    // I will implement a simple bitmapToBytes here or use a helper if available.
-    // Since I can't easily see ImageUtils, I'll use a standard Android way if possible, or just pass null for now if I can't convert.
-    // But wait, the user wants it to work.
-    // I'll assume for now that I can use a simple buffer copy if I had the bitmap.
-    // Let's defer the Bitmap conversion to the caller or add a simple one.
-    // Actually, LLMEdgeManager passes VideoGenerateParams.
-    // I'll overload txt2vid or just implement it.
-    
-    fun txt2vid(
-        prompt: String,
-        negative: String,
-        width: Int,
-        height: Int,
-        videoFrames: Int,
-        steps: Int,
-        cfg: Float,
-        seed: Long,
-        scheduler: Scheduler,
-        strength: Float,
-        initImage: ByteArray?,
-        initWidth: Int,
-        initHeight: Int
-    ): Array<ByteArray>? {
-        return nativeBridge.txt2vid(
-            handle, prompt, negative, width, height, videoFrames, steps, cfg, seed, scheduler, strength, initImage, initWidth, initHeight
-        )
-    }
-
-    fun precomputeCondition(
-        prompt: String,
-        negative: String,
-        width: Int,
-        height: Int,
-        clipSkip: Int = -1
-    ): PrecomputedCondition? {
-        return nativeBridge.precomputeCondition(handle, prompt, negative, width, height, clipSkip)
-    }
-
-    fun txt2VidWithPrecomputedCondition(
-        params: VideoGenerateParams,
-        cond: PrecomputedCondition?,
-        uncond: PrecomputedCondition?,
-        onProgress: VideoProgressCallback? = null
-    ): List<Bitmap> { // Changed return type to List<Bitmap> to match usage? No, Native returns Array<ByteArray>.
-        // LLMEdgeManager expects List<Bitmap>.
-        // I should probably return Array<ByteArray> here and let LLMEdgeManager convert.
-        // But LLMEdgeManager calls: return diffusionModel.txt2VidWithPrecomputedCondition(...)
-        // And expects List<Bitmap>.
-        // So I should do the conversion here.
-        
-        setProgressCallback(onProgress)
-        
-        // Convert initImage if present
-        val initImgBytes = params.initImage?.let { 
-            val buffer = java.nio.ByteBuffer.allocate(it.byteCount)
-            it.copyPixelsToBuffer(buffer)
-            buffer.array()
-        }
-        val initW = params.initImage?.width ?: 0
-        val initH = params.initImage?.height ?: 0
-
-        val resultBytes = nativeBridge.txt2vidWithPrecomputedCondition(
-            handle,
-            params.prompt,
-            params.negative,
-            params.width,
-            params.height,
-            params.videoFrames,
-            params.steps,
-            params.cfgScale,
-            params.seed,
-            params.scheduler,
-            params.strength,
-            initImgBytes,
-            initW,
-            initH,
-            cond,
-            uncond
-        )
-        
-        return resultBytes?.map { bytes ->
-            // Convert RGB bytes to Bitmap
-            // Assuming RGB format from native
-            val bmp = Bitmap.createBitmap(params.width, params.height, Bitmap.Config.ARGB_8888)
-            // This is tricky without knowing exact format (RGB vs RGBA). 
-            // Usually sdcpp returns RGB. Android Bitmap needs ARGB or RGB_565.
-            // I'll assume I need to convert.
-            // For now, let's return null or empty list if conversion logic is too complex for this snippet.
-            // Or better, return the raw bytes and let LLMEdgeManager handle it?
-            // No, LLMEdgeManager expects List<Bitmap>.
-            // I'll use a placeholder conversion or just return empty for now to satisfy compilation.
-            // Actually, I can try to use a helper if I can find one.
-            // Let's stick to returning Array<ByteArray>?
-            // No, LLMEdgeManager expects List<Bitmap>.
-            // I will change LLMEdgeManager to expect Array<ByteArray> or handle conversion there.
-            // But I can't change LLMEdgeManager easily in this step (I'm editing StableDiffusion.kt).
-            // I'll return Array<ByteArray> from this method and update LLMEdgeManager to handle it.
-            // Wait, Kotlin allows overloading.
-            // I'll define this method to return Array<ByteArray>? matching NativeBridge.
-            // And update LLMEdgeManager to convert.
-            // This is safer.
-            // So:
-            
-            // Wait, I need to match the signature LLMEdgeManager calls.
-            // LLMEdgeManager calls: diffusionModel.txt2VidWithPrecomputedCondition(params, cond, uncond, onProgress)
-            // I'll define that one.
-             
-             // Placeholder return
-             // return emptyList()
-             
-             // Let's try to implement it properly.
-             // But I don't have the byte-to-bitmap logic handy here.
-             // I'll return Array<ByteArray>? and fix LLMEdgeManager.
-             // But LLMEdgeManager is already written to expect List<Bitmap> (inferred from return type).
-             // I'll check LLMEdgeManager again.
-             // Line 438: return diffusionModel.txt2VidWithPrecomputedCondition(...)
-             // Line 371: ): List<Bitmap>
-             // So yes, it expects List<Bitmap>.
-             
-             // I will implement a basic conversion here assuming RGBA or similar, or just return null for now and mark TODO.
-             // Actually, I'll return Array<ByteArray>? and change LLMEdgeManager to convert.
-             // That seems cleaner.
-             
-             // So I will define:
-             /*
-             fun txt2VidWithPrecomputedCondition(
-                params: VideoGenerateParams,
-                cond: PrecomputedCondition?,
-                uncond: PrecomputedCondition?,
-                onProgress: VideoProgressCallback? = null
-            ): Array<ByteArray>?
-             */
-             
-             // And I will define txt2ImgWithPrecomputedCondition as well.
-             
-             // Let's go.
-             
-             return nativeBridge.txt2vidWithPrecomputedCondition(
                 handle,
-                params.prompt,
-                params.negative,
-                params.width,
-                params.height,
-                params.videoFrames,
-                params.steps,
-                params.cfgScale,
-                params.seed,
-                params.scheduler,
-                params.strength,
-                initImgBytes,
-                initW,
-                initH,
-                cond,
-                uncond
-            )?.map { 
-                // Placeholder conversion: create a black bitmap
-                Bitmap.createBitmap(params.width, params.height, Bitmap.Config.ARGB_8888)
-                // TODO: Real conversion
-            } ?: emptyList()
+                prompt,
+                negative,
+                width,
+                height,
+                videoFrames,
+                steps,
+                cfg,
+                seed,
+                scheduler,
+                strength,
+                initImage,
+                initWidth,
+                initHeight
+        )
     }
 
     fun txt2ImgWithPrecomputedCondition(
-        prompt: String,
-        negative: String,
-        width: Int,
-        height: Int,
-        steps: Int,
-        cfg: Float,
-        seed: Long,
-        cond: PrecomputedCondition?,
-        uncond: PrecomputedCondition?
+            prompt: String,
+            negative: String,
+            width: Int,
+            height: Int,
+            steps: Int,
+            cfg: Float,
+            seed: Long,
+            cond: PrecomputedCondition?,
+            uncond: PrecomputedCondition?
     ): ByteArray? {
         return nativeBridge.txt2ImgWithPrecomputedCondition(
-            handle, prompt, negative, width, height, steps, cfg, seed, cond, uncond
+                handle,
+                prompt,
+                negative,
+                width,
+                height,
+                steps,
+                cfg,
+                seed,
+                cond,
+                uncond
         )
-    }
-
-    fun setProgressCallback(callback: VideoProgressCallback?) {
-        cachedProgressCallback = callback
-        nativeBridge.setProgressCallback(handle, callback)
-    }
-
-    fun cancelGeneration() {
-        cancellationRequested.set(true)
-        nativeBridge.cancelGeneration(handle)
     }
 
     companion object {
@@ -520,50 +365,50 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 }
 
                 override fun txt2ImgWithPrecomputedCondition(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    steps: Int,
-                    cfg: Float,
-                    seed: Long,
-                    cond: PrecomputedCondition?,
-                    uncond: PrecomputedCondition?
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        steps: Int,
+                        cfg: Float,
+                        seed: Long,
+                        cond: PrecomputedCondition?,
+                        uncond: PrecomputedCondition?
                 ): ByteArray? {
                     val condArr =
-                        cond?.let {
-                            arrayOf<Any?>(
-                                it.cCrossAttn,
-                                it.cCrossAttnDims,
-                                it.cVector,
-                                it.cVectorDims,
-                                it.cConcat,
-                                it.cConcatDims
-                            )
-                        }
+                            cond?.let {
+                                arrayOf<Any?>(
+                                        it.cCrossAttn,
+                                        it.cCrossAttnDims,
+                                        it.cVector,
+                                        it.cVectorDims,
+                                        it.cConcat,
+                                        it.cConcatDims
+                                )
+                            }
                     val uncondArr =
-                        uncond?.let {
-                            arrayOf<Any?>(
-                                it.cCrossAttn,
-                                it.cCrossAttnDims,
-                                it.cVector,
-                                it.cVectorDims,
-                                it.cConcat,
-                                it.cConcatDims
-                            )
-                        }
+                            uncond?.let {
+                                arrayOf<Any?>(
+                                        it.cCrossAttn,
+                                        it.cCrossAttnDims,
+                                        it.cVector,
+                                        it.cVectorDims,
+                                        it.cConcat,
+                                        it.cConcatDims
+                                )
+                            }
                     return instance.nativeTxt2ImgWithPrecomputedCondition(
-                        handle,
-                        prompt,
-                        negative,
-                        width,
-                        height,
-                        steps,
-                        cfg,
-                        seed,
-                        condArr,
-                        uncondArr
+                            handle,
+                            prompt,
+                            negative,
+                            width,
+                            height,
+                            steps,
+                            cfg,
+                            seed,
+                            condArr,
+                            uncondArr
                     )
                 }
             }
@@ -632,20 +477,6 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         ): LongArray?
 
         @JvmStatic private external fun nativeCheckBindings(): Boolean
-
-        @JvmStatic
-        private external fun nativeTxt2ImgWithPrecomputedCondition(
-            handle: Long,
-            prompt: String,
-            negative: String,
-            width: Int,
-            height: Int,
-            steps: Int,
-            cfg: Float,
-            seed: Long,
-            cond: Array<Any?>,
-            uncond: Array<Any?>?
-        ): ByteArray?
 
         private suspend fun inferVideoModelMetadata(
                 resolvedModelPath: String,
@@ -1183,107 +1014,6 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             val filename: String,
     )
 
-        fun txt2ImgWithPrecomputedCondition(
-            handle: Long,
-            prompt: String,
-            negative: String,
-            width: Int,
-            height: Int,
-            steps: Int,
-            cfg: Float,
-            seed: Long,
-            cond: PrecomputedCondition?,
-            uncond: PrecomputedCondition?
-        ): ByteArray?
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                steps: Int,
-                cfg: Float,
-                seed: Long,
-        ): ByteArray?
-
-        fun txt2vid(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                videoFrames: Int,
-                steps: Int,
-                cfg: Float,
-                seed: Long,
-                scheduler: Scheduler,
-                strength: Float,
-                initImage: ByteArray?,
-                initWidth: Int,
-                initHeight: Int,
-        ): Array<ByteArray>?
-
-        /**
-         * Precompute text conditioning for the provided prompt and related settings. By default it
-         * returns null; defaultNativeBridgeProvider implements it by forwarding to the native
-         * precompute binding and converting the result.
-         */
-        fun precomputeCondition(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                clipSkip: Int,
-        ): PrecomputedCondition? {
-            return null
-        }
-
-        /**
-         * Generate video using precomputed conditions (cond / uncond). Default implementation falls
-         * back to txt2vid (ignoring precomputed arrays).
-         */
-        fun txt2vidWithPrecomputedCondition(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                videoFrames: Int,
-                steps: Int,
-                cfg: Float,
-                seed: Long,
-                scheduler: Scheduler,
-                strength: Float,
-                initImage: ByteArray?,
-                initWidth: Int,
-                initHeight: Int,
-                cond: PrecomputedCondition?,
-                uncond: PrecomputedCondition?,
-        ): Array<ByteArray>? {
-            // Fallback: ignore precomputed condition and call plain txt2vid
-            return txt2vid(
-                    handle,
-                    prompt,
-                    negative,
-                    width,
-                    height,
-                    videoFrames,
-                    steps,
-                    cfg,
-                    seed,
-                    scheduler,
-                    strength,
-                    initImage,
-                    initWidth,
-                    initHeight
-            )
-        }
-
-        fun setProgressCallback(handle: Long, callback: VideoProgressCallback?)
-
-        fun cancelGeneration(handle: Long)
-    }
-
     internal fun updateModelMetadata(metadata: VideoModelMetadata?) {
         modelMetadata = metadata
     }
@@ -1531,6 +1261,19 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             uncond: Array<Any?>?,
     ): Array<ByteArray>?
 
+    private external fun nativeTxt2ImgWithPrecomputedCondition(
+            handle: Long,
+            prompt: String,
+            negative: String,
+            width: Int,
+            height: Int,
+            steps: Int,
+            cfg: Float,
+            seed: Long,
+            cond: Array<Any?>?,
+            uncond: Array<Any?>?
+    ): ByteArray?
+
     private fun bitmapToRgbBytes(bitmap: Bitmap): Triple<ByteArray, Int, Int> {
         val safeBitmap =
                 if (bitmap.config == Bitmap.Config.ARGB_8888) {
@@ -1593,7 +1336,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
      */
     suspend fun txt2VidWithPrecomputedCondition(
             params: VideoGenerateParams,
-            cond: PrecomputedCondition,
+            cond: PrecomputedCondition?,
             uncond: PrecomputedCondition? = null,
             onProgress: VideoProgressCallback? = null,
     ): List<Bitmap> =
@@ -1798,23 +1541,19 @@ object SimpleGenerator {
         try {
             if (isVideo) {
                 val params = StableDiffusion.VideoGenerateParams(prompt = prompt)
-                val framesBytes = sd.txt2vid(params)
+                val frames = sd.txt2vid(params)
                 val outputFile =
                         File(outputDir, "video_${System.currentTimeMillis()}.png") // Placeholder
-                
-                framesBytes?.firstOrNull()?.let { bytes ->
-                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+
+                frames.firstOrNull()?.let { bmp ->
                     bmp.compress(Bitmap.CompressFormat.PNG, 100, outputFile.outputStream())
                 }
                 return outputFile
             } else {
                 val params = StableDiffusion.GenerateParams(prompt = prompt)
-                val bytes = sd.txt2img(params.prompt, params.negative, params.width, params.height, params.steps, params.cfgScale, params.seed)
+                val bmp = sd.txt2img(params)
                 val outputFile = File(outputDir, "image_${System.currentTimeMillis()}.png")
-                bytes?.let {
-                    val bmp = BitmapFactory.decodeByteArray(it, 0, it.size)
-                    bmp.compress(Bitmap.CompressFormat.PNG, 100, outputFile.outputStream())
-                }
+                bmp.compress(Bitmap.CompressFormat.PNG, 100, outputFile.outputStream())
                 return outputFile
             }
         } finally {
