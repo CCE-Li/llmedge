@@ -677,7 +677,7 @@ object LLMEdgeManager {
                                 vaePath = null, // VAE is baked into MeinaMix
                                 t5xxlPath = null, // Not needed for MeinaMix
                                 nThreads = Runtime.getRuntime().availableProcessors(),
-                                offloadToCpu = true, // Initial load on CPU
+                                offloadToCpu = false, // Try to use GPU/Vulkan
                                 keepClipOnCpu = true,
                                 keepVaeOnCpu = true,
                                 flashAttn = flashAttn
@@ -710,7 +710,7 @@ object LLMEdgeManager {
                                 vaePath = vaeFile.absolutePath,
                                 t5xxlPath = t5File.absolutePath,
                                 nThreads = Runtime.getRuntime().availableProcessors(),
-                                offloadToCpu = true, // Initial load on CPU
+                                offloadToCpu = false, // Try to use GPU/Vulkan
                                 keepClipOnCpu = true,
                                 keepVaeOnCpu = true,
                                 flashAttn = flashAttn

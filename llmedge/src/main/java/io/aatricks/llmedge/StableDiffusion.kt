@@ -720,7 +720,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 LOG_TAG,
                                 "Enabling sequential load for low memory optimization"
                         )
-                        effectiveOffloadToCpu = true
+                        // effectiveOffloadToCpu = true // Don't force CPU offload, allow GPU if
+                        // requested
                         effectiveKeepClipOnCpu = true
                         effectiveKeepVaeOnCpu = true
                     }
