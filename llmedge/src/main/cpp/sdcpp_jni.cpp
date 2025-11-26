@@ -778,8 +778,110 @@ Java_io_aatricks_llmedge_StableDiffusion_nativePrecomputeCondition(
     return result;
 }
 
-// JNI wrapper: generate video using precomputed conditions (cond and optionally uncond)
-// condArr/uncondArr are Object[] with layout matching nativePrecomputeCondition result
+
+// Helper to reconstruct sd_condition_raw_t from Java Object[]
+static sd_condition_raw_t* reconstruct_condition(JNIEnv* env, jobjectArray condArr) {
+    if (!condArr) return nullptr;
+    
+    // Layout: [float[] cross, int[] crossDims, float[] vector, int[] vectorDims, float[] concat, int[] concatDims]
+    if (env->GetArrayLength(condArr) < 6) return nullptr;
+
+    auto* cond = (sd_condition_raw_t*)calloc(1, sizeof(sd_condition_raw_t));
+
+    auto extract_tensor = [&](int data_idx, int dims_idx, sd_tensor_raw_t& raw) {
+        jfloatArray dataArr = (jfloatArray)env->GetObjectArrayElement(condArr, data_idx);
+        jintArray dimsArr = (jintArray)env->GetObjectArrayElement(condArr, dims_idx);
+
+        if (dataArr && dimsArr) {
+            jsize dataLen = env->GetArrayLength(dataArr);
+            jsize dimsLen = env->GetArrayLength(dimsArr);
+            
+            raw.ndims = std::min((int)dimsLen, 4);
+            jint* dims = env->GetIntArrayElements(dimsArr, nullptr);
+            for(int i=0; i<raw.ndims; ++i) raw.ne[i] = dims[i];
+            env->ReleaseIntArrayElements(dimsArr, dims, JNI_ABORT);
+            
+            raw.data = (float*)malloc(dataLen * sizeof(float));
+            jfloat* data = env->GetFloatArrayElements(dataArr, nullptr);
+            memcpy(raw.data, data, dataLen * sizeof(float));
+            env->ReleaseFloatArrayElements(dataArr, data, JNI_ABORT);
+        } else {
+            raw.ndims = 0;
+            raw.data = nullptr;
+        }
+    };
+
+    extract_tensor(0, 1, cond->c_crossattn);
+    extract_tensor(2, 3, cond->c_vector);
+    extract_tensor(4, 5, cond->c_concat);
+
+    return cond;
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
+        JNIEnv* env, jobject thiz, jlong handlePtr,
+        jstring jPrompt, jstring jNegative,
+        jint width, jint height,
+        jint steps, jfloat cfg, jlong seed,
+        jobjectArray condArr, jobjectArray uncondArr) {
+    (void)thiz;
+    if (handlePtr == 0) {
+        ALOGE("StableDiffusion not initialized");
+        return nullptr;
+    }
+    auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
+    
+    // Reconstruct conditions
+    sd_condition_raw_t* cond = reconstruct_condition(env, condArr);
+    sd_condition_raw_t* uncond = reconstruct_condition(env, uncondArr);
+    
+    if (!cond) {
+        ALOGE("Failed to reconstruct condition");
+        if (uncond) sd_free_condition(uncond);
+        return nullptr;
+    }
+
+    sd_sample_params_t sample{};
+    sd_sample_params_init(&sample);
+    if (steps > 0) sample.sample_steps = steps;
+    sample.guidance.txt_cfg = cfg > 0 ? cfg : 7.0f;
+
+    sd_img_gen_params_t gen{};
+    sd_img_gen_params_init(&gen);
+    gen.width = width;
+    gen.height = height;
+    gen.sample_params = sample;
+    gen.seed = seed;
+    gen.batch_count = 1;
+
+    sd_image_t* out = sd_generate_image_with_precomputed_condition(handle->ctx, &gen, cond, uncond);
+
+    // Cleanup reconstructed conditions
+    sd_free_condition(cond);
+    if (uncond) sd_free_condition(uncond);
+
+    if (!out || !out[0].data) {
+        ALOGE("generate_image failed");
+        if (out) free(out);
+        return nullptr;
+    }
+
+    const size_t byteCount = (size_t)out[0].width * out[0].height * out[0].channel;
+    jbyteArray jbytes = env->NewByteArray((jsize)byteCount);
+    if (!jbytes) {
+        free(out[0].data);
+        free(out);
+        return nullptr;
+    }
+    env->SetByteArrayRegion(jbytes, 0, (jsize)byteCount, reinterpret_cast<jbyte*>(out[0].data));
+
+    free(out[0].data);
+    free(out);
+
+    return jbytes;
+}
+
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
         JNIEnv* env, jobject thiz, jlong handlePtr,
@@ -789,7 +891,6 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
         jint jScheduler, jfloat jStrength,
         jbyteArray jInitImage, jint initWidth, jint initHeight,
         jobjectArray condArr, jobjectArray uncondArr) {
-    ALOGE("!!! CUSTOM DEBUG BUILD - FIX APPLIED !!!");
     (void)thiz;
     if (handlePtr == 0) {
         throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion not initialized");
