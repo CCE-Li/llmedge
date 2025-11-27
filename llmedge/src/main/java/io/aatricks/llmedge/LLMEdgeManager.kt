@@ -40,12 +40,29 @@ object LLMEdgeManager {
         private const val DEFAULT_VISION_MODEL_FILENAME = "llava-phi-3-mini-int4.gguf"
         private const val DEFAULT_VISION_PROJ_FILENAME = "llava-phi-3-mini-mmproj-f16.gguf"
 
-        private val loadMutex = Mutex()
+        private val textModelMutex = Mutex() // For SmolLM text generation
+        private val diffusionModelMutex = Mutex() // For Stable Diffusion image/video generation
+
+        // Phase 3: Model caching with LRU eviction
+        private val textModelCache =
+                ModelCache<io.aatricks.llmedge.SmolLM>(
+                        maxCacheSize = 2,
+                        maxMemoryMB = 2048L // 2GB max for text models
+                )
+        private val diffusionModelCache =
+                ModelCache<StableDiffusion>(
+                        maxCacheSize = 1,
+                        maxMemoryMB = 4096L // 4GB max for diffusion models
+                )
+
         @Volatile private var cachedModel: StableDiffusion? = null
         @Volatile private var cachedSmolLM: io.aatricks.llmedge.SmolLM? = null
         @Volatile private var cachedOcrEngine: io.aatricks.llmedge.vision.ocr.MlKitOcrEngine? = null
         @Volatile private var isLoading = false
         private var contextRef: WeakReference<Context>? = null
+
+        // Phase 3: Core topology for optimal threading
+        private val coreInfo by lazy { CpuTopology.detectCoreTopology() }
 
         // Track currently loaded text model to allow switching
         private data class LoadedTextModelSpec(
@@ -102,13 +119,102 @@ object LLMEdgeManager {
                 val projFilename: String = DEFAULT_VISION_PROJ_FILENAME
         )
 
+        /** Information about Vulkan GPU device capabilities */
+        data class VulkanDeviceInfo(
+                val deviceCount: Int,
+                val totalMemoryMB: Long,
+                val freeMemoryMB: Long,
+                val deviceIndex: Int = 0
+        )
+
+        /** Combined performance snapshot from all models */
+        data class PerformanceSnapshot(
+                val textMetrics: io.aatricks.llmedge.SmolLM.GenerationMetrics?,
+                val diffusionMetrics: io.aatricks.llmedge.StableDiffusion.GenerationMetrics?,
+                val timestamp: Long = System.currentTimeMillis()
+        )
+
+        /** Check if Vulkan GPU acceleration is available on this device */
+        fun isVulkanAvailable(): Boolean {
+                return try {
+                        io.aatricks.llmedge.StableDiffusion.getVulkanDeviceCount() > 0
+                } catch (e: Exception) {
+                        false
+                }
+        }
+
+        /**
+         * Get Vulkan device information (memory, device count) Returns null if Vulkan is not
+         * available
+         */
+        fun getVulkanDeviceInfo(): VulkanDeviceInfo? {
+                return try {
+                        val deviceCount = io.aatricks.llmedge.StableDiffusion.getVulkanDeviceCount()
+                        if (deviceCount <= 0) return null
+
+                        val memory = io.aatricks.llmedge.StableDiffusion.getVulkanDeviceMemory(0)
+                        if (memory == null || memory.size < 2) return null
+
+                        VulkanDeviceInfo(
+                                deviceCount = deviceCount,
+                                freeMemoryMB = memory[0] / (1024 * 1024),
+                                totalMemoryMB = memory[1] / (1024 * 1024),
+                                deviceIndex = 0
+                        )
+                } catch (e: Exception) {
+                        null
+                }
+        }
+
+        /** Get combined performance metrics from both text and diffusion models */
+        fun getPerformanceSnapshot(): PerformanceSnapshot {
+                return PerformanceSnapshot(
+                        textMetrics = cachedSmolLM?.getLastGenerationMetrics(),
+                        diffusionMetrics = cachedModel?.getLastGenerationMetrics()
+                )
+        }
+
+        /** Log performance snapshot to Android logcat for debugging */
+        fun logPerformanceSnapshot() {
+                val snapshot = getPerformanceSnapshot()
+                val vulkanInfo = getVulkanDeviceInfo()
+
+                Log.i(TAG, "=== Performance Snapshot ===")
+
+                snapshot.textMetrics?.let { metrics ->
+                        Log.i(
+                                TAG,
+                                "Text Generation: ${metrics.tokensPerSecond} tok/s, " +
+                                        "${metrics.tokenCount} tokens, ${metrics.elapsedMillis}ms"
+                        )
+                }
+
+                snapshot.diffusionMetrics?.let { metrics ->
+                        Log.i(
+                                TAG,
+                                "Diffusion: ${metrics.stepsPerSecond} steps/s, " +
+                                        "${metrics.totalTimeSeconds}s total"
+                        )
+                }
+
+                vulkanInfo?.let { info ->
+                        Log.i(
+                                TAG,
+                                "Vulkan: ${info.deviceCount} device(s), " +
+                                        "${info.freeMemoryMB}MB free / ${info.totalMemoryMB}MB total"
+                        )
+                }
+
+                Log.i(TAG, "===========================")
+        }
+
         /** Generates text using a local LLM. */
         suspend fun generateText(
                 context: Context,
                 params: TextGenerationParams,
                 onProgress: ((String) -> Unit)? = null
         ): String =
-                loadMutex.withLock {
+                textModelMutex.withLock {
                         contextRef = WeakReference(context.applicationContext)
 
                         // Unload heavy diffusion models if loaded to free up memory
@@ -160,7 +266,7 @@ object LLMEdgeManager {
          * cases like RAG.
          */
         suspend fun getSmolLM(context: Context): io.aatricks.llmedge.SmolLM {
-                return loadMutex.withLock {
+                return textModelMutex.withLock {
                         contextRef = WeakReference(context.applicationContext)
                         unloadDiffusionModel()
                         getOrLoadSmolLM(context, DEFAULT_TEXT_MODEL_ID, DEFAULT_TEXT_MODEL_FILENAME)
@@ -172,7 +278,7 @@ object LLMEdgeManager {
          * want to manage the loading process themselves (e.g. HuggingFaceDemoActivity).
          */
         suspend fun getSmolLMInstance(context: Context): io.aatricks.llmedge.SmolLM {
-                return loadMutex.withLock {
+                return textModelMutex.withLock {
                         contextRef = WeakReference(context.applicationContext)
                         unloadDiffusionModel()
                         if (cachedSmolLM == null) {
@@ -184,7 +290,7 @@ object LLMEdgeManager {
 
         /** Extracts text from an image using OCR. */
         suspend fun extractText(context: Context, image: Bitmap): String =
-                loadMutex.withLock {
+                textModelMutex.withLock {
                         val engine = getOrLoadOcrEngine(context)
                         val result =
                                 engine.extractText(
@@ -199,7 +305,7 @@ object LLMEdgeManager {
                 params: VisionAnalysisParams,
                 onProgress: ((String) -> Unit)? = null
         ): String =
-                loadMutex.withLock {
+                textModelMutex.withLock {
                         contextRef = WeakReference(context.applicationContext)
 
                         // Unload heavy diffusion models
@@ -302,7 +408,7 @@ object LLMEdgeManager {
                 params: ImageGenerationParams,
                 onProgress: ((String, Int, Int) -> Unit)? = null
         ): Bitmap? =
-                loadMutex.withLock {
+                diffusionModelMutex.withLock {
                         contextRef = WeakReference(context.applicationContext)
                         unloadSmolLM() // Free up memory from LLM
 
@@ -316,7 +422,13 @@ object LLMEdgeManager {
                                 // For now, just use standard load as MeinaMix is smaller than Wan
                                 // 2.1
                                 val model =
-                                        getOrLoadImageModel(context, params.flashAttn, onProgress)
+                                        getOrLoadImageModel(
+                                                context,
+                                                params.flashAttn,
+                                                params.width,
+                                                params.height,
+                                                onProgress
+                                        )
                                 val bytes =
                                         model.txt2img(
                                                 prompt = params.prompt,
@@ -336,7 +448,13 @@ object LLMEdgeManager {
                                 }
                         } else {
                                 val model =
-                                        getOrLoadImageModel(context, params.flashAttn, onProgress)
+                                        getOrLoadImageModel(
+                                                context,
+                                                params.flashAttn,
+                                                params.width,
+                                                params.height,
+                                                onProgress
+                                        )
                                 val bytes =
                                         model.txt2img(
                                                 prompt = params.prompt,
@@ -363,7 +481,7 @@ object LLMEdgeManager {
                 params: VideoGenerationParams,
                 onProgress: ((String, Int, Int) -> Unit)? = null
         ): List<Bitmap> =
-                loadMutex.withLock {
+                diffusionModelMutex.withLock {
                         contextRef = WeakReference(context.applicationContext)
                         unloadSmolLM() // Free up memory from LLM
 
@@ -473,7 +591,6 @@ object LLMEdgeManager {
                 } finally {
                         t5Model?.close()
                         t5Model = null
-                        System.gc()
                 }
 
                 // Load Diffusion
@@ -519,7 +636,6 @@ object LLMEdgeManager {
                         }
                 } finally {
                         diffusionModel?.close()
-                        System.gc()
                 }
         }
 
@@ -581,7 +697,6 @@ object LLMEdgeManager {
                 } finally {
                         t5Model?.close()
                         t5Model = null
-                        System.gc()
                 }
 
                 prepareMemoryForLoading(context)
@@ -643,7 +758,6 @@ object LLMEdgeManager {
                         )
                 } finally {
                         diffusionModel?.close()
-                        System.gc()
                 }
         }
 
@@ -658,6 +772,8 @@ object LLMEdgeManager {
         private suspend fun getOrLoadImageModel(
                 context: Context,
                 flashAttn: Boolean,
+                width: Int = 512,
+                height: Int = 512,
                 onProgress: ((String, Int, Int) -> Unit)?
         ): StableDiffusion {
                 cachedModel?.let {
@@ -667,20 +783,28 @@ object LLMEdgeManager {
                 ensureImageFiles(context, onProgress)
                 prepareMemoryForLoading(context)
 
-                val modelFile =
-                        getFile(context, DEFAULT_IMAGE_MODEL_ID, DEFAULT_IMAGE_MODEL_FILENAME)
+                // Phase 3: Adaptive flash attention based on image dimensions
+                val adaptiveFlashAttn =
+                        FlashAttentionHelper.shouldUseFlashAttention(
+                                width = width,
+                                height = height,
+                                forceEnable = if (flashAttn) true else null
+                        )
+
+                Log.i(
+                        TAG,
+                        "Loading image model with flash_attn=$adaptiveFlashAttn " +
+                                "(requested=$flashAttn, dimensions=${width}x${height})"
+                )
 
                 val model =
                         StableDiffusion.load(
                                 context = context,
-                                modelPath = modelFile.absolutePath,
-                                vaePath = null, // VAE is baked into MeinaMix
-                                t5xxlPath = null, // Not needed for MeinaMix
+                                modelId = DEFAULT_IMAGE_MODEL_ID,
+                                filename = DEFAULT_IMAGE_MODEL_FILENAME,
                                 nThreads = Runtime.getRuntime().availableProcessors(),
                                 offloadToCpu = false, // Try to use GPU/Vulkan
-                                keepClipOnCpu = true,
-                                keepVaeOnCpu = true,
-                                flashAttn = flashAttn
+                                flashAttn = adaptiveFlashAttn
                         )
                 cachedModel = model
                 return model
@@ -725,6 +849,7 @@ object LLMEdgeManager {
                 filename: String,
                 absolutePath: String? = null
         ): io.aatricks.llmedge.SmolLM {
+                // Check existing cache first
                 cachedSmolLM?.let {
                         // Check if the loaded model matches the request
                         val spec = currentTextModelSpec
@@ -748,21 +873,41 @@ object LLMEdgeManager {
                                 getFile(context, modelId, filename)
                         }
 
+                // Phase 3: Check model cache
+                val cacheKey = finalPath.absolutePath
+                textModelCache.get(cacheKey)?.let { cachedModel ->
+                        Log.i(TAG, "Loaded SmolLM from cache: $cacheKey")
+                        cachedSmolLM = cachedModel
+                        currentTextModelSpec = LoadedTextModelSpec(modelId, filename, absolutePath)
+                        return cachedModel
+                }
+
                 val smol = io.aatricks.llmedge.SmolLM()
+
+                // Phase 3: Use core-aware threading
+                val optimalThreads =
+                        CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING)
+
+                Log.i(TAG, "Loading SmolLM with $optimalThreads threads (${coreInfo})")
+                val loadStart = System.currentTimeMillis()
 
                 smol.load(
                         modelPath = finalPath.absolutePath,
                         params =
                                 io.aatricks.llmedge.SmolLM.InferenceParams(
-                                        numThreads =
-                                                Runtime.getRuntime()
-                                                        .availableProcessors()
-                                                        .coerceAtMost(4),
+                                        numThreads = optimalThreads,
                                         // Let SmolLM handle context size automatically based on
                                         // heap
                                         contextSize = null
                                 )
                 )
+
+                val loadTime = System.currentTimeMillis() - loadStart
+                val modelSize = finalPath.length()
+
+                // Cache the loaded model
+                textModelCache.put(cacheKey, smol, modelSize, loadTime)
+
                 cachedSmolLM = smol
                 currentTextModelSpec = LoadedTextModelSpec(modelId, filename, absolutePath)
                 return smol
@@ -803,13 +948,11 @@ object LLMEdgeManager {
         private fun unloadDiffusionModel() {
                 cachedModel?.close()
                 cachedModel = null
-                System.gc()
         }
 
         private fun unloadSmolLM() {
                 cachedSmolLM?.close()
                 cachedSmolLM = null
-                System.gc()
         }
 
         private suspend fun ensureVideoFiles(
@@ -892,8 +1035,7 @@ object LLMEdgeManager {
         }
 
         private fun prepareMemoryForLoading(context: Context) {
-                System.gc()
-                Thread.sleep(100)
-                System.gc()
+                // Native memory is freed immediately on close()
+                // Let Android VM handle GC naturally to avoid blocking delays
         }
 }

@@ -70,6 +70,14 @@ class ImageGenerationTest {
 
                 override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
                 override fun cancelGeneration(handle: Long) {}
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): StableDiffusion.PrecomputedCondition? = null
             }
         }
     }

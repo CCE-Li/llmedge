@@ -21,6 +21,7 @@ import android.os.Build
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -71,19 +72,46 @@ class SmolLMTest {
                 return null
             }
 
-            val located = findInAssets(appContext) ?: findInAssets(instrContext)
-            if (located == null) {
-                assumeTrue(
-                    "Skipping SmolLM instrumentation tests: no GGUF asset found in main/androidTest assets",
-                    false,
-                )
-                return@runTest
+            var located = findInAssets(appContext) ?: findInAssets(instrContext)
+                if (located == null) {
+                    // Attempt to download a small test model using HuggingFace helpers if assets are
+                    // absent. Prefer the system downloader (DownloadManager) on Android devices for
+                    // more robust handling of large files; fall back to the in-app downloader if it
+                    // fails.
+                    try {
+                        val hfModelId = "HuggingFaceTB/SmolLM-135M-Instruct-GGUF"
+                        val downloadRes = try {
+                            HuggingFaceHub.ensureModelOnDisk(
+                                appContext,
+                                hfModelId,
+                                preferSystemDownloader = true,
+                                onProgress = { downloaded, total ->
+                                    Log.i("SmolLMTest", "HF download progress: $downloaded/$total")
+                                }
+                            )
+                        } catch (t: Throwable) {
+                            // Fallback to in-app downloader
+                            HuggingFaceHub.ensureModelOnDisk(appContext, hfModelId)
+                        }
+                        modelFile = downloadRes.file
+                        modelAssetAvailable = true
+                        located = Pair("hf", modelFile.name)
+                    } catch (t: Throwable) {
+                        assumeTrue(
+                            "Skipping SmolLM instrumentation tests: no GGUF asset found in main/androidTest assets and huggingface download failed",
+                            false,
+                        )
+                        return@runTest
+                    }
+                }
             }
 
             val (dir, file) = located
-            val assetPath = if (dir.isEmpty()) file else "$dir/$file"
-            modelFile = copyAssetToCache(appContext, assetPath)
-            modelAssetAvailable = true
+            if (!::modelFile.isInitialized) {
+                val assetPath = if (dir.isEmpty()) file else "$dir/$file"
+                modelFile = copyAssetToCache(appContext, assetPath)
+                modelAssetAvailable = true
+            }
 
             val reader = GGUFReader()
             cachedContextSize = try {

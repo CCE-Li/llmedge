@@ -38,6 +38,7 @@ class WanVideoFullStackTest {
     fun testFullWanVideoGenerationWithT5XXL() {
         runBlocking {
             assumeTrue("Requires arm64 device", Build.SUPPORTED_ABIS.any { it.contains("arm64") })
+            assumeTrue("Native library not loaded", StableDiffusion.isNativeLibraryLoaded())
 
             val instrumentation = InstrumentationRegistry.getInstrumentation()
             val targetContext = instrumentation.targetContext

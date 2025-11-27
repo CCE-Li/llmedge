@@ -58,48 +58,63 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         ): Array<ByteArray>?
 
         fun precomputeCondition(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                clipSkip: Int
-        ): PrecomputedCondition?
+            handle: Long,
+            prompt: String,
+            negative: String,
+            width: Int,
+            height: Int,
+            clipSkip: Int
+        ): PrecomputedCondition? = null
 
         fun txt2vidWithPrecomputedCondition(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                videoFrames: Int,
-                steps: Int,
-                cfg: Float,
-                seed: Long,
-                scheduler: Scheduler,
-                strength: Float,
-                initImage: ByteArray?,
-                initWidth: Int,
-                initHeight: Int,
-                cond: PrecomputedCondition?,
-                uncond: PrecomputedCondition?
-        ): Array<ByteArray>?
+            handle: Long,
+            prompt: String,
+            negative: String,
+            width: Int,
+            height: Int,
+            videoFrames: Int,
+            steps: Int,
+            cfg: Float,
+            seed: Long,
+            scheduler: Scheduler,
+            strength: Float,
+            initImage: ByteArray?,
+            initWidth: Int,
+            initHeight: Int,
+            cond: PrecomputedCondition?,
+            uncond: PrecomputedCondition?
+        ): Array<ByteArray>? = txt2vid(
+            handle,
+            prompt,
+            negative,
+            width,
+            height,
+            videoFrames,
+            steps,
+            cfg,
+            seed,
+            scheduler,
+            strength,
+            initImage,
+            initWidth,
+            initHeight
+        )
 
         fun setProgressCallback(handle: Long, callback: VideoProgressCallback?)
         fun cancelGeneration(handle: Long)
 
         fun txt2ImgWithPrecomputedCondition(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                steps: Int,
-                cfg: Float,
-                seed: Long,
-                cond: PrecomputedCondition?,
-                uncond: PrecomputedCondition?
-        ): ByteArray?
+            handle: Long,
+            prompt: String,
+            negative: String,
+            width: Int,
+            height: Int,
+            steps: Int,
+            cfg: Float,
+            seed: Long,
+            cond: PrecomputedCondition?,
+            uncond: PrecomputedCondition?
+        ): ByteArray? = txt2img(handle, prompt, negative, width, height, steps, cfg, seed)
     }
 
     /** Generates an image from text. */
@@ -200,6 +215,9 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         private const val MAX_FRAME_BATCH = 8
 
         @Volatile private var isNativeLibraryAvailable: Boolean
+        // Flag set by tests when overriding the native bridge to a test mock so we avoid
+        // calling actual JNI functions like nativeDestroy during Android instrumentation tests.
+        private var nativeBridgeOverriddenForTests: Boolean = false
 
         // T098: Model metadata cache to avoid re-parsing GGUF headers
         private val metadataCache = mutableMapOf<String, VideoModelMetadata>()
@@ -434,6 +452,20 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             }
         }
 
+        /**
+         * Helper for tests and runtime checks to verify whether the native sdcpp library is
+         * implemented and correctly linked. This attempts to call the JNI `nativeCheckBindings`
+         * method and returns false if the library is not present.
+         */
+        @JvmStatic
+        fun isNativeLibraryLoaded(): Boolean {
+            return try {
+                nativeCheckBindings()
+            } catch (t: Throwable) {
+                false
+            }
+        }
+
         internal fun enableNativeBridgeForTests() {
             if (!isNativeLibraryAvailable) {
                 isNativeLibraryAvailable = true
@@ -442,10 +474,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
         internal fun overrideNativeBridgeForTests(provider: (StableDiffusion) -> NativeBridge) {
             nativeBridgeProvider = provider
+            nativeBridgeOverriddenForTests = true
         }
 
         internal fun resetNativeBridgeForTests() {
             nativeBridgeProvider = defaultNativeBridgeProvider
+            nativeBridgeOverriddenForTests = false
         }
 
         @JvmStatic
@@ -477,6 +511,33 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         ): LongArray?
 
         @JvmStatic private external fun nativeCheckBindings(): Boolean
+
+        /**
+         * Get the number of Vulkan devices available on this system
+         * @return Number of Vulkan-capable devices, or 0 if Vulkan is not available
+         */
+        @JvmStatic
+        fun getVulkanDeviceCount(): Int {
+            return try {
+                nativeGetVulkanDeviceCount()
+            } catch (e: Throwable) {
+                0
+            }
+        }
+
+        /**
+         * Get Vulkan device memory information
+         * @param deviceIndex Index of the device to query (default 0)
+         * @return LongArray with [freeMemory, totalMemory] in bytes, or null if unavailable
+         */
+        @JvmStatic
+        fun getVulkanDeviceMemory(deviceIndex: Int = 0): LongArray? {
+            return try {
+                nativeGetVulkanDeviceMemory(deviceIndex)
+            } catch (e: Throwable) {
+                null
+            }
+        }
 
         private suspend fun inferVideoModelMetadata(
                 resolvedModelPath: String,
@@ -1193,7 +1254,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         if (cancellationRequested.get()) {
             cancellationRequested.set(false)
         }
-        nativeDestroy(handle)
+        // If tests have overridden the native bridge, the JNI library may not be loaded
+        // so avoid calling nativeDestroy to prevent UnsatisfiedLinkError. See override
+        // helpers in the companion object.
+        if (!Companion.nativeBridgeOverriddenForTests && isNativeLibraryAvailable) {
+            nativeDestroy(handle)
+        }
         modelMetadata = null
     }
 

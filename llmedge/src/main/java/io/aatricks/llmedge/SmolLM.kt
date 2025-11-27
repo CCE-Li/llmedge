@@ -20,44 +20,54 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
+import java.io.File
+import java.io.FileNotFoundException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileNotFoundException
 
 /**
- * Kotlin wrapper for the native LLM runtime. Handles loading models and
- * providing a simple API for running completions and managing model state.
+ * Kotlin wrapper for the native LLM runtime. Handles loading models and providing a simple API for
+ * running completions and managing model state.
  */
-class SmolLM(
-    useVulkan: Boolean = true
-) {
-    
+class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
+
     internal interface NativeBridge {
         fun loadModel(
-            instance: SmolLM,
-            modelPath: String,
-            minP: Float,
-            temperature: Float,
-            storeChats: Boolean,
-            contextSize: Long,
-            chatTemplate: String,
-            nThreads: Int,
-            useMmap: Boolean,
-            useMlock: Boolean,
-            useVulkan: Boolean,
+                instance: SmolLM,
+                modelPath: String,
+                minP: Float,
+                temperature: Float,
+                storeChats: Boolean,
+                contextSize: Long,
+                chatTemplate: String,
+                nThreads: Int,
+                useMmap: Boolean,
+                useMlock: Boolean,
+                useVulkan: Boolean,
         ): Long
 
-        fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int)
+        fun setReasoningOptions(
+                instance: SmolLM,
+                modelPtr: Long,
+                disableThinking: Boolean,
+                reasoningBudget: Int
+        )
         fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String)
         fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float
         fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long
         fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long
         fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int
         fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long
-        fun nativeDecodePreparedEmbeddings(instance: SmolLM, modelPtr: Long, embdPath: String, metaPath: String, nBatch: Int): Boolean
+        fun nativeDecodePreparedEmbeddings(
+                instance: SmolLM,
+                modelPtr: Long,
+                embdPath: String,
+                metaPath: String,
+                nBatch: Int
+        ): Boolean
         fun close(instance: SmolLM, modelPtr: Long)
         fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String)
         fun completionLoop(instance: SmolLM, modelPtr: Long): String
@@ -69,12 +79,13 @@ class SmolLM(
         private const val MIN_CONTEXT_SIZE: Long = 1_024L
         private const val DEFAULT_REASONING_BUDGET: Int = -1
 
-        private val isAndroidLogAvailable: Boolean = try {
-            Class.forName("android.util.Log")
-            true
-        } catch (_: Throwable) {
-            false
-        }
+        private val isAndroidLogAvailable: Boolean =
+                try {
+                    Class.forName("android.util.Log")
+                    true
+                } catch (_: Throwable) {
+                    false
+                }
 
         private fun logD(tag: String, message: String) {
             if (isAndroidLogAvailable) {
@@ -113,134 +124,177 @@ class SmolLM(
             } else {
                 // check if the following CPU features are available,
                 // and load the native library accordingly
-            val cpuFeatures = getCPUFeatures()
-            val hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp")
-            val hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp")
-            val hasSve = cpuFeatures.contains("sve")
-            val hasI8mm = cpuFeatures.contains("i8mm")
-            val isAtLeastArmV82 =
-                cpuFeatures.contains("asimd") &&
-                    cpuFeatures.contains("crc32") &&
-                    cpuFeatures.contains(
-                        "aes",
-                    )
-            val isAtLeastArmV84 = cpuFeatures.contains("dcpop") && cpuFeatures.contains("uscat")
+                val cpuFeatures = getCPUFeatures()
+                val hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp")
+                val hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp")
+                val hasSve = cpuFeatures.contains("sve")
+                val hasI8mm = cpuFeatures.contains("i8mm")
+                val isAtLeastArmV82 =
+                        cpuFeatures.contains("asimd") &&
+                                cpuFeatures.contains("crc32") &&
+                                cpuFeatures.contains(
+                                        "aes",
+                                )
+                val isAtLeastArmV84 = cpuFeatures.contains("dcpop") && cpuFeatures.contains("uscat")
 
-            logD(logTag, "CPU features: $cpuFeatures")
-            logD(logTag, "- hasFp16: $hasFp16")
-            logD(logTag, "- hasDotProd: $hasDotProd")
-            logD(logTag, "- hasSve: $hasSve")
-            logD(logTag, "- hasI8mm: $hasI8mm")
-            logD(logTag, "- isAtLeastArmV82: $isAtLeastArmV82")
-            logD(logTag, "- isAtLeastArmV84: $isAtLeastArmV84")
+                logD(logTag, "CPU features: $cpuFeatures")
+                logD(logTag, "- hasFp16: $hasFp16")
+                logD(logTag, "- hasDotProd: $hasDotProd")
+                logD(logTag, "- hasSve: $hasSve")
+                logD(logTag, "- hasI8mm: $hasI8mm")
+                logD(logTag, "- isAtLeastArmV82: $isAtLeastArmV82")
+                logD(logTag, "- isAtLeastArmV84: $isAtLeastArmV84")
 
-            // Check if the app is running in an emulated device
-            // Note, this is not the OFFICIAL way to check if the app is running
-            // on an emulator
-            val isEmulated =
-                (Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu"))
+                // Check if the app is running in an emulated device
+                // Note, this is not the OFFICIAL way to check if the app is running
+                // on an emulator
+                val isEmulated =
+                        (Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu"))
                 logD(logTag, "isEmulated: $isEmulated")
 
-            if (!isEmulated) {
-                if (supportsArm64V8a()) {
-                    if (isAtLeastArmV84 && hasSve && hasI8mm && hasFp16 && hasDotProd) {
-                        Log.d(logTag, "Loading libsmollm_v8_4_fp16_dotprod_i8mm_sve.so")
-                        System.loadLibrary("smollm_v8_4_fp16_dotprod_i8mm_sve")
-                    } else if (isAtLeastArmV84 && hasSve && hasFp16 && hasDotProd) {
-                        Log.d(logTag, "Loading libsmollm_v8_4_fp16_dotprod_sve.so")
-                        System.loadLibrary("smollm_v8_4_fp16_dotprod_sve")
-                    } else if (isAtLeastArmV84 && hasI8mm && hasFp16 && hasDotProd) {
-                        Log.d(logTag, "Loading libsmollm_v8_4_fp16_dotprod_i8mm.so")
-                        System.loadLibrary("smollm_v8_4_fp16_dotprod_i8mm")
-                    } else if (isAtLeastArmV84 && hasFp16 && hasDotProd) {
-                        Log.d(logTag, "Loading libsmollm_v8_4_fp16_dotprod.so")
-                        System.loadLibrary("smollm_v8_4_fp16_dotprod")
-                    } else if (isAtLeastArmV82 && hasFp16 && hasDotProd) {
-                        Log.d(logTag, "Loading libsmollm_v8_2_fp16_dotprod.so")
-                        System.loadLibrary("smollm_v8_2_fp16_dotprod")
-                    } else if (isAtLeastArmV82 && hasFp16) {
-                        Log.d(logTag, "Loading libsmollm_v8_2_fp16.so")
-                        System.loadLibrary("smollm_v8_2_fp16")
+                if (!isEmulated) {
+                    if (supportsArm64V8a()) {
+                        if (isAtLeastArmV84 && hasSve && hasI8mm && hasFp16 && hasDotProd) {
+                            Log.d(logTag, "Loading libsmollm_v8_4_fp16_dotprod_i8mm_sve.so")
+                            System.loadLibrary("smollm_v8_4_fp16_dotprod_i8mm_sve")
+                        } else if (isAtLeastArmV84 && hasSve && hasFp16 && hasDotProd) {
+                            Log.d(logTag, "Loading libsmollm_v8_4_fp16_dotprod_sve.so")
+                            System.loadLibrary("smollm_v8_4_fp16_dotprod_sve")
+                        } else if (isAtLeastArmV84 && hasI8mm && hasFp16 && hasDotProd) {
+                            Log.d(logTag, "Loading libsmollm_v8_4_fp16_dotprod_i8mm.so")
+                            System.loadLibrary("smollm_v8_4_fp16_dotprod_i8mm")
+                        } else if (isAtLeastArmV84 && hasFp16 && hasDotProd) {
+                            Log.d(logTag, "Loading libsmollm_v8_4_fp16_dotprod.so")
+                            System.loadLibrary("smollm_v8_4_fp16_dotprod")
+                        } else if (isAtLeastArmV82 && hasFp16 && hasDotProd) {
+                            Log.d(logTag, "Loading libsmollm_v8_2_fp16_dotprod.so")
+                            System.loadLibrary("smollm_v8_2_fp16_dotprod")
+                        } else if (isAtLeastArmV82 && hasFp16) {
+                            Log.d(logTag, "Loading libsmollm_v8_2_fp16.so")
+                            System.loadLibrary("smollm_v8_2_fp16")
+                        } else {
+                            Log.d(logTag, "Loading libsmollm_v8.so")
+                            System.loadLibrary("smollm_v8")
+                        }
+                    } else if (Build.SUPPORTED_32_BIT_ABIS[0]?.equals("armeabi-v7a") == true) {
+                        // armv7a (32bit) device
+                        Log.d(logTag, "Loading libsmollm_v7a.so")
+                        System.loadLibrary("smollm_v7a")
                     } else {
-                        Log.d(logTag, "Loading libsmollm_v8.so")
-                        System.loadLibrary("smollm_v8")
+                        Log.d(logTag, "Loading default libsmollm.so")
+                        System.loadLibrary("smollm")
                     }
-                } else if (Build.SUPPORTED_32_BIT_ABIS[0]?.equals("armeabi-v7a") == true) {
-                    // armv7a (32bit) device
-                    Log.d(logTag, "Loading libsmollm_v7a.so")
-                    System.loadLibrary("smollm_v7a")
                 } else {
+                    // load the default native library with no ARM
+                    // specific instructions
                     Log.d(logTag, "Loading default libsmollm.so")
                     System.loadLibrary("smollm")
                 }
-            } else {
-                // load the default native library with no ARM
-                // specific instructions
-                Log.d(logTag, "Loading default libsmollm.so")
-                System.loadLibrary("smollm")
-            }
             }
         }
 
         /**
-         * Reads the /proc/cpuinfo file and returns the line
-         * starting with 'Features :' that containing the available
-         * CPU features
+         * Reads the /proc/cpuinfo file and returns the line starting with 'Features :' that
+         * containing the available CPU features
          */
         private fun getCPUFeatures(): String {
             val cpuInfo =
-                try {
-                    File("/proc/cpuinfo").readText()
-                } catch (e: FileNotFoundException) {
-                    ""
-                }
+                    try {
+                        File("/proc/cpuinfo").readText()
+                    } catch (e: FileNotFoundException) {
+                        ""
+                    }
             val cpuFeatures =
-                cpuInfo
-                    .substringAfter("Features")
-                    .substringAfter(":")
-                    .substringBefore("\n")
-                    .trim()
+                    cpuInfo.substringAfter("Features")
+                            .substringAfter(":")
+                            .substringBefore("\n")
+                            .trim()
             return cpuFeatures
         }
 
         private fun supportsArm64V8a(): Boolean = Build.SUPPORTED_ABIS[0].equals("arm64-v8a")
 
-        
-
         private val defaultNativeBridgeProvider: (SmolLM) -> NativeBridge = { instance ->
             object : NativeBridge {
                 override fun loadModel(
-                    instance: SmolLM,
-                    modelPath: String,
-                    minP: Float,
-                    temperature: Float,
-                    storeChats: Boolean,
-                    contextSize: Long,
-                    chatTemplate: String,
-                    nThreads: Int,
-                    useMmap: Boolean,
-                    useMlock: Boolean,
-                    useVulkan: Boolean,
-                ): Long = instance.loadModel(modelPath, minP, temperature, storeChats, contextSize, chatTemplate, nThreads, useMmap, useMlock, useVulkan)
+                        instance: SmolLM,
+                        modelPath: String,
+                        minP: Float,
+                        temperature: Float,
+                        storeChats: Boolean,
+                        contextSize: Long,
+                        chatTemplate: String,
+                        nThreads: Int,
+                        useMmap: Boolean,
+                        useMlock: Boolean,
+                        useVulkan: Boolean,
+                ): Long =
+                        instance.loadModel(
+                                modelPath,
+                                minP,
+                                temperature,
+                                storeChats,
+                                contextSize,
+                                chatTemplate,
+                                nThreads,
+                                useMmap,
+                                useMlock,
+                                useVulkan
+                        )
 
-                override fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int) = instance.setReasoningOptions(modelPtr, disableThinking, reasoningBudget)
+                override fun setReasoningOptions(
+                        instance: SmolLM,
+                        modelPtr: Long,
+                        disableThinking: Boolean,
+                        reasoningBudget: Int
+                ) = instance.setReasoningOptions(modelPtr, disableThinking, reasoningBudget)
 
-                override fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String) = instance.addChatMessage(modelPtr, message, role)
+                override fun addChatMessage(
+                        instance: SmolLM,
+                        modelPtr: Long,
+                        message: String,
+                        role: String
+                ) = instance.addChatMessage(modelPtr, message, role)
 
-                override fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float = instance.getResponseGenerationSpeed(modelPtr)
-                override fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long = instance.getResponseGeneratedTokenCount(modelPtr)
-                override fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long = instance.getResponseGenerationDurationMicros(modelPtr)
-                override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int = instance.getContextSizeUsed(modelPtr)
-                override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long = instance.getNativeModelPtr(modelPtr)
-                override fun nativeDecodePreparedEmbeddings(instance: SmolLM, modelPtr: Long, embdPath: String, metaPath: String, nBatch: Int): Boolean = instance.nativeDecodePreparedEmbeddings(modelPtr, embdPath, metaPath, nBatch)
+                override fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float =
+                        instance.getResponseGenerationSpeed(modelPtr)
+                override fun getResponseGeneratedTokenCount(
+                        instance: SmolLM,
+                        modelPtr: Long
+                ): Long = instance.getResponseGeneratedTokenCount(modelPtr)
+                override fun getResponseGenerationDurationMicros(
+                        instance: SmolLM,
+                        modelPtr: Long
+                ): Long = instance.getResponseGenerationDurationMicros(modelPtr)
+                override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int =
+                        instance.getContextSizeUsed(modelPtr)
+                override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long =
+                        instance.getNativeModelPtr(modelPtr)
+                override fun nativeDecodePreparedEmbeddings(
+                        instance: SmolLM,
+                        modelPtr: Long,
+                        embdPath: String,
+                        metaPath: String,
+                        nBatch: Int
+                ): Boolean =
+                        instance.nativeDecodePreparedEmbeddings(
+                                modelPtr,
+                                embdPath,
+                                metaPath,
+                                nBatch
+                        )
                 override fun close(instance: SmolLM, modelPtr: Long) = instance.close(modelPtr)
-                override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) = instance.startCompletion(modelPtr, prompt)
-                override fun completionLoop(instance: SmolLM, modelPtr: Long): String = instance.completionLoop(modelPtr)
-                override fun stopCompletion(instance: SmolLM, modelPtr: Long) = instance.stopCompletion(modelPtr)
+                override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) =
+                        instance.startCompletion(modelPtr, prompt)
+                override fun completionLoop(instance: SmolLM, modelPtr: Long): String =
+                        instance.completionLoop(modelPtr)
+                override fun stopCompletion(instance: SmolLM, modelPtr: Long) =
+                        instance.stopCompletion(modelPtr)
             }
         }
 
-        @Volatile private var nativeBridgeProvider: (SmolLM) -> NativeBridge = defaultNativeBridgeProvider
+        @Volatile
+        private var nativeBridgeProvider: (SmolLM) -> NativeBridge = defaultNativeBridgeProvider
 
         internal fun overrideNativeBridgeForTests(provider: (SmolLM) -> NativeBridge) {
             nativeBridgeProvider = provider
@@ -271,14 +325,14 @@ class SmolLM(
     fun isVulkanEnabled(): Boolean = useVulkanGPU
 
     /**
-     * Provides default values for inference parameters.
-     * These values are used when the corresponding parameters are not provided
-     * by the user or are not available in the GGUF model file.
+     * Provides default values for inference parameters. These values are used when the
+     * corresponding parameters are not provided by the user or are not available in the GGUF model
+     * file.
      */
     object DefaultInferenceParams {
         val contextSize: Long = 1024L
         val chatTemplate: String =
-            "{% for message in messages %}{% if loop.first and messages[0]['role'] != 'system' %}{{ '<|im_start|>system You are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|> ' }}{% endif %}{{'<|im_start|>' + message['role'] + ' ' + message['content'] + '<|im_end|>' + ' '}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant ' }}{% endif %}"
+                "{% for message in messages %}{% if loop.first and messages[0]['role'] != 'system' %}{{ '<|im_start|>system You are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|> ' }}{% endif %}{{'<|im_start|>' + message['role'] + ' ' + message['content'] + '<|im_end|>' + ' '}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant ' }}{% endif %}"
     }
 
     enum class ThinkingMode {
@@ -296,42 +350,68 @@ class SmolLM(
      * Data class to hold the inference parameters for the LLM.
      *
      * @property minP The minimum probability for a token to be considered.
+     * ```
      *                Also known as top-P sampling. (Default: 0.1f)
-     * @property temperature The temperature for sampling. Higher values make the output more random.
+     * @property temperature
+     * ```
+     * The temperature for sampling. Higher values make the output more random.
+     * ```
      *                       (Default: 0.8f)
-     * @property storeChats Whether to store the chat history in memory. If true, the LLM will
+     * @property storeChats
+     * ```
+     * Whether to store the chat history in memory. If true, the LLM will
+     * ```
      *                      remember previous interactions in the current session. (Default: true)
-     * @property contextSize The context size (in tokens) for the LLM. This determines how much
+     * @property contextSize
+     * ```
+     * The context size (in tokens) for the LLM. This determines how much
+     * ```
      *                       of the previous conversation the LLM can "remember". If null, the
      *                       value from the GGUF model file will be used, or a default value if
      *                       not present in the model file. (Default: null)
-     * @property chatTemplate The chat template to use for formatting the conversation. This
+     * @property chatTemplate
+     * ```
+     * The chat template to use for formatting the conversation. This
+     * ```
      *                        is a Jinja2 template string. If null, the value from the GGUF
      *                        model file will be used, or a default value if not present in the
      *                        model file. (Default: null)
-     * @property numThreads The number of threads to use for inference. (Default: 4)
+     * @property numThreads
+     * ```
+     * The number of threads to use for inference. (Default: 4)
      * @property useMmap Whether to use memory-mapped file I/O for loading the model.
+     * ```
      *                   This can improve loading times and reduce memory usage. (Default: true)
-     * @property useMlock Whether to lock the model in memory. This can prevent the model from
+     * @property useMlock
+     * ```
+     * Whether to lock the model in memory. This can prevent the model from
+     * ```
      *                    being swapped out to disk, potentially improving performance. (Default: false)
-     * @property thinkingMode Controls whether reasoning “think” traces remain enabled. Use
+     * @property thinkingMode
+     * ```
+     * Controls whether reasoning “think” traces remain enabled. Use
+     * ```
      *                        [ThinkingMode.DISABLED] to request the equivalent of llama.cpp's
      *                        `--no-think` flag. (Default: [ThinkingMode.DEFAULT])
-     * @property reasoningBudget Optional override for llama.cpp's `--reasoning-budget` flag. Set to
+     * @property reasoningBudget
+     * ```
+     * Optional override for llama.cpp's `--reasoning-budget` flag. Set to
+     * ```
      *                           `0` to disable thinking explicitly, `-1` to leave it unrestricted,
      *                           or omit to let [thinkingMode] decide.
+     * ```
      */
     data class InferenceParams(
-        val minP: Float = 0.1f,
-        val temperature: Float = 0.8f,
-        val storeChats: Boolean = true,
-        val contextSize: Long? = null,
-        val chatTemplate: String? = null,
-        val numThreads: Int = 4,
-        val useMmap: Boolean = true,
-        val useMlock: Boolean = false,
-        val thinkingMode: ThinkingMode = ThinkingMode.DEFAULT,
-        val reasoningBudget: Int? = null,
+            val minP: Float = 0.1f,
+            val temperature: Float = 0.8f,
+            val storeChats: Boolean = true,
+            val contextSize: Long? = null,
+            val chatTemplate: String? = null,
+            val numThreads: Int = 4,
+            val useMmap: Boolean = true,
+            val useMlock: Boolean = false,
+            val thinkingMode: ThinkingMode = ThinkingMode.DEFAULT,
+            val reasoningBudget: Int? = null,
     )
 
     /**
@@ -342,9 +422,9 @@ class SmolLM(
      * @property elapsedMicros Total decoding time in microseconds.
      */
     data class GenerationMetrics(
-        val tokensPerSecond: Float,
-        val tokenCount: Long,
-        val elapsedMicros: Long,
+            val tokensPerSecond: Float,
+            val tokenCount: Long,
+            val elapsedMicros: Long,
     ) {
         val elapsedMillis: Double
             get() = elapsedMicros / 1_000.0
@@ -354,73 +434,82 @@ class SmolLM(
     }
 
     /**
-     * Loads the GGUF model from the given path.
-     * This function will read the metadata from the GGUF model file,
-     * such as the context size and chat template, and use them if they are not
+     * Loads the GGUF model from the given path. This function will read the metadata from the GGUF
+     * model file, such as the context size and chat template, and use them if they are not
      * explicitly provided in the `params`.
      *
      * @param modelPath The path to the GGUF model file.
      * @param params The inference parameters to use. If not provided, default values will be used.
+     * ```
      *               If `contextSize` or `chatTemplate` are not provided in `params`,
      *               the values from the GGUF model file will be used. If those are also
      *               not available in the model file, then default values from [DefaultInferenceParams]
      *               will be used.
-     * @return `true` if the model was loaded successfully, `false` otherwise.
+     * @return
+     * ```
+     * `true` if the model was loaded successfully, `false` otherwise.
      * @throws FileNotFoundException if the model file is not found at the given path.
      */
     suspend fun load(
-        modelPath: String,
-        params: InferenceParams = InferenceParams(),
-    ) = withContext(Dispatchers.IO) {
-        if (nativePtr != 0L) {
-            close()
-        }
+            modelPath: String,
+            params: InferenceParams = InferenceParams(),
+    ) =
+            withContext(Dispatchers.IO) {
+                if (nativePtr != 0L) {
+                    close()
+                }
 
-        val ggufReader = GGUFReader()
-        val resolvedContextSize: Long
-        val resolvedChatTemplate: String
-        try {
-            ggufReader.load(modelPath)
-            val modelContextSize = ggufReader.getContextSize() ?: DefaultInferenceParams.contextSize
-            resolvedContextSize = resolveContextSize(params.contextSize, modelContextSize)
-            resolvedChatTemplate = resolveChatTemplate(params.chatTemplate, ggufReader)
-        } finally {
-            ggufReader.close()
-        }
-        nativePtr =
-            nativeBridge.loadModel(this@SmolLM,
-                modelPath,
-                params.minP,
-                params.temperature,
-                params.storeChats,
-                resolvedContextSize,
-                resolvedChatTemplate,
-                params.numThreads,
-                params.useMmap,
-                params.useMlock,
-                useVulkanGPU
-            )
-        val reasoningBudget = resolvedReasoningBudget(params.thinkingMode, params.reasoningBudget)
-        applyReasoningState(params.thinkingMode, reasoningBudget)
-    }
+                val ggufReader = GGUFReader()
+                val resolvedContextSize: Long
+                val resolvedChatTemplate: String
+                try {
+                    ggufReader.load(modelPath)
+                    val modelContextSize =
+                            ggufReader.getContextSize() ?: DefaultInferenceParams.contextSize
+                    resolvedContextSize = resolveContextSize(params.contextSize, modelContextSize)
+                    resolvedChatTemplate = resolveChatTemplate(params.chatTemplate, ggufReader)
+                } finally {
+                    ggufReader.close()
+                }
+                nativePtr =
+                        nativeBridge.loadModel(
+                                this@SmolLM,
+                                modelPath,
+                                params.minP,
+                                params.temperature,
+                                params.storeChats,
+                                resolvedContextSize,
+                                resolvedChatTemplate,
+                                params.numThreads,
+                                params.useMmap,
+                                params.useMlock,
+                                useVulkanGPU
+                        )
+                val reasoningBudget =
+                        resolvedReasoningBudget(params.thinkingMode, params.reasoningBudget)
+                applyReasoningState(params.thinkingMode, reasoningBudget)
+            }
 
-        /**
-         * Downloads a GGUF model from Hugging Face (if needed) and loads it for inference.
-         *
-         * @param context Android context used to resolve the destination directory under app storage.
-         * @param modelId Hugging Face repository id (for example, "unsloth/Qwen3-0.6B-GGUF").
-         * @param revision Repository revision or branch name. Defaults to "main".
-         * @param preferredQuantizations Ordered list of substrings used to pick the desired GGUF variant.
-         * @param filename Optional explicit file name/path (relative to the repo root) to download.
-         * @param params Inference parameters to apply once the model is loaded.
-         * @param token Optional Hugging Face access token for private repositories.
-         * @param forceDownload When true, always redownload the file even if a cached copy exists.
-        * @param preferSystemDownloader When true, prefer Android's DownloadManager for large downloads.
-         * @param onProgress Optional progress listener receiving downloaded bytes and total bytes (when known).
-         *
-         * @return [HuggingFaceHub.ModelDownloadResult] describing the loaded asset.
-         */
-        suspend fun loadFromHuggingFace(
+    /**
+     * Downloads a GGUF model from Hugging Face (if needed) and loads it for inference.
+     *
+     * @param context Android context used to resolve the destination directory under app storage.
+     * @param modelId Hugging Face repository id (for example, "unsloth/Qwen3-0.6B-GGUF").
+     * @param revision Repository revision or branch name. Defaults to "main".
+     * @param preferredQuantizations Ordered list of substrings used to pick the desired GGUF
+     * variant.
+     * @param filename Optional explicit file name/path (relative to the repo root) to download.
+     * @param params Inference parameters to apply once the model is loaded.
+     * @param token Optional Hugging Face access token for private repositories.
+     * @param forceDownload When true, always redownload the file even if a cached copy exists.
+     * @param preferSystemDownloader When true, prefer Android's DownloadManager for large
+     * downloads.
+     * @param onProgress Optional progress listener receiving downloaded bytes and total bytes (when
+     * known).
+     *
+     * @return [HuggingFaceHub.ModelDownloadResult] describing the loaded asset.
+     */
+    suspend fun loadFromHuggingFace(
             context: Context,
             modelId: String,
             revision: String = "main",
@@ -431,27 +520,26 @@ class SmolLM(
             forceDownload: Boolean = false,
             preferSystemDownloader: Boolean = true,
             onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
-        ): HuggingFaceHub.ModelDownloadResult {
-            val downloadResult =
+    ): HuggingFaceHub.ModelDownloadResult {
+        val downloadResult =
                 HuggingFaceHub.ensureModelOnDisk(
-                    context = context,
-                    modelId = modelId,
-                    revision = revision,
-                    preferredQuantizations = preferredQuantizations,
-                    filename = filename,
-                    token = token,
-                    forceDownload = forceDownload,
-                    preferSystemDownloader = preferSystemDownloader,
-                    onProgress = onProgress,
+                        context = context,
+                        modelId = modelId,
+                        revision = revision,
+                        preferredQuantizations = preferredQuantizations,
+                        filename = filename,
+                        token = token,
+                        forceDownload = forceDownload,
+                        preferSystemDownloader = preferSystemDownloader,
+                        onProgress = onProgress,
                 )
-            load(downloadResult.file.absolutePath, params)
-            return downloadResult
-        }
+        load(downloadResult.file.absolutePath, params)
+        return downloadResult
+    }
 
     /**
-     * Adds a user message to the chat history.
-     * This message will be considered as part of the conversation
-     * when generating the next response.
+     * Adds a user message to the chat history. This message will be considered as part of the
+     * conversation when generating the next response.
      *
      * @param message The user's message.
      * @throws IllegalStateException if the model is not loaded.
@@ -461,18 +549,15 @@ class SmolLM(
         nativeBridge.addChatMessage(this, nativePtr, message, "user")
     }
 
-    /**
-     * Adds the system prompt for the LLM
-     */
+    /** Adds the system prompt for the LLM */
     fun addSystemPrompt(prompt: String) {
         verifyHandle()
         nativeBridge.addChatMessage(this, nativePtr, prompt, "system")
     }
 
     /**
-     * Adds the assistant message for LLM inference
-     * An assistant message is the response given by the LLM
-     * for a previous query in the conversation
+     * Adds the assistant message for LLM inference An assistant message is the response given by
+     * the LLM for a previous query in the conversation
      */
     fun addAssistantMessage(message: String) {
         verifyHandle()
@@ -502,8 +587,8 @@ class SmolLM(
     }
 
     /**
-     * Returns the rate (in tokens per second) at which the
-     * LLM generated its last response via `getResponse()`
+     * Returns the rate (in tokens per second) at which the LLM generated its last response via
+     * `getResponse()`
      */
     fun getResponseGenerationSpeed(): Float {
         verifyHandle()
@@ -511,31 +596,29 @@ class SmolLM(
     }
 
     /**
-     * Returns throughput information for the last completed response.
-     * The metrics are reset on the next call to [getResponse] or [getResponseAsFlow].
+     * Returns throughput information for the last completed response. The metrics are reset on the
+     * next call to [getResponse] or [getResponseAsFlow].
      */
     fun getLastGenerationMetrics(): GenerationMetrics {
         verifyHandle()
         val elapsedMicros = nativeBridge.getResponseGenerationDurationMicros(this, nativePtr)
         val tokenCount = nativeBridge.getResponseGeneratedTokenCount(this, nativePtr)
         val tokensPerSecond =
-            if (elapsedMicros <= 0L || tokenCount <= 0L) {
-                0f
-            } else {
-                nativeBridge.getResponseGenerationSpeed(this, nativePtr)
-            }
+                if (elapsedMicros <= 0L || tokenCount <= 0L) {
+                    0f
+                } else {
+                    nativeBridge.getResponseGenerationSpeed(this, nativePtr)
+                }
         return GenerationMetrics(
-            tokensPerSecond = tokensPerSecond,
-            tokenCount = tokenCount,
-            elapsedMicros = elapsedMicros
+                tokensPerSecond = tokensPerSecond,
+                tokenCount = tokenCount,
+                elapsedMicros = elapsedMicros
         )
     }
 
     /**
-     * Returns the number of tokens consumed by the LLM's context
-     * window
-     * The context of the LLM is roughly the output of,
-     * tokenize(apply_chat_template(messages_in_conversation))
+     * Returns the number of tokens consumed by the LLM's context window The context of the LLM is
+     * roughly the output of, tokenize(apply_chat_template(messages_in_conversation))
      */
     fun getContextLengthUsed(): Int {
         verifyHandle()
@@ -543,31 +626,34 @@ class SmolLM(
     }
 
     /**
-     * Return the LLM response to the given query as an
-     * async Flow. This is useful for streaming the response
-     * as it is generated by the LLM.
+     * Return the LLM response to the given query as an async Flow. This is useful for streaming the
+     * response as it is generated by the LLM.
      *
      * @param query The query to ask the LLM.
      * @return A Flow of Strings, where each String is a piece of the response.
+     * ```
      *         The flow completes when the LLM has finished generating the response.
      *         The special token "[EOG]" (End Of Generation) indicates the end of the response.
-     * @throws IllegalStateException if the model is not loaded.
+     * @throws IllegalStateException
+     * ```
+     * if the model is not loaded.
      */
     fun getResponseAsFlow(query: String): Flow<String> =
-        flow {
-            verifyHandle()
-            nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
-            var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
-            while (piece != "[EOG]") {
-                emit(piece)
-                piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
-            }
-            nativeBridge.stopCompletion(this@SmolLM, nativePtr)
-        }
+            flow {
+                        verifyHandle()
+                        nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
+                        var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+                        while (piece != "[EOG]") {
+                            emit(piece) // Emit immediately for fastest TTFT
+                            piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+                        }
+                        nativeBridge.stopCompletion(this@SmolLM, nativePtr)
+                    }
+                    .flowOn(Dispatchers.IO) // Run on IO dispatcher for better performance
 
     /**
-     * Returns the LLM response to the given query as a String.
-     * This function is blocking and will return the complete response.
+     * Returns the LLM response to the given query as a String. This function is blocking and will
+     * return the complete response.
      *
      * @param query The user's query/prompt for the LLM.
      * @return The complete response from the LLM.
@@ -587,11 +673,10 @@ class SmolLM(
     }
 
     /**
-     * Unloads the LLM model and releases resources.
-     * This method should be called when the SmolLM instance is no longer needed
-     * to prevent memory leaks.
+     * Unloads the LLM model and releases resources. This method should be called when the SmolLM
+     * instance is no longer needed to prevent memory leaks.
      */
-    fun close() {
+    override fun close() {
         if (nativePtr != 0L) {
             nativeBridge.close(this, nativePtr)
             nativePtr = 0L
@@ -605,28 +690,28 @@ class SmolLM(
     }
 
     private external fun loadModel(
-        modelPath: String,
-        minP: Float,
-        temperature: Float,
-        storeChats: Boolean,
-        contextSize: Long,
-        chatTemplate: String,
-        nThreads: Int,
-        useMmap: Boolean,
-        useMlock: Boolean,
-        useVulkan: Boolean
+            modelPath: String,
+            minP: Float,
+            temperature: Float,
+            storeChats: Boolean,
+            contextSize: Long,
+            chatTemplate: String,
+            nThreads: Int,
+            useMmap: Boolean,
+            useMlock: Boolean,
+            useVulkan: Boolean
     ): Long
 
     private external fun setReasoningOptions(
-        modelPtr: Long,
-        disableThinking: Boolean,
-        reasoningBudget: Int,
+            modelPtr: Long,
+            disableThinking: Boolean,
+            reasoningBudget: Int,
     )
 
     private external fun addChatMessage(
-        modelPtr: Long,
-        message: String,
-        role: String,
+            modelPtr: Long,
+            message: String,
+            role: String,
     )
 
     private external fun getResponseGenerationSpeed(modelPtr: Long): Float
@@ -641,9 +726,9 @@ class SmolLM(
     private external fun getNativeModelPtr(modelPtr: Long): Long
 
     /**
-     * Public helper to return the underlying native llama_model* pointer.
-     * This is intended for advanced integrations (e.g., native projector) and
-     * should NOT be used to free or modify the native model directly.
+     * Public helper to return the underlying native llama_model* pointer. This is intended for
+     * advanced integrations (e.g., native projector) and should NOT be used to free or modify the
+     * native model directly.
      */
     fun getNativeModelPointer(): Long {
         verifyHandle()
@@ -651,13 +736,17 @@ class SmolLM(
     }
 
     // Decode embeddings prepared by the projector (raw floats) without loading mmproj
-    private external fun nativeDecodePreparedEmbeddings(modelPtr: Long, embdPath: String, metaPath: String, nBatch: Int): Boolean
+    private external fun nativeDecodePreparedEmbeddings(
+            modelPtr: Long,
+            embdPath: String,
+            metaPath: String,
+            nBatch: Int
+    ): Boolean
 
     /**
-     * Decode prepared embeddings previously produced by Projector.encodeImageToFile.
-     * This will replay the required llama.decode steps using the current loaded
-     * model/context so the image embeddings are present in the KV cache for
-     * subsequent generation. Returns true on success.
+     * Decode prepared embeddings previously produced by Projector.encodeImageToFile. This will
+     * replay the required llama.decode steps using the current loaded model/context so the image
+     * embeddings are present in the KV cache for subsequent generation. Returns true on success.
      */
     fun decodePreparedEmbeddings(embdPath: String, metaPath: String, nBatch: Int = 1): Boolean {
         verifyHandle()
@@ -671,8 +760,8 @@ class SmolLM(
     private external fun close(modelPtr: Long)
 
     private external fun startCompletion(
-        modelPtr: Long,
-        prompt: String,
+            modelPtr: Long,
+            prompt: String,
     )
 
     private external fun completionLoop(modelPtr: Long): String
@@ -684,7 +773,12 @@ class SmolLM(
         currentThinkingMode = effectiveMode
         currentReasoningBudget = budget
         if (nativePtr != 0L) {
-            nativeBridge.setReasoningOptions(this, nativePtr, effectiveMode.disableReasoning || budget == 0, budget)
+            nativeBridge.setReasoningOptions(
+                    this,
+                    nativePtr,
+                    effectiveMode.disableReasoning || budget == 0,
+                    budget
+            )
         }
     }
 
@@ -700,16 +794,16 @@ class SmolLM(
         if (desired != clamped) {
             val heapMb = Runtime.getRuntime().maxMemory() / (1024 * 1024)
             Log.w(
-                LOG_TAG,
-                "Context window $desired→$clamped tokens to fit heap (${heapMb}MB max). " +
-                    "Override via InferenceParams(contextSize=...).",
+                    LOG_TAG,
+                    "Context window $desired→$clamped tokens to fit heap (${heapMb}MB max). " +
+                            "Override via InferenceParams(contextSize=...).",
             )
         }
         return clamped
     }
 
     private fun resolveChatTemplate(explicit: String?, ggufReader: GGUFReader): String =
-        explicit ?: (ggufReader.getChatTemplate() ?: DefaultInferenceParams.chatTemplate)
+            explicit ?: (ggufReader.getChatTemplate() ?: DefaultInferenceParams.chatTemplate)
 
     private fun recommendedContextCap(): Long {
         val heapMb = Runtime.getRuntime().maxMemory() / (1024 * 1024)

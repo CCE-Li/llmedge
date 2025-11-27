@@ -48,7 +48,9 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
         LOGi("contextSize %ld adjusted to %ld to fit llama context limits", contextSize, safeContext);
     }
     ctx_params.n_ctx = static_cast<uint32_t>(safeContext);
-    ctx_params.n_batch = static_cast<int>(safeContext);
+    // Optimal batch sizes are typically 512-2048 for modern ARM CPUs
+    // Larger batches waste memory and reduce cache efficiency
+    ctx_params.n_batch = std::min(static_cast<int>(safeContext), 512);
     ctx_params.n_threads = nThreads;
     ctx_params.no_perf = true; // disable performance metrics
     _ctx = llama_init_from_model(_model, ctx_params);

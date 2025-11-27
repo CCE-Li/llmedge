@@ -78,6 +78,14 @@ class StableDiffusionTxt2VidTest {
                 }
 
                 override fun cancelGeneration(handle: Long) = Unit
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): StableDiffusion.PrecomputedCondition? = null
             }
         }
         val sd = testableStableDiffusion()
@@ -196,6 +204,14 @@ class StableDiffusionTxt2VidTest {
                 override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
 
                 override fun cancelGeneration(handle: Long) = Unit
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): StableDiffusion.PrecomputedCondition? = null
             }
         }
         val sd = testableStableDiffusion()
@@ -259,6 +275,14 @@ class StableDiffusionTxt2VidTest {
                 override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
 
                 override fun cancelGeneration(handle: Long) = Unit
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): StableDiffusion.PrecomputedCondition? = null
             }
         }
         val sd = testableStableDiffusion()
@@ -312,6 +336,14 @@ class StableDiffusionTxt2VidTest {
                 override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
 
                 override fun cancelGeneration(handle: Long) = Unit
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): StableDiffusion.PrecomputedCondition? = null
             }
         }
         val sd = testableStableDiffusion()
@@ -369,6 +401,14 @@ class StableDiffusionTxt2VidTest {
                 }
 
                 override fun cancelGeneration(handle: Long) = Unit
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): StableDiffusion.PrecomputedCondition? = null
             }
         }
         val sd = testableStableDiffusion()

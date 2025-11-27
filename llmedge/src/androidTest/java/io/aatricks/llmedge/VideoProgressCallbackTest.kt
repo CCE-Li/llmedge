@@ -61,6 +61,14 @@ class VideoProgressCallbackTest : BaseVideoIntegrationTest() {
                 }
 
                 override fun cancelGeneration(handle: Long) = Unit
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): StableDiffusion.PrecomputedCondition? = null
             }
         }
         val sd = createStableDiffusion()

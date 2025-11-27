@@ -67,6 +67,14 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
 
             override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
             override fun cancelGeneration(handle: Long) = Unit
+            override fun precomputeCondition(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                clipSkip: Int,
+            ): StableDiffusion.PrecomputedCondition? = null
         }
     }
 
@@ -118,6 +126,14 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
 
             override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
             override fun cancelGeneration(handle: Long) = Unit
+            override fun precomputeCondition(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                clipSkip: Int,
+            ): StableDiffusion.PrecomputedCondition? = null
         }
     }
 
