@@ -177,7 +177,7 @@ class SmolLMTest {
             assumeTrue("Skipping GGUF metadata test: no asset bundled", modelAssetAvailable)
             val contextSize = cachedContextSize
             assumeTrue("Skipping GGUF metadata test: unable to parse context size", contextSize != null)
-            assert(contextSize!! > 0)
+            assert(requireNotNull(contextSize) > 0)
         }
 
     @After

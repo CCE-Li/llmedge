@@ -539,6 +539,21 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             }
         }
 
+        /**
+         * Public wrapper that attempts to estimate the model parameter memory (in bytes) for a
+         * model path on a given device. Returns 0 on failure or if the native estimation is not
+         * available. This is a convenience helper used by higher-level managers to compute
+         * cache sizes and decide on offload heuristics.
+         */
+        @JvmStatic
+        fun estimateModelParamsMemoryBytes(modelPath: String, deviceIndex: Int = 0): Long {
+            return try {
+                nativeEstimateModelParamsMemory(modelPath, deviceIndex)
+            } catch (t: Throwable) {
+                0L
+            }
+        }
+
         private suspend fun inferVideoModelMetadata(
                 resolvedModelPath: String,
                 modelId: String?,
@@ -640,7 +655,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 modelPath: String? = null,
                 vaePath: String? = null,
                 t5xxlPath: String? = null,
-                nThreads: Int = Runtime.getRuntime().availableProcessors(),
+                nThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
                 offloadToCpu: Boolean = false,
                 keepClipOnCpu: Boolean = false,
                 keepVaeOnCpu: Boolean = false,
@@ -881,7 +896,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 context: Context,
                 modelId: String,
                 filename: String? = null,
-                nThreads: Int = Runtime.getRuntime().availableProcessors(),
+                nThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
                 offloadToCpu: Boolean = false,
                 keepClipOnCpu: Boolean = false,
                 keepVaeOnCpu: Boolean = false,

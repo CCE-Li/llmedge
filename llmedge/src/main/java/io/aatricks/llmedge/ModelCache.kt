@@ -11,8 +11,10 @@ import java.util.LinkedHashMap
  * @param maxMemoryMB Maximum memory to use for cache (approximate)
  */
 class ModelCache<T : AutoCloseable>(
-        private val maxCacheSize: Int = 2,
-        private val maxMemoryMB: Long = 4096
+    private val maxCacheSize: Int = 2,
+    private val maxMemoryMB: Long = 4096,
+    /** Optional provider to compute current available system memory (MB). If provided, cache will use this to be more memory-aware. */
+    var systemMemoryProvider: (() -> Long)? = null
 ) {
     private val TAG = "ModelCache"
 
@@ -113,7 +115,17 @@ class ModelCache<T : AutoCloseable>(
         val currentMemoryMB = cache.values.sumOf { it.sizeBytes } / 1024 / 1024
         val newMemoryMB = currentMemoryMB + (newSizeBytes / 1024 / 1024)
 
-        return newMemoryMB > maxMemoryMB
+        // If we have a system memory provider, be conservative and cap cache size to a fraction
+        // of currently available system memory (e.g., reserve 10% of whatever is free)
+        val effectiveMax = systemMemoryProvider?.let { provider ->
+            val avail = provider()
+            // Ensure we keep at least 10% of the available system memory for OS/other apps
+            val reserved = (avail * 0.1).toLong()
+            val budget = (avail - reserved).coerceAtMost(maxMemoryMB)
+            if (budget <= 0) 0L else budget
+        } ?: maxMemoryMB
+
+        return newMemoryMB > effectiveMax
     }
 
     /** Evict least recently used entry */

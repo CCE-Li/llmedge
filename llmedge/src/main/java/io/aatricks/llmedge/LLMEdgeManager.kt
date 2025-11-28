@@ -72,6 +72,16 @@ object LLMEdgeManager {
         )
         private var currentTextModelSpec: LoadedTextModelSpec? = null
 
+        // Track loaded diffusion model (image/video) to allow switching and cache removal
+        private data class LoadedDiffusionModelSpec(
+                val modelId: String,
+                val filename: String,
+                val path: String?,
+                val vaePath: String?,
+                val t5xxlPath: String?
+        )
+        private var currentDiffusionModelSpec: LoadedDiffusionModelSpec? = null
+
         data class ImageGenerationParams(
                 val prompt: String,
                 val negative: String = "",
@@ -127,7 +137,6 @@ object LLMEdgeManager {
                 val deviceIndex: Int = 0
         )
 
-        /** Combined performance snapshot from all models */
         data class PerformanceSnapshot(
                 val textMetrics: io.aatricks.llmedge.SmolLM.GenerationMetrics?,
                 val diffusionMetrics: io.aatricks.llmedge.StableDiffusion.GenerationMetrics?,
@@ -281,10 +290,8 @@ object LLMEdgeManager {
                 return textModelMutex.withLock {
                         contextRef = WeakReference(context.applicationContext)
                         unloadDiffusionModel()
-                        if (cachedSmolLM == null) {
-                                cachedSmolLM = io.aatricks.llmedge.SmolLM()
-                        }
-                        cachedSmolLM!!
+                        val smol = cachedSmolLM ?: io.aatricks.llmedge.SmolLM().also { cachedSmolLM = it }
+                        return@withLock smol
                 }
         }
 
@@ -325,7 +332,8 @@ object LLMEdgeManager {
                                 // We need to initialize the projector and encode the image
                                 // This is complex logic from LlavaVisionActivity, simplified here.
 
-                                // 1. Save bitmap to temp file
+                                                                // 1. Save bitmap to temp file
+                                                                        onProgress?.invoke("Preparing image")
                                 val tempImageFile =
                                         File.createTempFile(
                                                 "vision_input",
@@ -354,6 +362,7 @@ object LLMEdgeManager {
                                         }
 
                                         // 2. Run Projector
+                                        onProgress?.invoke("Encoding image")
                                         val projector = io.aatricks.llmedge.vision.Projector()
                                         projector.init(
                                                 projFile.absolutePath,
@@ -377,6 +386,7 @@ object LLMEdgeManager {
                                                 }
 
                                         // 3. Run Analysis
+                                        onProgress?.invoke("Running vision analysis")
                                         adapter.loadVisionModel(modelFile.absolutePath)
                                         val result =
                                                 adapter.analyze(
@@ -522,7 +532,7 @@ object LLMEdgeManager {
                                 model.setProgressCallback(progressWrapper)
 
                                 val framesBytes = model.txt2vid(sdParams)
-                                return framesBytes ?: emptyList()
+                                return framesBytes
                         }
                 }
 
@@ -537,13 +547,20 @@ object LLMEdgeManager {
                 // 3. Load Diffusion -> Generate (using new txt2ImgWithPrecomputedCondition)
 
                 // Ensure files
+                // Update memory provider for diffusion cache
+                diffusionModelCache.systemMemoryProvider = {
+                        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                        val mi = ActivityManager.MemoryInfo()
+                        am.getMemoryInfo(mi)
+                        mi.availMem / (1024L * 1024L)
+                }
                 ensureVideoFiles(context, onProgress)
 
                 // Load T5
-                prepareMemoryForLoading(context)
+                prepareMemoryForLoading()
                 var t5Model: StableDiffusion? = null
-                var cond: StableDiffusion.PrecomputedCondition? = null
-                var uncond: StableDiffusion.PrecomputedCondition? = null
+                var cond: StableDiffusion.PrecomputedCondition?
+                var uncond: StableDiffusion.PrecomputedCondition?
 
                 try {
                         val t5File =
@@ -558,7 +575,7 @@ object LLMEdgeManager {
                                         modelPath = t5File.absolutePath,
                                         vaePath = null,
                                         t5xxlPath = null,
-                                        nThreads = Runtime.getRuntime().availableProcessors(),
+                                        nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
                                         offloadToCpu = true,
                                         keepClipOnCpu = true,
                                         keepVaeOnCpu = true,
@@ -588,35 +605,23 @@ object LLMEdgeManager {
                                                 params.height
                                         )
                                 }
-                } finally {
+                        } finally {
                         t5Model?.close()
-                        t5Model = null
                 }
 
                 // Load Diffusion
-                prepareMemoryForLoading(context)
+                prepareMemoryForLoading()
                 var diffusionModel: StableDiffusion? = null
                 try {
-                        val modelFile =
-                                getFile(
-                                        context,
-                                        DEFAULT_VIDEO_MODEL_ID,
-                                        DEFAULT_VIDEO_MODEL_FILENAME
-                                )
-                        val vaeFile =
-                                getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME)
+                                // Model and VAE files are handled in getOrLoadImageModel
 
                         diffusionModel =
-                                StableDiffusion.load(
+                                getOrLoadImageModel(
                                         context = context,
-                                        modelPath = modelFile.absolutePath,
-                                        vaePath = vaeFile.absolutePath,
-                                        t5xxlPath = null,
-                                        nThreads = Runtime.getRuntime().availableProcessors(),
-                                        offloadToCpu = false,
-                                        keepClipOnCpu = false,
-                                        keepVaeOnCpu = false,
-                                        flashAttn = params.flashAttn
+                                        flashAttn = params.flashAttn,
+                                        width = params.width,
+                                        height = params.height,
+                                        onProgress = onProgress
                                 )
 
                         val bytes =
@@ -646,10 +651,10 @@ object LLMEdgeManager {
         ): List<Bitmap> {
                 ensureVideoFiles(context, onProgress)
 
-                prepareMemoryForLoading(context)
+                prepareMemoryForLoading()
                 var t5Model: StableDiffusion? = null
-                var cond: StableDiffusion.PrecomputedCondition? = null
-                var uncond: StableDiffusion.PrecomputedCondition? = null
+                var cond: StableDiffusion.PrecomputedCondition?
+                var uncond: StableDiffusion.PrecomputedCondition?
 
                 try {
                         val t5File =
@@ -664,7 +669,7 @@ object LLMEdgeManager {
                                         modelPath = t5File.absolutePath,
                                         vaePath = null,
                                         t5xxlPath = null,
-                                        nThreads = Runtime.getRuntime().availableProcessors(),
+                                        nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
                                         offloadToCpu = true,
                                         keepClipOnCpu = true,
                                         keepVaeOnCpu = true,
@@ -696,32 +701,18 @@ object LLMEdgeManager {
                                 }
                 } finally {
                         t5Model?.close()
-                        t5Model = null
                 }
 
-                prepareMemoryForLoading(context)
+                prepareMemoryForLoading()
                 var diffusionModel: StableDiffusion? = null
                 try {
-                        val modelFile =
-                                getFile(
-                                        context,
-                                        DEFAULT_VIDEO_MODEL_ID,
-                                        DEFAULT_VIDEO_MODEL_FILENAME
-                                )
-                        val vaeFile =
-                                getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME)
+                        // Model and VAE files are handled in getOrLoadVideoModel
 
                         diffusionModel =
-                                StableDiffusion.load(
+                                getOrLoadVideoModel(
                                         context = context,
-                                        modelPath = modelFile.absolutePath,
-                                        vaePath = vaeFile.absolutePath,
-                                        t5xxlPath = null,
-                                        nThreads = Runtime.getRuntime().availableProcessors(),
-                                        offloadToCpu = false,
-                                        keepClipOnCpu = false,
-                                        keepVaeOnCpu = false,
-                                        flashAttn = params.flashAttn
+                                        flashAttn = params.flashAttn,
+                                        onProgress = onProgress
                                 )
 
                         val sdParams =
@@ -777,11 +768,28 @@ object LLMEdgeManager {
                 onProgress: ((String, Int, Int) -> Unit)?
         ): StableDiffusion {
                 cachedModel?.let {
-                        return it
+                        // Check if cached model matches requested path/params
+                        val spec = currentDiffusionModelSpec
+                        if (spec != null) {
+                                // We only have a single image model slot in the examples.
+                                // If it matches the default image filenames, return it.
+                                // More robust matching could compare absolute paths.
+                                if (spec.filename == DEFAULT_IMAGE_MODEL_FILENAME) {
+                                        return it
+                                }
+                        } else {
+                                return it
+                        }
                 }
 
+                diffusionModelCache.systemMemoryProvider = {
+                        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                        val mi = ActivityManager.MemoryInfo()
+                        am.getMemoryInfo(mi)
+                        mi.availMem / (1024L * 1024L)
+                }
                 ensureImageFiles(context, onProgress)
-                prepareMemoryForLoading(context)
+                prepareMemoryForLoading()
 
                 // Phase 3: Adaptive flash attention based on image dimensions
                 val adaptiveFlashAttn =
@@ -797,16 +805,63 @@ object LLMEdgeManager {
                                 "(requested=$flashAttn, dimensions=${width}x${height})"
                 )
 
-                val model =
-                        StableDiffusion.load(
-                                context = context,
+                val modelFile = getFile(context, DEFAULT_IMAGE_MODEL_ID, DEFAULT_IMAGE_MODEL_FILENAME)
+
+                // Build cache key
+                val cacheKey = makeDiffusionCacheKey(modelFile.absolutePath, null, null)
+
+                // Check cache
+                diffusionModelCache.get(cacheKey)?.let { cached ->
+                        Log.i(TAG, "Loaded Image model from cache: $cacheKey")
+                        cachedModel = cached
+                        currentDiffusionModelSpec = LoadedDiffusionModelSpec(
                                 modelId = DEFAULT_IMAGE_MODEL_ID,
                                 filename = DEFAULT_IMAGE_MODEL_FILENAME,
-                                nThreads = Runtime.getRuntime().availableProcessors(),
-                                offloadToCpu = false, // Try to use GPU/Vulkan
-                                flashAttn = adaptiveFlashAttn
+                                path = modelFile.absolutePath,
+                                vaePath = null,
+                                t5xxlPath = null
                         )
+                        return cached
+                }
+
+                val loadStart = System.currentTimeMillis()
+                val model = StableDiffusion.load(
+                        context = context,
+                        modelPath = modelFile.absolutePath,
+                        nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
+                        offloadToCpu = false,
+                        flashAttn = adaptiveFlashAttn
+                )
+                val loadTime = System.currentTimeMillis() - loadStart
+
+                // Estimate model footprint using native estimator, fallback to file size
+                val chosenDevice = StableDiffusion.getVulkanDeviceCount().let { devices ->
+                        var ci = -1
+                        if (devices > 0) {
+                                var maxTotal = 0L
+                                for (i in 0 until devices) {
+                                        val mem = StableDiffusion.getVulkanDeviceMemory(i)
+                                        if (mem != null && mem.size >= 2 && mem[1] > maxTotal) {
+                                                maxTotal = mem[1]
+                                                ci = i
+                                        }
+                                }
+                        }
+                        ci
+                }
+
+                val estimatedBytes = StableDiffusion.estimateModelParamsMemoryBytes(modelFile.absolutePath, if (chosenDevice >= 0) chosenDevice else 0)
+                val modelSize = if (estimatedBytes > 0L) estimatedBytes else modelFile.length()
+
+                diffusionModelCache.put(cacheKey, model, modelSize, loadTime)
                 cachedModel = model
+                currentDiffusionModelSpec = LoadedDiffusionModelSpec(
+                        modelId = DEFAULT_IMAGE_MODEL_ID,
+                        filename = DEFAULT_IMAGE_MODEL_FILENAME,
+                        path = modelFile.absolutePath,
+                        vaePath = null,
+                        t5xxlPath = null
+                )
                 return model
         }
 
@@ -816,30 +871,78 @@ object LLMEdgeManager {
                 onProgress: ((String, Int, Int) -> Unit)?
         ): StableDiffusion {
                 cachedModel?.let {
-                        return it
+                        val spec = currentDiffusionModelSpec
+                        if (spec != null && spec.filename == DEFAULT_VIDEO_MODEL_FILENAME) {
+                                return it
+                        } else {
+                                return it
+                        }
                 }
 
                 ensureVideoFiles(context, onProgress)
-                prepareMemoryForLoading(context)
+                prepareMemoryForLoading()
 
                 val modelFile =
                         getFile(context, DEFAULT_VIDEO_MODEL_ID, DEFAULT_VIDEO_MODEL_FILENAME)
                 val vaeFile = getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME)
                 val t5File = getFile(context, DEFAULT_VIDEO_T5XXL_ID, DEFAULT_VIDEO_T5XXL_FILENAME)
 
-                val model =
-                        StableDiffusion.load(
-                                context = context,
-                                modelPath = modelFile.absolutePath,
+                val cacheKey = makeDiffusionCacheKey(modelFile.absolutePath, vaeFile.absolutePath, t5File.absolutePath)
+                diffusionModelCache.get(cacheKey)?.let { cached ->
+                        Log.i(TAG, "Loaded Video model from cache: $cacheKey")
+                        cachedModel = cached
+                        currentDiffusionModelSpec = LoadedDiffusionModelSpec(
+                                modelId = DEFAULT_VIDEO_MODEL_ID,
+                                filename = DEFAULT_VIDEO_MODEL_FILENAME,
+                                path = modelFile.absolutePath,
                                 vaePath = vaeFile.absolutePath,
-                                t5xxlPath = t5File.absolutePath,
-                                nThreads = Runtime.getRuntime().availableProcessors(),
-                                offloadToCpu = false, // Try to use GPU/Vulkan
-                                keepClipOnCpu = true,
-                                keepVaeOnCpu = true,
-                                flashAttn = flashAttn
+                                t5xxlPath = t5File.absolutePath
                         )
+                        return cached
+                }
+
+                val loadStart = System.currentTimeMillis()
+                val model = StableDiffusion.load(
+                        context = context,
+                        modelPath = modelFile.absolutePath,
+                        vaePath = vaeFile.absolutePath,
+                        t5xxlPath = t5File.absolutePath,
+                        nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
+                        offloadToCpu = false,
+                        keepClipOnCpu = true,
+                        keepVaeOnCpu = true,
+                        flashAttn = flashAttn
+                )
+                val loadTime = System.currentTimeMillis() - loadStart
+
+                // Estimate model footprint using native estimator, fallback to file size
+                val chosenDevice = StableDiffusion.getVulkanDeviceCount().let { devices ->
+                        var ci = -1
+                        if (devices > 0) {
+                                var maxTotal = 0L
+                                for (i in 0 until devices) {
+                                        val mem = StableDiffusion.getVulkanDeviceMemory(i)
+                                        if (mem != null && mem.size >= 2 && mem[1] > maxTotal) {
+                                                maxTotal = mem[1]
+                                                ci = i
+                                        }
+                                }
+                        }
+                        ci
+                }
+
+                val estimatedBytes = StableDiffusion.estimateModelParamsMemoryBytes(modelFile.absolutePath, if (chosenDevice >= 0) chosenDevice else 0)
+                val modelSize = if (estimatedBytes > 0L) estimatedBytes else modelFile.length()
+
+                diffusionModelCache.put(cacheKey, model, modelSize, loadTime)
                 cachedModel = model
+                currentDiffusionModelSpec = LoadedDiffusionModelSpec(
+                        modelId = DEFAULT_VIDEO_MODEL_ID,
+                        filename = DEFAULT_VIDEO_MODEL_FILENAME,
+                        path = modelFile.absolutePath,
+                        vaePath = vaeFile.absolutePath,
+                        t5xxlPath = t5File.absolutePath
+                )
                 return model
         }
 
@@ -872,6 +975,14 @@ object LLMEdgeManager {
                         } else {
                                 getFile(context, modelId, filename)
                         }
+
+                // Update memory provider for the cache based on context
+                textModelCache.systemMemoryProvider = {
+                        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                        val mi = ActivityManager.MemoryInfo()
+                        am.getMemoryInfo(mi)
+                        mi.availMem / (1024L * 1024L)
+                }
 
                 // Phase 3: Check model cache
                 val cacheKey = finalPath.absolutePath
@@ -946,8 +1057,18 @@ object LLMEdgeManager {
         }
 
         private fun unloadDiffusionModel() {
-                cachedModel?.close()
-                cachedModel = null
+                // Prefer removing from cache (which will also close the model) if we have a cache
+                // key; otherwise, fall back to closing the cached instance.
+                val spec = currentDiffusionModelSpec
+                if (spec != null) {
+                        val key = makeDiffusionCacheKey(spec.path ?: "", spec.vaePath, spec.t5xxlPath)
+                        diffusionModelCache.remove(key)
+                        currentDiffusionModelSpec = null
+                        cachedModel = null
+                } else {
+                        cachedModel?.close()
+                        cachedModel = null
+                }
         }
 
         private fun unloadSmolLM() {
@@ -959,6 +1080,12 @@ object LLMEdgeManager {
                 context: Context,
                 onProgress: ((String, Int, Int) -> Unit)?
         ) {
+                val hfCallback: ((Long, Long?) -> Unit)? = onProgress?.let { genCb ->
+                        { downloaded: Long, total: Long? ->
+                                genCb("Downloading video asset: $downloaded/${total ?: "?"}", 0, 0)
+                        }
+                }
+
                 HuggingFaceHub.ensureRepoFileOnDisk(
                         context,
                         DEFAULT_VIDEO_MODEL_ID,
@@ -968,7 +1095,7 @@ object LLMEdgeManager {
                         null,
                         false,
                         true,
-                        null
+                        hfCallback
                 )
                 HuggingFaceHub.ensureRepoFileOnDisk(
                         context,
@@ -979,7 +1106,7 @@ object LLMEdgeManager {
                         null,
                         false,
                         true,
-                        null
+                        hfCallback
                 )
                 HuggingFaceHub.ensureRepoFileOnDisk(
                         context,
@@ -990,7 +1117,7 @@ object LLMEdgeManager {
                         null,
                         false,
                         true,
-                        null
+                        hfCallback
                 )
         }
 
@@ -998,6 +1125,10 @@ object LLMEdgeManager {
                 context: Context,
                 onProgress: ((String, Int, Int) -> Unit)?
         ) {
+                val hfCallback: ((Long, Long?) -> Unit)? = onProgress?.let { genCb ->
+                        { downloaded: Long, total: Long? -> genCb("Downloading image asset: $downloaded/${total ?: "?"}", 0, 0) }
+                }
+
                 HuggingFaceHub.ensureRepoFileOnDisk(
                         context,
                         DEFAULT_IMAGE_MODEL_ID,
@@ -1007,7 +1138,7 @@ object LLMEdgeManager {
                         null,
                         false,
                         true,
-                        null
+                        hfCallback
                 )
         }
 
@@ -1034,8 +1165,15 @@ object LLMEdgeManager {
                 return totalRamGB < 8
         }
 
-        private fun prepareMemoryForLoading(context: Context) {
+        private fun prepareMemoryForLoading() {
                 // Native memory is freed immediately on close()
                 // Let Android VM handle GC naturally to avoid blocking delays
+        }
+
+        /**
+         * Build a cache key for diffusion models using model path + optional VAE + T5 path.
+         */
+        private fun makeDiffusionCacheKey(modelPath: String, vaePath: String?, t5Path: String?): String {
+                return listOf(modelPath, vaePath ?: "", t5Path ?: "").joinToString("|")
         }
 }

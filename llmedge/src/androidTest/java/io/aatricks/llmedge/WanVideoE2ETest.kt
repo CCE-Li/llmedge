@@ -44,7 +44,7 @@ class WanVideoE2ETest {
             modelPath = wanAssets.model.absolutePath,
             vaePath = wanAssets.vae.absolutePath,
             t5xxlPath = wanAssets.textEncoder.absolutePath,
-            nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(4),
+            nThreads = io.aatricks.llmedge.CpuTopology.getOptimalThreadCount(io.aatricks.llmedge.CpuTopology.TaskType.DIFFUSION).coerceAtMost(4),
             offloadToCpu = false,
             keepClipOnCpu = false,
             keepVaeOnCpu = false,

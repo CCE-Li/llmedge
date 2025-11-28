@@ -69,7 +69,7 @@ class WanVideoFullStackTest {
                     modelPath = files.model.absolutePath,
                     vaePath = files.vae.absolutePath,
                     t5xxlPath = files.t5xxl.absolutePath,  // *** INCLUDE T5XXL ***
-                    nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(4),
+                    nThreads = io.aatricks.llmedge.CpuTopology.getOptimalThreadCount(io.aatricks.llmedge.CpuTopology.TaskType.DIFFUSION).coerceAtMost(4),
                     offloadToCpu = true,   // Use CPU to avoid OOM
                     keepClipOnCpu = true,  // Keep T5XXL on CPU to save VRAM
                     keepVaeOnCpu = true,   // Keep VAE on CPU to save VRAM

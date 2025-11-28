@@ -355,9 +355,8 @@ class VideoGenerationTest {
 
         val result = sd.txt2vid(params)
 
-        val metrics = sd.getLastGenerationMetrics()
-        assertNotNull("Should have generation metrics", metrics)
-        assertTrue("Total time should be positive", metrics!!.totalTimeSeconds > 0)
+        val metrics = requireNotNull(sd.getLastGenerationMetrics())
+        assertTrue("Total time should be positive", metrics.totalTimeSeconds > 0)
         assertTrue("Frames per second should be positive", metrics.framesPerSecond > 0)
         assertEquals(4, result.size) // Verify frame count matches
     }

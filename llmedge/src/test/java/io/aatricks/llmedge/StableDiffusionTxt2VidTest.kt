@@ -229,9 +229,7 @@ class StableDiffusionTxt2VidTest {
 
         sd.txt2vid(params)
 
-        val bytes = capturedBytes
-        assertNotNull(bytes)
-        bytes!!
+        val bytes = requireNotNull(capturedBytes)
         assertEquals(TEST_DIMENSION * TEST_DIMENSION * 3, bytes.size)
         assertEquals(TEST_DIMENSION, capturedInitWidth)
         assertEquals(TEST_DIMENSION, capturedInitHeight)

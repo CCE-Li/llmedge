@@ -55,7 +55,7 @@ class ImageGenerationE2ENativeTest {
                 modelPath = modelPath,
                 vaePath = vaePath,
                 t5xxlPath = null,
-                nThreads = Runtime.getRuntime().availableProcessors().coerceAtLeast(2),
+                nThreads = io.aatricks.llmedge.CpuTopology.getOptimalThreadCount(io.aatricks.llmedge.CpuTopology.TaskType.DIFFUSION).coerceAtLeast(2),
                 offloadToCpu = false,
                 keepClipOnCpu = false,
                 keepVaeOnCpu = false,
