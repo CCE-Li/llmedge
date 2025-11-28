@@ -1037,12 +1037,17 @@ object LLMEdgeManager {
         /**
          * Downloads a model from Hugging Face with progress updates. Useful for activities that
          * need to show download progress before generation.
+         * 
+         * Uses Android's system DownloadManager by default to avoid heap memory issues with
+         * large model files. The system downloader streams directly to disk without using
+         * the app's Java heap.
          */
         suspend fun downloadModel(
                 context: Context,
                 modelId: String,
                 filename: String?,
                 revision: String = "main",
+                preferSystemDownloader: Boolean = true,
                 onProgress: ((Long, Long?) -> Unit)? = null
         ): File {
                 return HuggingFaceHub.ensureModelOnDisk(
@@ -1050,6 +1055,7 @@ object LLMEdgeManager {
                                 modelId = modelId,
                                 revision = revision,
                                 filename = filename,
+                                preferSystemDownloader = preferSystemDownloader,
                                 onProgress = onProgress
                         )
                         .file
