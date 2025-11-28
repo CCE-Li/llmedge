@@ -142,8 +142,16 @@ object CpuTopology {
                 }
             }
             TaskType.DIFFUSION -> {
-                // Use all cores for parallel diffusion steps
-                Runtime.getRuntime().availableProcessors()
+                // For diffusion on mobile, use performance cores only to avoid thermal throttling
+                // Using all cores (including efficiency cores) causes thermal issues and power drain
+                // which leads to sustained performance degradation
+                if (coreInfo.performanceCores >= 2) {
+                    // Use all P-cores but cap at 6 to prevent thermal throttling
+                    coreInfo.performanceCores.coerceAtMost(6)
+                } else {
+                    // Fallback for homogeneous cores: use 75% of cores, capped at 6
+                    (Runtime.getRuntime().availableProcessors() * 3 / 4).coerceIn(2, 6)
+                }
             }
             TaskType.LIGHT_TASK -> {
                 // Use 1-2 cores for quick operations

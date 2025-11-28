@@ -256,8 +256,10 @@ object LLMEdgeManager {
                                 }
                                 return@withLock sb.toString()
                         } else {
+                                // Use Dispatchers.IO for blocking native JNI operations
+                                // Dispatchers.Default has limited parallelism and is meant for CPU-bound work
                                 return@withLock kotlinx.coroutines.withContext(
-                                        kotlinx.coroutines.Dispatchers.Default
+                                        kotlinx.coroutines.Dispatchers.IO
                                 ) { smol.getResponse(params.prompt) }
                         }
                 }
@@ -439,23 +441,18 @@ object LLMEdgeManager {
                                                 params.height,
                                                 onProgress
                                         )
-                                val bytes =
-                                        model.txt2img(
-                                                prompt = params.prompt,
-                                                negative = params.negative,
-                                                width = params.width,
-                                                height = params.height,
-                                                steps = params.steps,
-                                                cfg = params.cfgScale,
-                                                seed = params.seed
-                                        )
-                                return bytes?.let {
-                                        android.graphics.BitmapFactory.decodeByteArray(
-                                                it,
-                                                0,
-                                                it.size
-                                        )
-                                }
+                                // Use txt2img(GenerateParams) which returns Bitmap directly
+                                // The raw ByteArray version returns RGB bytes, not encoded image
+                                val sdParams = StableDiffusion.GenerateParams(
+                                        prompt = params.prompt,
+                                        negative = params.negative,
+                                        width = params.width,
+                                        height = params.height,
+                                        steps = params.steps,
+                                        cfgScale = params.cfgScale,
+                                        seed = params.seed
+                                )
+                                return model.txt2img(sdParams)
                         } else {
                                 val model =
                                         getOrLoadImageModel(
@@ -465,23 +462,18 @@ object LLMEdgeManager {
                                                 params.height,
                                                 onProgress
                                         )
-                                val bytes =
-                                        model.txt2img(
-                                                prompt = params.prompt,
-                                                negative = params.negative,
-                                                width = params.width,
-                                                height = params.height,
-                                                steps = params.steps,
-                                                cfg = params.cfgScale,
-                                                seed = params.seed
-                                        )
-                                return bytes?.let {
-                                        android.graphics.BitmapFactory.decodeByteArray(
-                                                it,
-                                                0,
-                                                it.size
-                                        )
-                                }
+                                // Use txt2img(GenerateParams) which returns Bitmap directly
+                                // The raw ByteArray version returns RGB bytes, not encoded image
+                                val sdParams = StableDiffusion.GenerateParams(
+                                        prompt = params.prompt,
+                                        negative = params.negative,
+                                        width = params.width,
+                                        height = params.height,
+                                        steps = params.steps,
+                                        cfgScale = params.cfgScale,
+                                        seed = params.seed
+                                )
+                                return model.txt2img(sdParams)
                         }
                 }
 
@@ -636,9 +628,9 @@ object LLMEdgeManager {
                                         cond = cond,
                                         uncond = uncond
                                 )
-                        return bytes?.let {
-                                android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size)
-                        }
+                        // Convert raw RGB bytes to Bitmap - BitmapFactory.decodeByteArray expects
+                        // encoded PNG/JPEG, not raw RGB pixels
+                        return bytes?.let { rgbBytesToBitmap(it, params.width, params.height) }
                 } finally {
                         diffusionModel?.close()
                 }
@@ -791,17 +783,22 @@ object LLMEdgeManager {
                 prepareMemoryForLoading()
 
                 // Phase 3: Adaptive flash attention based on image dimensions
+                // When flashAttn=true (default), let the helper decide based on dimensions.
+                // When flashAttn=false, force disable flash attention.
+                // This ensures small images (128x128) don't use flash attention which can be
+                // inefficient on mobile GPUs that may lack proper hardware support (coopmat2/subgroup_shuffle).
                 val adaptiveFlashAttn =
                         FlashAttentionHelper.shouldUseFlashAttention(
                                 width = width,
                                 height = height,
-                                forceEnable = if (flashAttn) true else null
+                                forceEnable = if (flashAttn) null else false
                         )
 
                 Log.i(
                         TAG,
                         "Loading image model with flash_attn=$adaptiveFlashAttn " +
-                                "(requested=$flashAttn, dimensions=${width}x${height})"
+                                "(requested=$flashAttn, dimensions=${width}x${height}, " +
+                                "seqLen=${(width / 8) * (height / 8)})"
                 )
 
                 val modelFile = getFile(context, DEFAULT_IMAGE_MODEL_ID, DEFAULT_IMAGE_MODEL_FILENAME)
@@ -829,28 +826,19 @@ object LLMEdgeManager {
                         modelPath = modelFile.absolutePath,
                         nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
                         offloadToCpu = false,
-                        flashAttn = adaptiveFlashAttn
+                        flashAttn = adaptiveFlashAttn,
+                        // Explicitly disable sequential load for image models - MeinaMix is small
+                        // enough to fit entirely in VRAM. The auto-detection in StableDiffusion.load()
+                        // enables sequential load on < 8GB devices which puts CLIP/VAE on CPU,
+                        // causing massive slowdown (2+ minutes instead of ~50 seconds).
+                        sequentialLoad = false
                 )
                 val loadTime = System.currentTimeMillis() - loadStart
 
-                // Estimate model footprint using native estimator, fallback to file size
-                val chosenDevice = StableDiffusion.getVulkanDeviceCount().let { devices ->
-                        var ci = -1
-                        if (devices > 0) {
-                                var maxTotal = 0L
-                                for (i in 0 until devices) {
-                                        val mem = StableDiffusion.getVulkanDeviceMemory(i)
-                                        if (mem != null && mem.size >= 2 && mem[1] > maxTotal) {
-                                                maxTotal = mem[1]
-                                                ci = i
-                                        }
-                                }
-                        }
-                        ci
-                }
-
-                val estimatedBytes = StableDiffusion.estimateModelParamsMemoryBytes(modelFile.absolutePath, if (chosenDevice >= 0) chosenDevice else 0)
-                val modelSize = if (estimatedBytes > 0L) estimatedBytes else modelFile.length()
+                // Use file size as cache size estimate to avoid re-parsing the model file.
+                // StableDiffusion.load() already performs estimation internally if needed for
+                // Vulkan VRAM heuristics, so we don't need to call it again here.
+                val modelSize = modelFile.length()
 
                 diffusionModelCache.put(cacheKey, model, modelSize, loadTime)
                 cachedModel = model
@@ -927,24 +915,10 @@ object LLMEdgeManager {
                 )
                 val loadTime = System.currentTimeMillis() - loadStart
 
-                // Estimate model footprint using native estimator, fallback to file size
-                val chosenDevice = StableDiffusion.getVulkanDeviceCount().let { devices ->
-                        var ci = -1
-                        if (devices > 0) {
-                                var maxTotal = 0L
-                                for (i in 0 until devices) {
-                                        val mem = StableDiffusion.getVulkanDeviceMemory(i)
-                                        if (mem != null && mem.size >= 2 && mem[1] > maxTotal) {
-                                                maxTotal = mem[1]
-                                                ci = i
-                                        }
-                                }
-                        }
-                        ci
-                }
-
-                val estimatedBytes = StableDiffusion.estimateModelParamsMemoryBytes(modelFile.absolutePath, if (chosenDevice >= 0) chosenDevice else 0)
-                val modelSize = if (estimatedBytes > 0L) estimatedBytes else modelFile.length()
+                // Use file size as cache size estimate to avoid re-parsing the model file.
+                // StableDiffusion.load() already performs estimation internally if needed for
+                // Vulkan VRAM heuristics, so we don't need to call it again here.
+                val modelSize = modelFile.length()
 
                 diffusionModelCache.put(cacheKey, model, modelSize, loadTime)
                 cachedModel = model
@@ -1202,5 +1176,27 @@ object LLMEdgeManager {
          */
         private fun makeDiffusionCacheKey(modelPath: String, vaePath: String?, t5Path: String?): String {
                 return listOf(modelPath, vaePath ?: "", t5Path ?: "").joinToString("|")
+        }
+
+        /**
+         * Convert raw RGB byte array to Bitmap.
+         * The native txt2img/txt2ImgWithPrecomputedCondition return raw RGB bytes (3 bytes per pixel),
+         * not encoded image formats like PNG/JPEG.
+         */
+        private fun rgbBytesToBitmap(rgb: ByteArray, width: Int, height: Int): Bitmap {
+                val pixels = IntArray(width * height)
+                var idx = 0
+                var p = 0
+                while (idx < rgb.size && p < pixels.size) {
+                        val r = (rgb[idx].toInt() and 0xFF)
+                        val g = (rgb[idx + 1].toInt() and 0xFF)
+                        val b = (rgb[idx + 2].toInt() and 0xFF)
+                        pixels[p] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                        idx += 3
+                        p += 1
+                }
+                return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+                        setPixels(pixels, 0, width, 0, 0, width, height)
+                }
         }
 }

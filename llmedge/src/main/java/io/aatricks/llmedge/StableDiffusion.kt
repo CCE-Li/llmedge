@@ -1229,7 +1229,9 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     fun getLastGenerationMetrics(): GenerationMetrics? = lastGenerationMetrics
 
     suspend fun txt2img(params: GenerateParams): Bitmap =
-            withContext(Dispatchers.Default) {
+            // Use Dispatchers.IO for blocking native JNI operations
+            // Dispatchers.Default is CPU-bound and has limited parallelism (core count)
+            withContext(Dispatchers.IO) {
                 val bytes =
                         generationMutex.withLock {
                             nativeBridge.txt2img(

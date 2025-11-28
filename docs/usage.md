@@ -149,9 +149,16 @@ See [StableDiffusionActivity example](examples.md#stablediffusionactivity) for c
 
 **Threading:**
 
-- Always use background dispatchers (`Dispatchers.IO` or `Dispatchers.Default`) for model loading and inference
+- **ALWAYS use `Dispatchers.IO`** for model loading and inference - native JNI operations are blocking I/O
+- **DO NOT use `Dispatchers.Default`** for native operations - it has limited parallelism (CPU core count) and causes thread starvation
 - Update UI only via `withContext(Dispatchers.Main)`
 - Call `.close()` in `onDestroy()` to free native memory
+
+**Why `Dispatchers.IO` for native operations:**
+- `Dispatchers.Default` is sized to CPU cores (typically 4-8 on mobile) and meant for CPU-bound work
+- Native JNI calls completely block the calling thread during inference
+- When all Default dispatcher threads are blocked, new coroutines queue up causing slowness
+- `Dispatchers.IO` has a larger thread pool (64+ threads) designed for blocking operations
 
 **Memory optimization:**
 
