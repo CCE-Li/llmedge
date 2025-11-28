@@ -767,19 +767,18 @@ object LLMEdgeManager {
                 height: Int = 512,
                 onProgress: ((String, Int, Int) -> Unit)?
         ): StableDiffusion {
+                // Check if we already have the correct IMAGE model loaded
+                val spec = currentDiffusionModelSpec
                 cachedModel?.let {
-                        // Check if cached model matches requested path/params
-                        val spec = currentDiffusionModelSpec
-                        if (spec != null) {
-                                // We only have a single image model slot in the examples.
-                                // If it matches the default image filenames, return it.
-                                // More robust matching could compare absolute paths.
-                                if (spec.filename == DEFAULT_IMAGE_MODEL_FILENAME) {
-                                        return it
-                                }
-                        } else {
+                        // Only return cached model if it's specifically an image model (not video)
+                        if (spec != null && 
+                            spec.filename == DEFAULT_IMAGE_MODEL_FILENAME &&
+                            spec.vaePath == null && // Image models don't use separate VAE
+                            spec.t5xxlPath == null) { // Image models don't use T5
                                 return it
                         }
+                        // Wrong model type loaded - unload it first
+                        unloadDiffusionModel()
                 }
 
                 diffusionModelCache.systemMemoryProvider = {
@@ -870,13 +869,26 @@ object LLMEdgeManager {
                 flashAttn: Boolean,
                 onProgress: ((String, Int, Int) -> Unit)?
         ): StableDiffusion {
+                // Check if we already have the correct VIDEO model loaded
+                val spec = currentDiffusionModelSpec
                 cachedModel?.let {
-                        val spec = currentDiffusionModelSpec
-                        if (spec != null && spec.filename == DEFAULT_VIDEO_MODEL_FILENAME) {
-                                return it
-                        } else {
+                        // Only return cached model if it's specifically a video model with VAE and T5
+                        if (spec != null && 
+                            spec.filename == DEFAULT_VIDEO_MODEL_FILENAME &&
+                            spec.vaePath != null && // Video models require VAE
+                            spec.t5xxlPath != null) { // Video models require T5
                                 return it
                         }
+                        // Wrong model type loaded - unload it first
+                        unloadDiffusionModel()
+                }
+
+                // Set memory provider for cache before loading
+                diffusionModelCache.systemMemoryProvider = {
+                        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                        val mi = ActivityManager.MemoryInfo()
+                        am.getMemoryInfo(mi)
+                        mi.availMem / (1024L * 1024L)
                 }
 
                 ensureVideoFiles(context, onProgress)
@@ -963,10 +975,8 @@ object LLMEdgeManager {
                         ) {
                                 return it
                         }
-                        // If not match, close and reload
-                        it.close()
-                        cachedSmolLM = null
-                        currentTextModelSpec = null
+                        // If not match, properly unload and remove from cache
+                        unloadSmolLM()
                 }
 
                 val finalPath =
@@ -1072,8 +1082,19 @@ object LLMEdgeManager {
         }
 
         private fun unloadSmolLM() {
-                cachedSmolLM?.close()
+                // Remove from cache if we have a spec (this will also close the model)
+                val spec = currentTextModelSpec
+                if (spec != null) {
+                        val cacheKey = spec.path ?: getModelCacheKey(spec.modelId, spec.filename)
+                        textModelCache.remove(cacheKey)
+                }
+                // Clear local references
                 cachedSmolLM = null
+                currentTextModelSpec = null
+        }
+
+        private fun getModelCacheKey(modelId: String, filename: String): String {
+                return "$modelId/$filename"
         }
 
         private suspend fun ensureVideoFiles(

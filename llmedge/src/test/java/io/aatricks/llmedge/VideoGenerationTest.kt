@@ -80,22 +80,6 @@ class VideoGenerationTest {
                     height: Int,
                     clipSkip: Int,
                 ): StableDiffusion.PrecomputedCondition? = null
-                override fun precomputeCondition(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
-                override fun precomputeCondition(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
             }
         }
         true

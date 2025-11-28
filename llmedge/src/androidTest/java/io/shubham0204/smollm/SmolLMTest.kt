@@ -73,7 +73,7 @@ class SmolLMTest {
             }
 
             var located = findInAssets(appContext) ?: findInAssets(instrContext)
-                if (located == null) {
+            if (located == null) {
                     // Attempt to download a small test model using HuggingFace helpers if assets are
                     // absent. Prefer the system downloader (DownloadManager) on Android devices for
                     // more robust handling of large files; fall back to the in-app downloader if it
@@ -104,9 +104,8 @@ class SmolLMTest {
                         return@runTest
                     }
                 }
-            }
 
-            val (dir, file) = located
+            val (dir, file) = located!!
             if (!::modelFile.isInitialized) {
                 val assetPath = if (dir.isEmpty()) file else "$dir/$file"
                 modelFile = copyAssetToCache(appContext, assetPath)
