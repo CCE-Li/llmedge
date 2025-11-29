@@ -335,102 +335,123 @@ object LLMEdgeManager {
                                 val projFile = getFile(context, params.modelId, params.projFilename)
         
                                 // Instantiate a fresh SmolLM for this specific vision task
-                                // mirroring the configuration in the working backup:
-                                // - storeChats = false (saves memory/context)
-                                // - temperature = 0.0f (deterministic)
-                                // - thinkingMode = DISABLED
-                                val optimalThreads = if (preferPerformanceMode) {
-                                        CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING)
-                                } else {
-                                        2
-                                }
-                                
                                 // Use explicit Vulkan setting based on preference
-                                val smol = io.aatricks.llmedge.SmolLM(useVulkan = preferPerformanceMode)
+                                // Backup logs show useVulkan=0 (false) was the working configuration.
+                                // We force false here to strictly match the working backup state.
+                                val smol = io.aatricks.llmedge.SmolLM(useVulkan = false)
                                 
                                 try {
                                         prepareMemoryForLoading()
                                         
-                                        smol.load(
-                                                modelPath = modelFile.absolutePath,
-                                                params = io.aatricks.llmedge.SmolLM.InferenceParams(
-                                                        numThreads = optimalThreads,
-                                                        contextSize = null, 
-                                                        storeChats = false,
-                                                        temperature = 0.0f,
-                                                        thinkingMode = io.aatricks.llmedge.SmolLM.ThinkingMode.DISABLED
-                                                )
-                                        )
-        
                                         // Prepare Vision Adapter
                                         val adapter = io.aatricks.llmedge.vision.SmolLMVisionAdapter(context, smol)
-        
+
                                         try {
-                                                // 1. Save bitmap to temp file
+                                                // 1. Prepare temp files (matching backup behavior)
                                                 onProgress?.invoke("Preparing image")
-                                                val tempImageFile =
-                                                        File.createTempFile(
-                                                                "vision_input",
-                                                                ".jpg",
-                                                                context.cacheDir
-                                                        )
-                                                val preparedImageFile =
-                                                        File.createTempFile(
-                                                                "vision_prepared",
-                                                                ".bin",
-                                                                context.cacheDir
-                                                        )
-        
+                                                val imageFile = File.createTempFile("vision_input", ".jpg", context.cacheDir)
+                                                val embedFile = File.createTempFile("vision_prepared", ".bin", context.cacheDir)
+                                                
+                                                // Clean up any stale metadata for the new temp file (unlikely but safe)
+                                                val metaFile = File(embedFile.absolutePath + ".meta.json")
+                                                if (metaFile.exists()) metaFile.delete()
+
                                                 try {
-                                                        // Preprocess and save
+                                                        Log.d(TAG, "Vision: Preprocessing image...")
+                                                        // Preprocess and save image
                                                         val scaled =
                                                                 io.aatricks.llmedge.vision.ImageUtils
                                                                         .preprocessImage(
                                                                                 params.image,
                                                                                 correctOrientation = true,
-                                                                                maxDimension = 1024,
+                                                                                maxDimension = 672, // Aligned to 2x 336px (Phi-3 native tile size)
                                                                                 enhance = false
                                                                         )
-                                                        tempImageFile.outputStream().use { out ->
+                                                        imageFile.outputStream().use { out ->
                                                                 scaled.compress(Bitmap.CompressFormat.JPEG, 90, out)
                                                         }
-        
-                                                        // 2. Run Projector
+
+                                                        // 2. Load Model FIRST (Lightweight load for Projection validation)
+                                                        onProgress?.invoke("Loading vision model (init)")
+                                                        Log.d(TAG, "Vision: Loading vision model (stage 1) ${modelFile.absolutePath}")
+                                                        
+                                                        // Load directly into smol for the projection phase
+                                                        smol.load(
+                                                            modelPath = modelFile.absolutePath,
+                                                            params = io.aatricks.llmedge.SmolLM.InferenceParams(
+                                                                numThreads = 2,
+                                                                contextSize = null, // Auto context for projection is fine
+                                                                storeChats = false, // Minimal memory
+                                                                temperature = 0.0f,
+                                                                thinkingMode = io.aatricks.llmedge.SmolLM.ThinkingMode.DISABLED
+                                                            )
+                                                        )
+
+                                                        // 3. Run Projector (With loaded model pointer)
                                                         onProgress?.invoke("Encoding image")
+                                                        Log.d(TAG, "Vision: Initializing projector with mmproj=${projFile.absolutePath}")
                                                         val projector = io.aatricks.llmedge.vision.Projector()
+                                                        
+                                                        // Retrieve ptr from the NOW LOADED model
+                                                        val modelPtr = smol.getNativeModelPointer()
+                                                        Log.d(TAG, "Vision: Text model ptr=0x${java.lang.Long.toHexString(modelPtr)}")
+
                                                         projector.init(
                                                                 projFile.absolutePath,
-                                                                smol.getNativeModelPointer()
+                                                                modelPtr
                                                         )
+                                                        
+                                                        Log.d(TAG, "Vision: Encoding image to ${embedFile.absolutePath}")
                                                         val ok =
                                                                 projector.encodeImageToFile(
-                                                                        tempImageFile.absolutePath,
-                                                                        preparedImageFile.absolutePath
+                                                                        imageFile.absolutePath,
+                                                                        embedFile.absolutePath
                                                                 )
                                                         projector.close()
-        
-                                                        val imageSource =
-                                                                if (ok) {
-                                                                        io.aatricks.llmedge.vision.ImageSource
-                                                                                .FileSource(preparedImageFile)
-                                                                } else {
-                                                                        io.aatricks.llmedge.vision.ImageSource
-                                                                                .FileSource(tempImageFile)
-                                                                }
-        
-                                                        // 3. Run Analysis
+                                                        
+                                                        Log.d(TAG, "Vision: Projector returned $ok")
+                                                        
+                                                        if (!ok || !File(embedFile.absolutePath + ".meta.json").exists()) {
+                                                            Log.w(TAG, "Vision: Projection failed or metadata missing. Fallback to using raw image file.")
+                                                            imageFile.copyTo(embedFile, overwrite = true)
+                                                        }
+
+                                                        // 4. Reload Model for Analysis (Inference Configuration)
+                                                        // We reload with storeChats=true and larger context, matching the working backup state
+                                                        onProgress?.invoke("Loading vision model (inference)")
+                                                        Log.d(TAG, "Vision: Reloading vision model (stage 2) for inference")
+                                                        
+                                                        adapter.loadVisionModel(
+                                                            modelFile.absolutePath, 
+                                                            null,
+                                                            io.aatricks.llmedge.SmolLM.InferenceParams(
+                                                                numThreads = 2, 
+                                                                contextSize = 4096L, // Required for vision tokens
+                                                                storeChats = true,   // Backup used default (true) for inference
+                                                                temperature = 0.6f,  // Increase temp to 0.6f to break repetition loops
+                                                                thinkingMode = io.aatricks.llmedge.SmolLM.ThinkingMode.DISABLED
+                                                            )
+                                                        )
+
+                                                        // 5. Run Analysis
                                                         onProgress?.invoke("Running vision analysis")
-                                                        adapter.loadVisionModel(modelFile.absolutePath)
+                                                        
+                                                        // Pass the EMBEDDING/BIN file as source
+                                                        val imageSource = io.aatricks.llmedge.vision.ImageSource.FileSource(embedFile)
+                                                        
                                                         val result =
                                                                 adapter.analyze(
                                                                         imageSource,
                                                                         params.prompt,
                                                                         io.aatricks.llmedge.vision.VisionParams()
                                                                 )
+                                                        Log.d(TAG, "Vision: Analysis complete. Response length=${result.text.length}")
                                                         return@withLock result.text
                                                 } finally {
-                                                        tempImageFile.delete()
-                                                        preparedImageFile.delete()
+                                                        // Cleanup
+                                                        if (imageFile.exists()) imageFile.delete()
+                                                        if (embedFile.exists()) embedFile.delete()
+                                                        if (metaFile.exists()) metaFile.delete()
                                                         adapter.close() 
                                                 }
                                         } catch (e: Exception) {

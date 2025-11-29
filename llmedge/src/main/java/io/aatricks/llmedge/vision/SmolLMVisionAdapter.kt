@@ -116,15 +116,15 @@ class SmolLMVisionAdapter(
                 val ok = smolLM.decodePreparedEmbeddings(embdFile.absolutePath, metaFile.absolutePath, params.nBatch ?: 1)
                 if (!ok) {
                     Log.w(TAG, "decodePreparedEmbeddings failed, falling back to text-only prompt")
-                    response = smolLM.getResponse(visionPrompt)
+                    response = smolLM.getResponse(visionPrompt, params.maxTokens)
                 } else {
                     // After embeddings are decoded into KV cache, call getResponse with the prompt
-                    response = smolLM.getResponse(visionPrompt)
+                    response = smolLM.getResponse(visionPrompt, params.maxTokens)
                 }
             } else {
                 // For now, use regular text generation as a placeholder
                 // When vision support is added, this will call native vision inference
-                response = smolLM.getResponse(visionPrompt)
+                response = smolLM.getResponse(visionPrompt, params.maxTokens)
             }
             
             val duration = System.currentTimeMillis() - startTime
@@ -179,7 +179,10 @@ class SmolLMVisionAdapter(
         // If the prompt already contains high-level SYSTEM / OCR markers (our augmented prompt)
         // treat it as a full prompt and return it unchanged to avoid double-wrapping.
         val normalized = prompt.trimStart()
-        if (normalized.startsWith("SYSTEM:") || normalized.contains("OCR_TEXT_START") || normalized.contains("EXAMPLES:")) {
+        if (normalized.startsWith("SYSTEM:") || 
+            normalized.contains("OCR_TEXT_START") || 
+            normalized.contains("EXAMPLES:") ||
+            normalized.startsWith("<|user|>")) { // Allow ChatML formatting
             return prompt
         }
 

@@ -656,19 +656,40 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * return the complete response.
      *
      * @param query The user's query/prompt for the LLM.
+     * @param maxTokens Maximum number of tokens to generate. -1 for infinite (until EOS).
      * @return The complete response from the LLM.
      * @throws IllegalStateException if the model is not loaded.
      */
-    fun getResponse(query: String): String {
+    fun getResponse(query: String, maxTokens: Int = -1): String {
         verifyHandle()
+        Log.d(LOG_TAG, "getResponse: starting completion. maxTokens=$maxTokens, queryLength=${query.length}")
         nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
         var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
         var response = ""
+        var tokensGenerated = 0
+        
         while (piece != "[EOG]") {
             response += piece
+            tokensGenerated++
+            
+            if (tokensGenerated % 10 == 0) {
+                 // Log occasional progress to confirm it's alive without spamming
+                 Log.d(LOG_TAG, "Generated $tokensGenerated tokens...")
+            }
+
+            if (maxTokens > 0 && tokensGenerated >= maxTokens) {
+                Log.d(LOG_TAG, "getResponse: maxTokens ($maxTokens) reached. Stopping.")
+                break
+            }
+            
             piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
         }
+        if (piece == "[EOG]") {
+             Log.d(LOG_TAG, "getResponse: [EOG] received after $tokensGenerated tokens.")
+        }
+        
         nativeBridge.stopCompletion(this, nativePtr)
+        Log.d(LOG_TAG, "getResponse: finished. Total length=${response.length}")
         return response
     }
 
@@ -787,7 +808,11 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     }
 
     private fun resolveContextSize(requested: Long?, modelContextSize: Long): Long {
-        val desired = requested ?: modelContextSize
+        if (requested != null) {
+            // If explicitly requested, trust the caller and clamp only to absolute limits
+            return requested.coerceIn(MIN_CONTEXT_SIZE, DEFAULT_CONTEXT_SIZE_CAP)
+        }
+        val desired = modelContextSize
         val heapAwareCap = recommendedContextCap()
         val effectiveCap = minOf(DEFAULT_CONTEXT_SIZE_CAP, heapAwareCap)
         val clamped = desired.coerceIn(MIN_CONTEXT_SIZE, effectiveCap)
