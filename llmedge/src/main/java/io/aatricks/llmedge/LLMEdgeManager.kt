@@ -848,7 +848,7 @@ object LLMEdgeManager {
                 // CPU backend with sequential load can be 5x faster than Vulkan.
                 // The auto-detection enables CPU backend on low-memory devices which is
                 // often the better choice for mobile diffusion workloads.
-                val finalSequentialLoad = if (preferPerformanceMode) false else sequentialLoad
+                val finalSequentialLoad = if (preferPerformanceMode) null else sequentialLoad
                 Log.i(TAG, "StableDiffusion.load(image) called with finalSequentialLoad=${finalSequentialLoad}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, flashAttn=$adaptiveFlashAttn")
                 val model = StableDiffusion.load(
                         context = context,
@@ -857,6 +857,7 @@ object LLMEdgeManager {
                         offloadToCpu = false,
                         sequentialLoad = finalSequentialLoad,
                         forceVulkan = preferPerformanceMode,
+                        preferPerformanceMode = preferPerformanceMode,
                         flashAttn = adaptiveFlashAttn
                         // sequentialLoad defaults to null, allowing auto-detection
                 )
@@ -930,7 +931,7 @@ object LLMEdgeManager {
                 }
 
                 val loadStart = System.currentTimeMillis()
-                val finalSequentialLoadV = if (preferPerformanceMode) false else sequentialLoad
+                val finalSequentialLoadV = if (preferPerformanceMode) null else sequentialLoad
                 val finalKeepClipOnCpu = if (preferPerformanceMode) false else true
                 val finalKeepVaeOnCpu = if (preferPerformanceMode) false else true
                 Log.i(TAG, "StableDiffusion.load(video) called with finalSequentialLoad=${finalSequentialLoadV}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, keepClipOnCpu=${finalKeepClipOnCpu}, keepVaeOnCpu=${finalKeepVaeOnCpu}, flashAttn=$flashAttn")
@@ -943,6 +944,7 @@ object LLMEdgeManager {
                         offloadToCpu = false,
                         sequentialLoad = finalSequentialLoadV,
                         forceVulkan = preferPerformanceMode,
+                        preferPerformanceMode = preferPerformanceMode,
                         keepClipOnCpu = finalKeepClipOnCpu,
                         keepVaeOnCpu = finalKeepVaeOnCpu,
                         flashAttn = flashAttn

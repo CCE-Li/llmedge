@@ -555,6 +555,49 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             }
         }
 
+        @JvmStatic
+        private fun computeEffectiveSequentialLoad(
+            context: Context,
+            resolvedModelPath: String,
+            sequentialLoad: Boolean?,
+            preferPerformanceMode: Boolean,
+            activityManagerOverride: ActivityManager? = null,
+        ): Pair<Boolean, Long> {
+            val memoryInfo = ActivityManager.MemoryInfo()
+            val activityManager = activityManagerOverride ?: (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
+            activityManager.getMemoryInfo(memoryInfo)
+            val totalRamGB = memoryInfo.totalMem / (1024L * 1024L * 1024L)
+
+            if (sequentialLoad != null) {
+                return Pair(sequentialLoad, 0L)
+            }
+
+            var estimatedParamBytes = 0L
+            try {
+                val vulkanCount = nativeGetVulkanDeviceCount()
+                val devIdx = if (vulkanCount > 0) 0 else -1
+                estimatedParamBytes = estimateModelParamsMemoryBytes(resolvedModelPath, devIdx)
+            } catch (t: Throwable) {
+                estimatedParamBytes = 0L
+            }
+
+            val rt = Runtime.getRuntime()
+            val heapUsed = rt.totalMemory() - rt.freeMemory()
+            val heapMax = rt.maxMemory()
+            val heapAvail = (heapMax - heapUsed).coerceAtLeast(0L)
+            val sysAvail = memoryInfo.availMem
+
+            val heapThresholdFactor = if (preferPerformanceMode) 0.9 else 0.75
+            val sysThresholdFactor = if (preferPerformanceMode) 0.9 else 0.6
+
+            val heapSeqNeeded = (estimatedParamBytes > 0) && estimatedParamBytes.toDouble() > heapAvail.toDouble() * heapThresholdFactor
+            val sysSeqNeeded = (estimatedParamBytes > 0) && estimatedParamBytes.toDouble() > sysAvail.toDouble() * sysThresholdFactor
+            val lowRamHint = (totalRamGB < 8)
+
+            val effectiveSequentialLoad = lowRamHint || heapSeqNeeded || sysSeqNeeded
+            return Pair(effectiveSequentialLoad, estimatedParamBytes)
+        }
+
         private suspend fun inferVideoModelMetadata(
                 resolvedModelPath: String,
                 modelId: String?,
@@ -663,6 +706,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 flashAttn: Boolean = true,
                 sequentialLoad: Boolean? = null,
                 forceVulkan: Boolean = false,
+                preferPerformanceMode: Boolean = false,
                 token: String? = null,
                 forceDownload: Boolean = false,
         ): StableDiffusion =
@@ -694,6 +738,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         keepVaeOnCpu = keepVaeOnCpu,
                                         flashAttn = flashAttn,
                                         sequentialLoad = sequentialLoad,
+                                        preferPerformanceMode = preferPerformanceMode,
                                         token = token,
                                         forceDownload = forceDownload,
                                         preferSystemDownloader = true,
@@ -787,7 +832,14 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     activityManager.getMemoryInfo(memoryInfo)
                     val totalRamGB = memoryInfo.totalMem / (1024L * 1024L * 1024L)
 
-                    val effectiveSequentialLoad = sequentialLoad ?: (totalRamGB < 8)
+                    // Use a combined heuristic for sequential loading which considers
+                    // 1) device total RAM, 2) Java available heap, and 3) native model param size
+                    val (effectiveSequentialLoad, estimatedParamBytes) = computeEffectiveSequentialLoad(
+                            context,
+                            resolvedModelPath,
+                            sequentialLoad,
+                            preferPerformanceMode,
+                    )
 
                     var effectiveOffloadToCpu = offloadToCpu
                     var effectiveKeepClipOnCpu = keepClipOnCpu
@@ -806,6 +858,22 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         effectiveKeepVaeOnCpu = true
                     }
 
+                    // Debug log: show the inputs that influenced the combined sequential load
+                    try {
+                        val rt2 = Runtime.getRuntime()
+                        val heapUsed2 = rt2.totalMemory() - rt2.freeMemory()
+                        val heapMax2 = rt2.maxMemory()
+                        val heapAvail2 = (heapMax2 - heapUsed2).coerceAtLeast(0L)
+                        val sysAvail2 = memoryInfo.availMem
+                        val lowRam2 = (totalRamGB < 8)
+                        android.util.Log.i(
+                                LOG_TAG,
+                                "SequentialLoad heuristic: preferPerformanceMode=$preferPerformanceMode, explicitParam=${sequentialLoad}, lowRam=$lowRam2, estimatedParamBytes=$estimatedParamBytes, heapAvailMB=${String.format("%.2f", heapAvail2/1024.0/1024.0)}, sysAvailMB=${String.format("%.2f", sysAvail2/1024.0/1024.0)}, heapSeqNeeded=${(estimatedParamBytes>0 && estimatedParamBytes > heapAvail2 * (if (preferPerformanceMode) 0.9 else 0.75))}, sysSeqNeeded=${(estimatedParamBytes>0 && estimatedParamBytes > sysAvail2 * (if (preferPerformanceMode) 0.9 else 0.6))}, effectiveSequentialLoad=$effectiveSequentialLoad"
+                        )
+                    } catch (t: Throwable) {
+                        // ignore logging errors
+                    }
+
                     // Auto-detection heuristic: if device Vulkan VRAM is too small for this model,
                     // and the caller didn't explicitly ask for offloadToCpu, enable it
                     // automatically
@@ -816,7 +884,6 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             }
                             val vulkanDevices = nativeGetVulkanDeviceCount()
                             if (vulkanDevices > 0) {
-                                var chosenDevice = -1
                                 var maxTotal: Long = 0
                                 for (i in 0 until vulkanDevices) {
                                     val mem = nativeGetVulkanDeviceMemory(i)
@@ -829,15 +896,15 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     }
                                 }
                                 if (chosenDevice >= 0) {
-                                    val estimatedParams =
-                                            nativeEstimateModelParamsMemory(
-                                                    resolvedModelPath,
-                                                    chosenDevice
-                                            )
+                                    estimatedParams =
+                                        estimateModelParamsMemoryBytes(
+                                            resolvedModelPath,
+                                            chosenDevice
+                                        )
                                     if (estimatedParams > 0) {
                                         val mem = nativeGetVulkanDeviceMemory(chosenDevice)
                                         if (mem != null && mem.size >= 2) {
-                                            val freeBytes = mem[0]
+                                        freeBytes = mem[0]
                                             val THRESHOLD = 0.9
                                             if (!forceVulkan && estimatedParams.toDouble() >
                                                             freeBytes.toDouble() * THRESHOLD
@@ -939,7 +1006,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 keepVaeOnCpu: Boolean = false,
                 flashAttn: Boolean = true,
                 sequentialLoad: Boolean? = null,
-            forceVulkan: Boolean = false,
+                forceVulkan: Boolean = false,
+                preferPerformanceMode: Boolean = false,
                 token: String? = null,
                 forceDownload: Boolean = false,
                 preferSystemDownloader: Boolean = true,
@@ -964,7 +1032,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     activityManager.getMemoryInfo(memoryInfo)
                     val totalRamGB = memoryInfo.totalMem / (1024L * 1024L * 1024L)
 
-                    val effectiveSequentialLoad = sequentialLoad ?: (totalRamGB < 8)
+                    val (effectiveSequentialLoad, estimatedParamBytes) = computeEffectiveSequentialLoad(
+                            context,
+                            modelRes.file.absolutePath,
+                            sequentialLoad,
+                            preferPerformanceMode
+                    )
 
                     var effectiveOffloadToCpu = offloadToCpu
                     var effectiveKeepClipOnCpu = keepClipOnCpu
@@ -974,6 +1047,21 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         effectiveOffloadToCpu = true
                         effectiveKeepClipOnCpu = true
                         effectiveKeepVaeOnCpu = true
+                    }
+
+                    try {
+                        val rt2 = Runtime.getRuntime()
+                        val heapUsed2 = rt2.totalMemory() - rt2.freeMemory()
+                        val heapMax2 = rt2.maxMemory()
+                        val heapAvail2 = (heapMax2 - heapUsed2).coerceAtLeast(0L)
+                        val sysAvail2 = memoryInfo.availMem
+                        val lowRam2 = (totalRamGB < 8)
+                        android.util.Log.i(
+                                LOG_TAG,
+                                "SequentialLoad HF heuristic: preferPerformanceMode=$preferPerformanceMode, explicitParam=${sequentialLoad}, lowRam=$lowRam2, estimatedParamBytes=$estimatedParamBytes, heapAvailMB=${String.format("%.2f", heapAvail2/1024.0/1024.0)}, sysAvailMB=${String.format("%.2f", sysAvail2/1024.0/1024.0)}, heapSeqNeeded=${(estimatedParamBytes>0 && estimatedParamBytes > heapAvail2 * (if (preferPerformanceMode) 0.9 else 0.75))}, sysSeqNeeded=${(estimatedParamBytes>0 && estimatedParamBytes > sysAvail2 * (if (preferPerformanceMode) 0.9 else 0.6))}, effectiveSequentialLoad=$effectiveSequentialLoad"
+                        )
+                    } catch (t: Throwable) {
+                        // ignore logging errors
                     }
 
                     var chosenDevice = -1
@@ -998,7 +1086,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     }
                                 }
                                 if (chosenDevice >= 0) {
-                                    estimatedParams = nativeEstimateModelParamsMemory(modelRes.file.absolutePath, chosenDevice)
+                                    estimatedParams = estimateModelParamsMemoryBytes(modelRes.file.absolutePath, chosenDevice)
                                     if (estimatedParams > 0) {
                                         val mem = nativeGetVulkanDeviceMemory(chosenDevice)
                                         if (mem != null && mem.size >= 2) {
