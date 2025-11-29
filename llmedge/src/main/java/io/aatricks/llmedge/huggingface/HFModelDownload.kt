@@ -12,12 +12,12 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Downloads model files from Hugging Face Hub using OkHttp directly.
- * 
+ *
  * NOTE: We use OkHttp directly instead of Ktor's HttpClient because Ktor's OkHttp engine
  * buffers the entire response body in Java heap memory before streaming, which causes
  * OutOfMemoryError when downloading large model files (>100MB) on Android devices with
  * limited heap space (typically 256MB).
- * 
+ *
  * OkHttp's native streaming properly streams the response body directly to disk without
  * buffering the entire content in memory.
  */
@@ -49,25 +49,25 @@ internal class HFModelDownload(
         }
 
         val resumeStart = if (tempFile.exists()) tempFile.length() else 0L
-        
+
         // Build the download URL
         val url = buildDownloadUrl(modelId, revision, filePath)
-        
+
         // Build the request with optional resume and auth headers
         val requestBuilder = Request.Builder()
             .url(url)
             .get()
-        
+
         token?.let { requestBuilder.addHeader("Authorization", "Bearer $it") }
         if (resumeStart > 0L) {
             requestBuilder.addHeader("Range", "bytes=$resumeStart-")
         }
-        
+
         val request = requestBuilder.build()
-        
+
         // Execute the request - OkHttp streams directly without buffering in heap
         val response = downloadClient.newCall(request).execute()
-        
+
         try {
             if (!response.isSuccessful) {
                 val errorBody = response.body?.string() ?: ""
@@ -86,30 +86,30 @@ internal class HFModelDownload(
             val expectedLength = contentLength?.let { it + resumeStart } ?: contentLength
 
             var downloaded = resumeStart
-            
+
             // If server returned full file (200) despite Range header, start fresh
             if (resumeStart > 0L && response.code == 200) {
                 tempFile.delete()
                 downloaded = 0L
             }
-            
+
             onProgress?.invoke(downloaded, expectedLength)
 
             // Stream directly to file - no heap buffering
-            val responseBody = response.body 
+            val responseBody = response.body
                 ?: throw IllegalStateException("Empty response body for $filePath")
-            
+
             responseBody.byteStream().use { inputStream ->
                 val outputStream = if (resumeStart > 0L && response.code == 206) {
                     FileOutputStream(tempFile, true) // Append mode for resume
                 } else {
                     FileOutputStream(tempFile)
                 }
-                
+
                 outputStream.use { fos ->
                     val buffer = ByteArray(DOWNLOAD_BUFFER_SIZE)
                     var bytesRead: Int
-                    
+
                     while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                         fos.write(buffer, 0, bytesRead)
                         downloaded += bytesRead
@@ -132,15 +132,21 @@ internal class HFModelDownload(
             tempFile.delete()
             throw IllegalStateException("Failed to move temporary file for $filePath")
         }
-        
+
         destination
     }
 
     private fun buildDownloadUrl(modelId: String, revision: String, filePath: String): String {
-        val modelSegments = modelId.trim('/').split('/')
-        val fileSegments = filePath.trim('/').split('/')
-        val pathParts = modelSegments + "resolve" + revision + fileSegments
-        return "https://huggingface.co/${pathParts.joinToString("/")}"
+        // Encode segments individually so that special characters (including spaces) are encoded
+        // correctly, while preserving path segment separators ('/').
+        fun encodeSegment(segment: String): String =
+            java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
+
+        val encodedModelId = modelId.trim('/').split('/').joinToString("/") { encodeSegment(it) }
+        val encodedRevision = encodeSegment(revision)
+        val encodedFilePath = filePath.trim('/').split('/').joinToString("/") { encodeSegment(it) }
+
+        return "https://huggingface.co/$encodedModelId/resolve/$encodedRevision/$encodedFilePath"
     }
 
     companion object {

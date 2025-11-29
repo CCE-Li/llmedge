@@ -25,100 +25,101 @@ import kotlinx.coroutines.withContext
 /** High-level helper to discover and download GGUF models from Hugging Face. */
 object HuggingFaceHub {
     data class ModelDownloadResult(
-            val requestedModelId: String,
-            val requestedRevision: String,
-            val modelId: String,
-            val revision: String,
-            val file: File,
-            val fileInfo: ModelFileMetadata,
-            val fromCache: Boolean,
-            val aliasApplied: Boolean,
+        val requestedModelId: String,
+        val requestedRevision: String,
+        val modelId: String,
+        val revision: String,
+        val file: File,
+        val fileInfo: ModelFileMetadata,
+        val fromCache: Boolean,
+        val aliasApplied: Boolean,
     )
 
     data class ModelFileMetadata(
-            val path: String,
-            val sizeBytes: Long,
-            val sha256: String?,
+        val path: String,
+        val sizeBytes: Long,
+        val sha256: String?,
     )
 
     suspend fun ensureModelOnDisk(
-            context: Context,
-            modelId: String,
-            revision: String = "main",
-            preferredQuantizations: List<String> = DEFAULT_QUANTIZATION_PRIORITIES,
-            filename: String? = null,
-            token: String? = null,
-            forceDownload: Boolean = false,
-            preferSystemDownloader: Boolean = false,
-            onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+        context: Context,
+        modelId: String,
+        revision: String = "main",
+        preferredQuantizations: List<String> = DEFAULT_QUANTIZATION_PRIORITIES,
+        filename: String? = null,
+        token: String? = null,
+        forceDownload: Boolean = false,
+        preferSystemDownloader: Boolean = false,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
     ): ModelDownloadResult =
-            withContext(Dispatchers.IO) {
-                val destinationRoot = File(context.filesDir, DEFAULT_MODELS_DIRECTORY)
-                ensureModelOnDisk(
-                        destinationRoot = destinationRoot,
-                        modelId = modelId,
-                        revision = revision,
-                        preferredQuantizations = preferredQuantizations,
-                        filename = filename,
-                        token = token,
-                        forceDownload = forceDownload,
-                        preferSystemDownloader = preferSystemDownloader,
-                        systemDownloadContext = if (preferSystemDownloader) context else null,
-                        onProgress = onProgress,
-                )
-            }
+        withContext(Dispatchers.IO) {
+            val destinationRoot = File(context.filesDir, DEFAULT_MODELS_DIRECTORY)
+            ensureModelOnDisk(
+                destinationRoot = destinationRoot,
+                modelId = modelId,
+                revision = revision,
+                preferredQuantizations = preferredQuantizations,
+                filename = filename,
+                token = token,
+                forceDownload = forceDownload,
+                preferSystemDownloader = preferSystemDownloader,
+                systemDownloadContext = if (preferSystemDownloader) context else null,
+                onProgress = onProgress,
+            )
+        }
 
     suspend fun ensureModelOnDisk(
-            destinationRoot: File,
-            modelId: String,
-            revision: String = "main",
-            preferredQuantizations: List<String> = DEFAULT_QUANTIZATION_PRIORITIES,
-            filename: String? = null,
-            token: String? = null,
-            forceDownload: Boolean = false,
-            preferSystemDownloader: Boolean = false,
-            systemDownloadContext: Context? = null,
-            onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+        destinationRoot: File,
+        modelId: String,
+        revision: String = "main",
+        preferredQuantizations: List<String> = DEFAULT_QUANTIZATION_PRIORITIES,
+        filename: String? = null,
+        token: String? = null,
+        forceDownload: Boolean = false,
+        preferSystemDownloader: Boolean = false,
+        systemDownloadContext: Context? = null,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
     ): ModelDownloadResult {
         val resolved = resolveModelReference(modelId, revision)
         val treeClient = HFModels.tree()
         val files = treeClient.getModelFileTree(resolved.modelId, resolved.revision, token)
         val modelFile =
-                selectFile(files, filename, preferredQuantizations)
-                        ?: throw IllegalArgumentException(
-                                "No GGUF file found for '$modelId' (revision '$revision')"
-                        )
+            selectFile(files, filename, preferredQuantizations)
+                ?: throw IllegalArgumentException(
+                    "No GGUF file found for '$modelId' (revision '$revision')"
+                )
 
         val sanitizedModelId = sanitize(resolved.modelId)
         val revisionDir = File(destinationRoot, "${sanitizedModelId}/${resolved.revision}")
         val targetName = modelFile.path.substringAfterLast('/')
         val targetFile = File(revisionDir, targetName)
-        val expectedSize = modelFile.lfs?.size ?: modelFile.size ?: 0L
+        val expectedSize = modelFile.lfs?.size ?: modelFile.size
+        val expectedSha = modelFile.lfs?.oid ?: modelFile.oid
 
-        if (!forceDownload &&
-                        targetFile.exists() &&
-                        expectedSize > 0 &&
-                        targetFile.length() == expectedSize
-        ) {
+        if (!forceDownload && isFileValidCached(targetFile, expectedSize, expectedSha)) {
+            Log.d(
+                LOG_TAG,
+                "Using cached model file for ${resolved.modelId}@${resolved.revision}: ${targetFile.absolutePath}"
+            )
             return ModelDownloadResult(
-                    requestedModelId = modelId,
-                    requestedRevision = revision,
-                    modelId = resolved.modelId,
-                    revision = resolved.revision,
-                    file = targetFile,
-                    fileInfo = modelFile.toMetadata(),
-                    fromCache = true,
-                    aliasApplied = resolved.aliasApplied,
+                requestedModelId = modelId,
+                requestedRevision = revision,
+                modelId = resolved.modelId,
+                revision = resolved.revision,
+                file = targetFile,
+                fileInfo = modelFile.toMetadata(),
+                fromCache = true,
+                aliasApplied = resolved.aliasApplied,
             )
         }
 
         revisionDir.mkdirs()
         val downloadUrl =
-                HFEndpoints.fileDownloadEndpoint(
-                        resolved.modelId,
-                        resolved.revision,
-                        modelFile.path
-                )
+            HFEndpoints.fileDownloadEndpoint(
+                resolved.modelId,
+                resolved.revision,
+                modelFile.path
+            )
 
         val systemDownloadContextLocal = systemDownloadContext
 
@@ -127,24 +128,24 @@ object HuggingFaceHub {
                 val tempDir = systemDownloadContext?.getExternalFilesDir("hf-downloads")
                 if (tempDir == null) {
                     Log.w(
-                            LOG_TAG,
-                            "External downloads directory unavailable; falling back to in-app streaming"
+                        LOG_TAG,
+                        "External downloads directory unavailable; falling back to in-app streaming"
                     )
                 } else {
                     val tempFile =
-                            File(
-                                    tempDir,
-                                    "${sanitize(resolved.modelId)}-${System.currentTimeMillis()}.tmp"
-                            )
+                        File(
+                            tempDir,
+                            "${sanitize(resolved.modelId)}-${System.currentTimeMillis()}.tmp"
+                        )
                     val downloaded =
-                            SystemDownload.download(
-                                    context = systemDownloadContext,
-                                    url = downloadUrl,
-                                    token = token,
-                                    destination = tempFile,
-                                    displayName = targetName,
-                                    onProgress = onProgress,
-                            )
+                        SystemDownload.download(
+                            context = systemDownloadContext,
+                            url = downloadUrl,
+                            token = token,
+                            destination = tempFile,
+                            displayName = targetName,
+                            onProgress = onProgress,
+                        )
                     if (targetFile.exists()) {
                         targetFile.delete()
                     }
@@ -153,8 +154,8 @@ object HuggingFaceHub {
                 }
             } catch (t: Throwable) {
                 Log.w(
-                        LOG_TAG,
-                        "System download failed (${t.message}) - falling back to in-app downloader"
+                    LOG_TAG,
+                    "System download failed (${t.message}) - falling back to in-app downloader"
                 )
             }
         }
@@ -162,16 +163,16 @@ object HuggingFaceHub {
         if (!targetFile.exists()) {
             val downloader = HFModels.download()
             downloader.downloadModelFile(
-                    modelId = resolved.modelId,
-                    revision = resolved.revision,
-                    filePath = modelFile.path,
-                    destination = targetFile,
-                    token = token,
-                    onProgress = onProgress,
+                modelId = resolved.modelId,
+                revision = resolved.revision,
+                filePath = modelFile.path,
+                destination = targetFile,
+                token = token,
+                onProgress = onProgress,
             )
         }
 
-                if (expectedSize > 0 && targetFile.length() != expectedSize) {
+        if ((expectedSize ?: -1L) > 0L && targetFile.length() != expectedSize) {
             targetFile.delete()
             throw IllegalStateException("Downloaded file size mismatch for ${modelFile.path}")
         }
@@ -183,7 +184,7 @@ object HuggingFaceHub {
                 if (!actualSha.equals(expectedSha, ignoreCase = true)) {
                     targetFile.delete()
                     throw IllegalStateException(
-                            "Downloaded file sha mismatch for ${modelFile.path}"
+                        "Downloaded file sha mismatch for ${modelFile.path}"
                     )
                 }
             } catch (_: Throwable) {
@@ -193,80 +194,80 @@ object HuggingFaceHub {
         }
 
         return ModelDownloadResult(
-                requestedModelId = modelId,
-                requestedRevision = revision,
-                modelId = resolved.modelId,
-                revision = resolved.revision,
-                file = targetFile,
-                fileInfo = modelFile.toMetadata(),
-                fromCache = false,
-                aliasApplied = resolved.aliasApplied,
+            requestedModelId = modelId,
+            requestedRevision = revision,
+            modelId = resolved.modelId,
+            revision = resolved.revision,
+            file = targetFile,
+            fileInfo = modelFile.toMetadata(),
+            fromCache = false,
+            aliasApplied = resolved.aliasApplied,
         )
     }
 
     suspend fun ensureWanAssetsOnDisk(
-            context: Context,
-            wanModelId: String,
-            preferSystemDownloader: Boolean = true,
-            token: String? = null,
-            forceDownload: Boolean = false,
-            onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+        context: Context,
+        wanModelId: String,
+        preferSystemDownloader: Boolean = true,
+        token: String? = null,
+        forceDownload: Boolean = false,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
     ): Triple<ModelDownloadResult, ModelDownloadResult?, ModelDownloadResult?> =
-            withContext(Dispatchers.IO) {
-                var registryEntry = WanModelRegistry.findById(context, wanModelId)
-                if (registryEntry == null) {
-                    // Try prefix match (e.g. 'wan/Wan2.1-T2V-1.3B' vs 'Wan2.1-T2V-1.3B')
-                    val trimmed = wanModelId.removePrefix("wan/")
-                    registryEntry = WanModelRegistry.findByModelIdPrefix(context, trimmed)
-                }
-                registryEntry ?: throw IllegalArgumentException("Unknown Wan model $wanModelId")
-
-                val modelRes =
-                        ensureModelOnDisk(
-                                context = context,
-                                modelId = registryEntry.modelId,
-                                filename = registryEntry.filename,
-                                token = token,
-                                forceDownload = forceDownload,
-                                preferSystemDownloader = preferSystemDownloader,
-                                onProgress = onProgress,
-                        )
-
-                val vaeRes =
-                        registryEntry.vaeFilename?.let { vaeName ->
-                            ensureRepoFileOnDisk(
-                                    context = context,
-                                    modelId = registryEntry.modelId,
-                                    filename = vaeName,
-                                    allowedExtensions = listOf(".safetensors", ".pt"),
-                                    token = token,
-                                    forceDownload = forceDownload,
-                                    preferSystemDownloader = preferSystemDownloader,
-                                    onProgress = onProgress,
-                            )
-                        }
-
-                val t5Res =
-                        registryEntry.t5ModelId?.let { t5ModelId ->
-                            val t5Filename =
-                                    registryEntry.t5Filename
-                                            ?: throw IllegalArgumentException(
-                                                    "Registry entry for $wanModelId missing t5 filename"
-                                            )
-                            ensureRepoFileOnDisk(
-                                    context = context,
-                                    modelId = t5ModelId,
-                                    filename = t5Filename,
-                                    allowedExtensions = listOf(".gguf"),
-                                    token = token,
-                                    forceDownload = forceDownload,
-                                    preferSystemDownloader = preferSystemDownloader,
-                                    onProgress = onProgress,
-                            )
-                        }
-
-                Triple(modelRes, vaeRes, t5Res)
+        withContext(Dispatchers.IO) {
+            var registryEntry = WanModelRegistry.findById(context, wanModelId)
+            if (registryEntry == null) {
+                // Try prefix match (e.g. 'wan/Wan2.1-T2V-1.3B' vs 'Wan2.1-T2V-1.3B')
+                val trimmed = wanModelId.removePrefix("wan/")
+                registryEntry = WanModelRegistry.findByModelIdPrefix(context, trimmed)
             }
+            registryEntry ?: throw IllegalArgumentException("Unknown Wan model $wanModelId")
+
+            val modelRes =
+                ensureModelOnDisk(
+                    context = context,
+                    modelId = registryEntry.modelId,
+                    filename = registryEntry.filename,
+                    token = token,
+                    forceDownload = forceDownload,
+                    preferSystemDownloader = preferSystemDownloader,
+                    onProgress = onProgress,
+                )
+
+            val vaeRes =
+                registryEntry.vaeFilename?.let { vaeName ->
+                    ensureRepoFileOnDisk(
+                        context = context,
+                        modelId = registryEntry.modelId,
+                        filename = vaeName,
+                        allowedExtensions = listOf(".safetensors", ".pt"),
+                        token = token,
+                        forceDownload = forceDownload,
+                        preferSystemDownloader = preferSystemDownloader,
+                        onProgress = onProgress,
+                    )
+                }
+
+            val t5Res =
+                registryEntry.t5ModelId?.let { t5ModelId ->
+                    val t5Filename =
+                        registryEntry.t5Filename
+                            ?: throw IllegalArgumentException(
+                                "Registry entry for $wanModelId missing t5 filename"
+                            )
+                    ensureRepoFileOnDisk(
+                        context = context,
+                        modelId = t5ModelId,
+                        filename = t5Filename,
+                        allowedExtensions = listOf(".gguf"),
+                        token = token,
+                        forceDownload = forceDownload,
+                        preferSystemDownloader = preferSystemDownloader,
+                        onProgress = onProgress,
+                    )
+                }
+
+            Triple(modelRes, vaeRes, t5Res)
+        }
 
     /* Cache utilities */
     fun clearCache(context: Context) {
@@ -290,45 +291,45 @@ object HuggingFaceHub {
      * allowed extensions).
      */
     suspend fun ensureRepoFileOnDisk(
-            context: Context,
-            modelId: String,
-            revision: String = "main",
-            filename: String? = null,
-            allowedExtensions: List<String> =
-                    listOf(".safetensors", ".pt", ".ckpt", ".gguf", ".bin"),
-            token: String? = null,
-            forceDownload: Boolean = false,
-            preferSystemDownloader: Boolean = false,
-            onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+        context: Context,
+        modelId: String,
+        revision: String = "main",
+        filename: String? = null,
+        allowedExtensions: List<String> =
+            listOf(".safetensors", ".pt", ".ckpt", ".gguf", ".bin"),
+        token: String? = null,
+        forceDownload: Boolean = false,
+        preferSystemDownloader: Boolean = false,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
     ): ModelDownloadResult =
-            withContext(Dispatchers.IO) {
-                val destinationRoot = File(context.filesDir, DEFAULT_MODELS_DIRECTORY)
-                ensureRepoFileOnDisk(
-                        destinationRoot = destinationRoot,
-                        modelId = modelId,
-                        revision = revision,
-                        filename = filename,
-                        allowedExtensions = allowedExtensions,
-                        token = token,
-                        forceDownload = forceDownload,
-                        preferSystemDownloader = preferSystemDownloader,
-                        systemDownloadContext = if (preferSystemDownloader) context else null,
-                        onProgress = onProgress,
-                )
-            }
+        withContext(Dispatchers.IO) {
+            val destinationRoot = File(context.filesDir, DEFAULT_MODELS_DIRECTORY)
+            ensureRepoFileOnDisk(
+                destinationRoot = destinationRoot,
+                modelId = modelId,
+                revision = revision,
+                filename = filename,
+                allowedExtensions = allowedExtensions,
+                token = token,
+                forceDownload = forceDownload,
+                preferSystemDownloader = preferSystemDownloader,
+                systemDownloadContext = if (preferSystemDownloader) context else null,
+                onProgress = onProgress,
+            )
+        }
 
     suspend fun ensureRepoFileOnDisk(
-            destinationRoot: File,
-            modelId: String,
-            revision: String = "main",
-            filename: String? = null,
-            allowedExtensions: List<String> =
-                    listOf(".safetensors", ".pt", ".ckpt", ".gguf", ".bin"),
-            token: String? = null,
-            forceDownload: Boolean = false,
-            preferSystemDownloader: Boolean = false,
-            systemDownloadContext: Context? = null,
-            onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
+        destinationRoot: File,
+        modelId: String,
+        revision: String = "main",
+        filename: String? = null,
+        allowedExtensions: List<String> =
+            listOf(".safetensors", ".pt", ".ckpt", ".gguf", ".bin"),
+        token: String? = null,
+        forceDownload: Boolean = false,
+        preferSystemDownloader: Boolean = false,
+        systemDownloadContext: Context? = null,
+        onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
     ): ModelDownloadResult {
         val resolved = resolveModelReference(modelId, revision)
         val treeClient = HFModels.tree()
@@ -336,8 +337,8 @@ object HuggingFaceHub {
 
         // Debug: log file count and sample paths
         android.util.Log.d(
-                "HuggingFaceHub",
-                "getModelFileTree returned ${files.size} items for ${resolved.modelId}"
+            "HuggingFaceHub",
+            "getModelFileTree returned ${files.size} items for ${resolved.modelId}"
         )
         files.take(5).forEach {
             android.util.Log.d("HuggingFaceHub", "  Sample file: ${it.path} (type=${it.type})")
@@ -345,61 +346,66 @@ object HuggingFaceHub {
 
         // If a filename is provided, try to find it (exact or suffix match).
         val fileMatch =
-                if (!filename.isNullOrEmpty()) {
-                    android.util.Log.d("HuggingFaceHub", "Searching for filename: $filename")
-                    files.firstOrNull {
-                        (it.type == "file" || it.type == null) &&
-                                (it.path.equals(filename, ignoreCase = true) ||
-                                        it.path.endsWith(filename, ignoreCase = true))
-                    }
-                } else null
+            if (!filename.isNullOrEmpty()) {
+                android.util.Log.d("HuggingFaceHub", "Searching for filename: $filename")
+                files.firstOrNull {
+                    (it.type == "file" || it.type == null) &&
+                            (it.path.equals(filename, ignoreCase = true) ||
+                                    it.path.endsWith(filename, ignoreCase = true))
+                }
+            } else null
 
         val candidate =
-                fileMatch
-                        ?: run {
-                            // Choose the largest file that ends with one of the allowed extensions
-                            val candidates =
-                                    files.filter {
-                                        (it.type == "file" || it.type == null) &&
-                                                allowedExtensions.any { ext ->
-                                                    it.path.endsWith(ext, ignoreCase = true)
-                                                }
+            fileMatch
+                ?: run {
+                    // Choose the largest file that ends with one of the allowed extensions
+                    val candidates =
+                        files.filter {
+                            (it.type == "file" || it.type == null) &&
+                                    allowedExtensions.any { ext ->
+                                        it.path.endsWith(ext, ignoreCase = true)
                                     }
-                            candidates.maxByOrNull { it.lfs?.size ?: it.size ?: 0L }
                         }
+                    candidates.maxByOrNull { it.lfs?.size ?: it.size ?: 0L }
+                }
 
         val modelFile =
-                candidate
-                        ?: throw IllegalArgumentException(
-                                "No file found for '$modelId' matching ${filename ?: allowedExtensions}"
-                        )
+            candidate
+                ?: throw IllegalArgumentException(
+                    "No file found for '$modelId' matching ${filename ?: allowedExtensions}"
+                )
 
         val sanitizedModelId = sanitize(resolved.modelId)
         val revisionDir = File(destinationRoot, "${sanitizedModelId}/${resolved.revision}")
         val targetName = modelFile.path.substringAfterLast('/')
         val targetFile = File(revisionDir, targetName)
-        val expectedSize = modelFile.lfs?.size ?: modelFile.size ?: 0L
+        val expectedSize = modelFile.lfs?.size ?: modelFile.size
+        val expectedSha = modelFile.lfs?.oid ?: modelFile.oid
 
-        if (!forceDownload && targetFile.exists() && targetFile.length() == expectedSize) {
+        if (!forceDownload && isFileValidCached(targetFile, expectedSize, expectedSha)) {
+            Log.d(
+                LOG_TAG,
+                "Using cached repo file for ${resolved.modelId}@${resolved.revision}: ${targetFile.absolutePath}"
+            )
             return ModelDownloadResult(
-                    requestedModelId = modelId,
-                    requestedRevision = revision,
-                    modelId = resolved.modelId,
-                    revision = resolved.revision,
-                    file = targetFile,
-                    fileInfo = modelFile.toMetadata(),
-                    fromCache = true,
-                    aliasApplied = resolved.aliasApplied,
+                requestedModelId = modelId,
+                requestedRevision = revision,
+                modelId = resolved.modelId,
+                revision = resolved.revision,
+                file = targetFile,
+                fileInfo = modelFile.toMetadata(),
+                fromCache = true,
+                aliasApplied = resolved.aliasApplied,
             )
         }
 
         revisionDir.mkdirs()
         val downloadUrl =
-                HFEndpoints.fileDownloadEndpoint(
-                        resolved.modelId,
-                        resolved.revision,
-                        modelFile.path
-                )
+            HFEndpoints.fileDownloadEndpoint(
+                resolved.modelId,
+                resolved.revision,
+                modelFile.path
+            )
 
         val useSystemDownloader = preferSystemDownloader && systemDownloadContext != null
 
@@ -408,24 +414,24 @@ object HuggingFaceHub {
                 val tempDir = systemDownloadContext?.getExternalFilesDir("hf-downloads")
                 if (tempDir == null) {
                     Log.w(
-                            LOG_TAG,
-                            "External downloads directory unavailable; falling back to in-app streaming"
+                        LOG_TAG,
+                        "External downloads directory unavailable; falling back to in-app streaming"
                     )
                 } else {
                     val tempFile =
-                            File(
-                                    tempDir,
-                                    "${sanitize(resolved.modelId)}-${System.currentTimeMillis()}.tmp"
-                            )
+                        File(
+                            tempDir,
+                            "${sanitize(resolved.modelId)}-${System.currentTimeMillis()}.tmp"
+                        )
                     val downloaded =
-                            SystemDownload.download(
-                                    context = systemDownloadContext,
-                                    url = downloadUrl,
-                                    token = token,
-                                    destination = tempFile,
-                                    displayName = targetName,
-                                    onProgress = onProgress,
-                            )
+                        SystemDownload.download(
+                            context = systemDownloadContext,
+                            url = downloadUrl,
+                            token = token,
+                            destination = tempFile,
+                            displayName = targetName,
+                            onProgress = onProgress,
+                        )
                     if (targetFile.exists()) {
                         targetFile.delete()
                     }
@@ -434,8 +440,8 @@ object HuggingFaceHub {
                 }
             } catch (t: Throwable) {
                 Log.w(
-                        LOG_TAG,
-                        "System download failed (${t.message}) - falling back to in-app downloader"
+                    LOG_TAG,
+                    "System download failed (${t.message}) - falling back to in-app downloader"
                 )
             }
         }
@@ -443,18 +449,20 @@ object HuggingFaceHub {
         if (!targetFile.exists()) {
             val downloader = HFModels.download()
             downloader.downloadModelFile(
-                    modelId = resolved.modelId,
-                    revision = resolved.revision,
-                    filePath = modelFile.path,
-                    destination = targetFile,
-                    token = token,
-                    onProgress = onProgress,
+                modelId = resolved.modelId,
+                revision = resolved.revision,
+                filePath = modelFile.path,
+                destination = targetFile,
+                token = token,
+                onProgress = onProgress,
             )
         }
 
-        if (expectedSize > 0 && targetFile.length() != expectedSize) {
-            targetFile.delete()
-            throw IllegalStateException("Downloaded file size mismatch for ${modelFile.path}")
+        expectedSize?.let { size ->
+            if (size > 0L && targetFile.length() != size) {
+                targetFile.delete()
+                throw IllegalStateException("Downloaded file size mismatch for ${modelFile.path}")
+            }
         }
 
         modelFile.lfs?.oid?.let { expectedSha ->
@@ -463,21 +471,22 @@ object HuggingFaceHub {
                 if (!actualSha.equals(expectedSha, ignoreCase = true)) {
                     targetFile.delete()
                     throw IllegalStateException(
-                            "Downloaded file sha mismatch for ${modelFile.path}"
+                        "Downloaded file sha mismatch for ${modelFile.path}"
                     )
                 }
-            } catch (_: Throwable) {}
+            } catch (_: Throwable) {
+            }
         }
 
         return ModelDownloadResult(
-                requestedModelId = modelId,
-                requestedRevision = revision,
-                modelId = resolved.modelId,
-                revision = resolved.revision,
-                file = targetFile,
-                fileInfo = modelFile.toMetadata(),
-                fromCache = false,
-                aliasApplied = resolved.aliasApplied,
+            requestedModelId = modelId,
+            requestedRevision = revision,
+            modelId = resolved.modelId,
+            revision = resolved.revision,
+            file = targetFile,
+            fileInfo = modelFile.toMetadata(),
+            fromCache = false,
+            aliasApplied = resolved.aliasApplied,
         )
     }
 
@@ -485,26 +494,26 @@ object HuggingFaceHub {
 
     private fun resolveModelReference(modelId: String, revision: String): ResolvedModel {
         return ResolvedModel(
-                requestedModelId = modelId,
-                requestedRevision = revision,
-                modelId = modelId,
-                revision = revision,
-                aliasApplied = false,
+            requestedModelId = modelId,
+            requestedRevision = revision,
+            modelId = modelId,
+            revision = revision,
+            aliasApplied = false,
         )
     }
 
     private fun selectFile(
-            files: List<HFModelTree.HFModelFile>,
-            filename: String?,
-            preferredQuantizations: List<String>,
+        files: List<HFModelTree.HFModelFile>,
+        filename: String?,
+        preferredQuantizations: List<String>,
     ): HFModelTree.HFModelFile? {
         // NOTE: The model specs endpoint (siblings list) does not populate a 'type' field.
         // Treat null type as a file entry.
         val candidates =
-                files.filter {
-                    (it.type == "file" || it.type == null) &&
-                            it.path.endsWith(".gguf", ignoreCase = true)
-                }
+            files.filter {
+                (it.type == "file" || it.type == null) &&
+                        it.path.endsWith(".gguf", ignoreCase = true)
+            }
         if (candidates.isEmpty()) {
             return null
         }
@@ -531,36 +540,36 @@ object HuggingFaceHub {
     private const val LOG_TAG = "HuggingFaceHub"
 
     val DEFAULT_QUANTIZATION_PRIORITIES: List<String> =
-            listOf(
-                    "Q4_K_M",
-                    "Q4_K",
-                    "Q4_K_S",
-                    "Q4_0",
-                    "Q3_K_L",
-                    "Q5_K_S",
-                    "Q3_K_M",
-                    "Q5_K_M",
-                    "Q3_K_S",
-                    "Q2_K",
-                    "Q5_K",
-                    "Q5_0",
-                    "Q8_0",
-                    ".gguf",
-            )
+        listOf(
+            "Q4_K_M",
+            "Q4_K",
+            "Q4_K_S",
+            "Q4_0",
+            "Q3_K_L",
+            "Q5_K_S",
+            "Q3_K_M",
+            "Q5_K_M",
+            "Q3_K_S",
+            "Q2_K",
+            "Q5_K",
+            "Q5_0",
+            "Q8_0",
+            ".gguf",
+        )
 
     private fun HFModelTree.HFModelFile.toMetadata(): ModelFileMetadata =
-            ModelFileMetadata(
-                    path = path,
-                    sizeBytes = lfs?.size ?: size ?: 0L,
-                    sha256 = lfs?.oid ?: oid,
-            )
+        ModelFileMetadata(
+            path = path,
+            sizeBytes = lfs?.size ?: size ?: 0L,
+            sha256 = lfs?.oid ?: oid,
+        )
 
     private data class ResolvedModel(
-            val requestedModelId: String,
-            val requestedRevision: String,
-            val modelId: String,
-            val revision: String,
-            val aliasApplied: Boolean,
+        val requestedModelId: String,
+        val requestedRevision: String,
+        val modelId: String,
+        val revision: String,
+        val aliasApplied: Boolean,
     )
 
     private fun computeSha256(file: File): String {
@@ -578,5 +587,38 @@ object HuggingFaceHub {
         } catch (t: Throwable) {
             throw t
         }
+    }
+
+    // Internal helper for tests: determine whether an existing file satisfies size or sha constraints
+    internal fun isFileValidCached(targetFile: File, expectedSize: Long?, expectedSha: String?): Boolean {
+        if (!targetFile.exists() || !targetFile.isFile) return false
+
+        // Prefer SHA-based validation when available; it's the strongest indication of file integrity.
+        // Normalize common SHA prefixes and whitespace before comparing to the computed SHA.
+        if (!expectedSha.isNullOrEmpty()) {
+            val normalizedExpectedSha = expectedSha.trim()
+                .removePrefix("sha256:")
+                .removePrefix("SHA256:")
+                .removePrefix("SHA-256:")
+                .removePrefix("urn:sha1:")
+                .trim()
+                .lowercase()
+
+            try {
+                val actualSha = computeSha256(targetFile)
+                if (actualSha.equals(normalizedExpectedSha, ignoreCase = true)) return true
+                // SHA present but mismatch: consider the cache invalid
+                return false
+            } catch (_: Throwable) {
+                // If hashing fails for any reason, fall back to alternative checks below
+            }
+        }
+
+        if (expectedSize != null && expectedSize > 0L) {
+            return targetFile.length() == expectedSize
+        }
+
+        // Fallback: if file exists and has a positive length, treat as cached material
+        return targetFile.length() > 0L
     }
 }
