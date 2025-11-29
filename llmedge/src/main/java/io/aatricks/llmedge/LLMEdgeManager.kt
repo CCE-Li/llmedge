@@ -768,7 +768,8 @@ object LLMEdgeManager {
                                         context = context,
                                         flashAttn = params.flashAttn,
                                         onProgress = onProgress,
-                                        sequentialLoad = true
+                                        sequentialLoad = true,
+                                        loadT5 = false
                                 )
 
                         val sdParams =
@@ -814,6 +815,11 @@ object LLMEdgeManager {
                 // close it if
                 // needed
                 // or just rely on it checking interruption.
+        }
+
+        /** Debug helper: returns current video model's T5 path, if any. */
+        fun getLoadedVideoModelT5Path(): String? {
+                return currentDiffusionModelSpec?.t5xxlPath
         }
 
         private suspend fun getOrLoadImageModel(
@@ -930,16 +936,19 @@ object LLMEdgeManager {
                 context: Context,
                 flashAttn: Boolean,
                 onProgress: ((String, Int, Int) -> Unit)?,
-                sequentialLoad: Boolean? = null
+                sequentialLoad: Boolean? = null,
+                loadT5: Boolean = true
         ): StableDiffusion {
                 // Check if we already have the correct VIDEO model loaded
                 val spec = currentDiffusionModelSpec
                 cachedModel?.let {
                         // Only return cached model if it's specifically a video model with VAE and T5
-                        if (spec != null && 
+                        // or if loaded without T5 when `loadT5=false`.
+                        val t5Match = if (loadT5) spec?.t5xxlPath != null else spec?.t5xxlPath == null
+                        if (spec != null &&
                             spec.filename == DEFAULT_VIDEO_MODEL_FILENAME &&
                             spec.vaePath != null && // Video models require VAE
-                            spec.t5xxlPath != null) { // Video models require T5
+                            t5Match) {
                                 return it
                         }
                         // Wrong model type loaded - unload it first
@@ -960,9 +969,12 @@ object LLMEdgeManager {
                 val modelFile =
                         getFile(context, DEFAULT_VIDEO_MODEL_ID, DEFAULT_VIDEO_MODEL_FILENAME)
                 val vaeFile = getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME)
-                val t5File = getFile(context, DEFAULT_VIDEO_T5XXL_ID, DEFAULT_VIDEO_T5XXL_FILENAME)
+                val t5File = if (loadT5) getFile(context, DEFAULT_VIDEO_T5XXL_ID, DEFAULT_VIDEO_T5XXL_FILENAME) else null
+                if (!loadT5) {
+                        Log.i(TAG, "Not loading T5 encoder into video model (loadT5=false) to reduce peak memory during sequential load")
+                }
 
-                val cacheKey = makeDiffusionCacheKey(modelFile.absolutePath, vaeFile.absolutePath, t5File.absolutePath)
+                val cacheKey = makeDiffusionCacheKey(modelFile.absolutePath, vaeFile.absolutePath, t5File?.absolutePath)
                 diffusionModelCache.get(cacheKey)?.let { cached ->
                         Log.i(TAG, "Loaded Video model from cache: $cacheKey")
                         cachedModel = cached
@@ -971,7 +983,7 @@ object LLMEdgeManager {
                                 filename = DEFAULT_VIDEO_MODEL_FILENAME,
                                 path = modelFile.absolutePath,
                                 vaePath = vaeFile.absolutePath,
-                                t5xxlPath = t5File.absolutePath
+                                t5xxlPath = t5File?.absolutePath
                         )
                         return cached
                 }
@@ -985,7 +997,7 @@ object LLMEdgeManager {
                         context = context,
                         modelPath = modelFile.absolutePath,
                         vaePath = vaeFile.absolutePath,
-                        t5xxlPath = t5File.absolutePath,
+                        t5xxlPath = t5File?.absolutePath,
                         nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
                         offloadToCpu = false,
                         sequentialLoad = finalSequentialLoadV,
@@ -1007,7 +1019,7 @@ object LLMEdgeManager {
                         filename = DEFAULT_VIDEO_MODEL_FILENAME,
                         path = modelFile.absolutePath,
                         vaePath = vaeFile.absolutePath,
-                        t5xxlPath = t5File.absolutePath
+                        t5xxlPath = t5File?.absolutePath
                 )
                 Log.i(TAG, "Loaded Video model from cache: $cacheKey, sequentialLoad=${sequentialLoad}")
                 return model
