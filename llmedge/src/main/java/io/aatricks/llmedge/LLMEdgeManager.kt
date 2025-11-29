@@ -60,6 +60,11 @@ object LLMEdgeManager {
         @Volatile private var cachedOcrEngine: io.aatricks.llmedge.vision.ocr.MlKitOcrEngine? = null
         @Volatile private var isLoading = false
         private var contextRef: WeakReference<Context>? = null
+        /** When true, prefer higher throughput and lower memory-safety heuristics. */
+        @Volatile
+        var preferPerformanceMode: Boolean = false
+
+        // `preferPerformanceMode` property provides a runtime setter (no need for explicit wrapper)
 
         // Phase 3: Core topology for optimal threading
         private val coreInfo by lazy { CpuTopology.detectCoreTopology() }
@@ -494,7 +499,12 @@ object LLMEdgeManager {
                                 return generateVideoSequentially(context, params, onProgress)
                         } else {
                                 val model =
-                                        getOrLoadVideoModel(context, params.flashAttn, onProgress)
+                                        getOrLoadVideoModel(
+                                                context,
+                                                params.flashAttn,
+                                                onProgress,
+                                                sequentialLoad = useSequential
+                                        )
                                 val sdParams =
                                         StableDiffusion.VideoGenerateParams(
                                                 prompt = params.prompt,
@@ -540,11 +550,17 @@ object LLMEdgeManager {
 
                 // Ensure files
                 // Update memory provider for diffusion cache
-                diffusionModelCache.systemMemoryProvider = {
-                        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-                        val mi = ActivityManager.MemoryInfo()
-                        am.getMemoryInfo(mi)
-                        mi.availMem / (1024L * 1024L)
+                if (!preferPerformanceMode) {
+                        diffusionModelCache.systemMemoryProvider = {
+                                val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                                val mi = ActivityManager.MemoryInfo()
+                                am.getMemoryInfo(mi)
+                                mi.availMem / (1024L * 1024L)
+                        }
+                } else {
+                        // In performance mode, avoid using system memory to aggressively evict models so
+                        // we can keep heavy models resident for throughput
+                        diffusionModelCache.systemMemoryProvider = null
                 }
                 ensureVideoFiles(context, onProgress)
 
@@ -613,7 +629,8 @@ object LLMEdgeManager {
                                         flashAttn = params.flashAttn,
                                         width = params.width,
                                         height = params.height,
-                                        onProgress = onProgress
+                                        onProgress = onProgress,
+                                        sequentialLoad = true
                                 )
 
                         val bytes =
@@ -704,7 +721,8 @@ object LLMEdgeManager {
                                 getOrLoadVideoModel(
                                         context = context,
                                         flashAttn = params.flashAttn,
-                                        onProgress = onProgress
+                                        onProgress = onProgress,
+                                        sequentialLoad = true
                                 )
 
                         val sdParams =
@@ -757,7 +775,8 @@ object LLMEdgeManager {
                 flashAttn: Boolean,
                 width: Int = 512,
                 height: Int = 512,
-                onProgress: ((String, Int, Int) -> Unit)?
+                onProgress: ((String, Int, Int) -> Unit)?,
+                sequentialLoad: Boolean? = null
         ): StableDiffusion {
                 // Check if we already have the correct IMAGE model loaded
                 val spec = currentDiffusionModelSpec
@@ -773,11 +792,15 @@ object LLMEdgeManager {
                         unloadDiffusionModel()
                 }
 
-                diffusionModelCache.systemMemoryProvider = {
-                        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-                        val mi = ActivityManager.MemoryInfo()
-                        am.getMemoryInfo(mi)
-                        mi.availMem / (1024L * 1024L)
+                if (!preferPerformanceMode) {
+                        diffusionModelCache.systemMemoryProvider = {
+                                val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                                val mi = ActivityManager.MemoryInfo()
+                                am.getMemoryInfo(mi)
+                                mi.availMem / (1024L * 1024L)
+                        }
+                } else {
+                        diffusionModelCache.systemMemoryProvider = null
                 }
                 ensureImageFiles(context, onProgress)
                 prepareMemoryForLoading()
@@ -793,12 +816,11 @@ object LLMEdgeManager {
                                 height = height,
                                 forceEnable = if (flashAttn) null else false
                         )
-
                 Log.i(
                         TAG,
                         "Loading image model with flash_attn=$adaptiveFlashAttn " +
                                 "(requested=$flashAttn, dimensions=${width}x${height}, " +
-                                "seqLen=${(width / 8) * (height / 8)})"
+                                "seqLen=${(width / 8) * (height / 8)}, sequentialLoad=${sequentialLoad})"
                 )
 
                 val modelFile = getFile(context, DEFAULT_IMAGE_MODEL_ID, DEFAULT_IMAGE_MODEL_FILENAME)
@@ -821,24 +843,29 @@ object LLMEdgeManager {
                 }
 
                 val loadStart = System.currentTimeMillis()
+                // Let StableDiffusion.load() auto-detect the best backend.
+                // On devices with slow Vulkan implementations (e.g., Samsung Xclipse 920),
+                // CPU backend with sequential load can be 5x faster than Vulkan.
+                // The auto-detection enables CPU backend on low-memory devices which is
+                // often the better choice for mobile diffusion workloads.
+                val finalSequentialLoad = if (preferPerformanceMode) false else sequentialLoad
+                Log.i(TAG, "StableDiffusion.load(image) called with finalSequentialLoad=${finalSequentialLoad}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, flashAttn=$adaptiveFlashAttn")
                 val model = StableDiffusion.load(
                         context = context,
                         modelPath = modelFile.absolutePath,
                         nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
                         offloadToCpu = false,
-                        flashAttn = adaptiveFlashAttn,
-                        // Explicitly disable sequential load for image models - MeinaMix is small
-                        // enough to fit entirely in VRAM. The auto-detection in StableDiffusion.load()
-                        // enables sequential load on < 8GB devices which puts CLIP/VAE on CPU,
-                        // causing massive slowdown (2+ minutes instead of ~50 seconds).
-                        sequentialLoad = false
+                        sequentialLoad = finalSequentialLoad,
+                        forceVulkan = preferPerformanceMode,
+                        flashAttn = adaptiveFlashAttn
+                        // sequentialLoad defaults to null, allowing auto-detection
                 )
                 val loadTime = System.currentTimeMillis() - loadStart
-
                 // Use file size as cache size estimate to avoid re-parsing the model file.
+                val modelSize = modelFile.length()
+                Log.i(TAG, "Loaded image model in ${loadTime}ms (size=${modelSize / 1024 / 1024}MB)")
                 // StableDiffusion.load() already performs estimation internally if needed for
                 // Vulkan VRAM heuristics, so we don't need to call it again here.
-                val modelSize = modelFile.length()
 
                 diffusionModelCache.put(cacheKey, model, modelSize, loadTime)
                 cachedModel = model
@@ -855,7 +882,8 @@ object LLMEdgeManager {
         private suspend fun getOrLoadVideoModel(
                 context: Context,
                 flashAttn: Boolean,
-                onProgress: ((String, Int, Int) -> Unit)?
+                onProgress: ((String, Int, Int) -> Unit)?,
+                sequentialLoad: Boolean? = null
         ): StableDiffusion {
                 // Check if we already have the correct VIDEO model loaded
                 val spec = currentDiffusionModelSpec
@@ -902,6 +930,10 @@ object LLMEdgeManager {
                 }
 
                 val loadStart = System.currentTimeMillis()
+                val finalSequentialLoadV = if (preferPerformanceMode) false else sequentialLoad
+                val finalKeepClipOnCpu = if (preferPerformanceMode) false else true
+                val finalKeepVaeOnCpu = if (preferPerformanceMode) false else true
+                Log.i(TAG, "StableDiffusion.load(video) called with finalSequentialLoad=${finalSequentialLoadV}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, keepClipOnCpu=${finalKeepClipOnCpu}, keepVaeOnCpu=${finalKeepVaeOnCpu}, flashAttn=$flashAttn")
                 val model = StableDiffusion.load(
                         context = context,
                         modelPath = modelFile.absolutePath,
@@ -909,16 +941,16 @@ object LLMEdgeManager {
                         t5xxlPath = t5File.absolutePath,
                         nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
                         offloadToCpu = false,
-                        keepClipOnCpu = true,
-                        keepVaeOnCpu = true,
+                        sequentialLoad = finalSequentialLoadV,
+                        forceVulkan = preferPerformanceMode,
+                        keepClipOnCpu = finalKeepClipOnCpu,
+                        keepVaeOnCpu = finalKeepVaeOnCpu,
                         flashAttn = flashAttn
                 )
                 val loadTime = System.currentTimeMillis() - loadStart
-
-                // Use file size as cache size estimate to avoid re-parsing the model file.
-                // StableDiffusion.load() already performs estimation internally if needed for
-                // Vulkan VRAM heuristics, so we don't need to call it again here.
                 val modelSize = modelFile.length()
+                Log.i(TAG, "Loaded video model in ${loadTime}ms (size=${modelSize / 1024 / 1024}MB) sequentialLoad=${sequentialLoad}")
+                // Use file size as cache size estimate to avoid re-parsing the model file.
 
                 diffusionModelCache.put(cacheKey, model, modelSize, loadTime)
                 cachedModel = model
@@ -929,6 +961,7 @@ object LLMEdgeManager {
                         vaePath = vaeFile.absolutePath,
                         t5xxlPath = t5File.absolutePath
                 )
+                Log.i(TAG, "Loaded Video model from cache: $cacheKey, sequentialLoad=${sequentialLoad}")
                 return model
         }
 
@@ -1168,7 +1201,22 @@ object LLMEdgeManager {
 
         private fun prepareMemoryForLoading() {
                 // Native memory is freed immediately on close()
-                // Let Android VM handle GC naturally to avoid blocking delays
+                // Try to nudge the VM to free and compact memory before loading large models in
+                // conservative mode. If preferPerformanceMode is enabled, skip the GC hint to
+                // avoid unnecessary pauses and let the OS manage memory instead.
+                if (!preferPerformanceMode) {
+                        try {
+                                // Log current memory
+                                val rt = Runtime.getRuntime()
+                                val used = (rt.totalMemory() - rt.freeMemory()) / (1024L * 1024L)
+                                val max = rt.maxMemory() / (1024L * 1024L)
+                                Log.d(TAG, "Preparing memory: heap_used=${used}MB heap_max=${max}MB")
+                                // Ask for GC; this is a hint to ART and may help on memory-constrained devices
+                                System.gc()
+                        } catch (e: Exception) {
+                                // no-op
+                        }
+                }
         }
 
         /**
@@ -1183,20 +1231,16 @@ object LLMEdgeManager {
          * The native txt2img/txt2ImgWithPrecomputedCondition return raw RGB bytes (3 bytes per pixel),
          * not encoded image formats like PNG/JPEG.
          */
+        // Reuse pixel buffers across conversions to reduce GC pressure
+        private val pixelBufferThreadLocal = ThreadLocal<IntArray>()
+
         private fun rgbBytesToBitmap(rgb: ByteArray, width: Int, height: Int): Bitmap {
-                val pixels = IntArray(width * height)
-                var idx = 0
-                var p = 0
-                while (idx < rgb.size && p < pixels.size) {
-                        val r = (rgb[idx].toInt() and 0xFF)
-                        val g = (rgb[idx + 1].toInt() and 0xFF)
-                        val b = (rgb[idx + 2].toInt() and 0xFF)
-                        pixels[p] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
-                        idx += 3
-                        p += 1
+                val total = width * height
+                var pixels = pixelBufferThreadLocal.get()
+                if (pixels == null || pixels.size < total) {
+                        pixels = IntArray(total)
+                        pixelBufferThreadLocal.set(pixels)
                 }
-                return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
-                        setPixels(pixels, 0, width, 0, 0, width, height)
-                }
+                return io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(rgb, width, height, pixels)
         }
 }

@@ -122,7 +122,11 @@ class ModelCache<T : AutoCloseable>(
             // Ensure we keep at least 10% of the available system memory for OS/other apps
             val reserved = (avail * 0.1).toLong()
             val budget = (avail - reserved).coerceAtMost(maxMemoryMB)
-            if (budget <= 0) 0L else budget
+            // Avoid tiny budgets that cause immediate eviction; keep at least a conservative
+            // lower bound so the cache can still hold large models when needed.
+            val minBudget = (maxMemoryMB / 4).coerceAtLeast(256L)
+            val finalBudget = budget.coerceAtLeast(minBudget)
+            finalBudget
         } ?: maxMemoryMB
 
         return newMemoryMB > effectiveMax

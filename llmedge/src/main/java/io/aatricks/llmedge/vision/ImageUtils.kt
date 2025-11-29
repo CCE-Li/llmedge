@@ -245,4 +245,21 @@ object ImageUtils {
             }
         }
     }
+
+    /** Convert raw RGB bytes (R,G,B 3 bytes per pixel) to a Bitmap. */
+    fun rgbBytesToBitmap(rgb: ByteArray, width: Int, height: Int, pixels: IntArray? = null): Bitmap {
+        val total = width * height
+        val pixelArray = if (pixels == null || pixels.size < total) IntArray(total) else pixels
+        var idx = 0
+        var p = 0
+        while (idx + 2 < rgb.size && p < total) {
+            val r = (rgb[idx].toInt() and 0xFF)
+            val g = (rgb[idx + 1].toInt() and 0xFF)
+            val b = (rgb[idx + 2].toInt() and 0xFF)
+            pixelArray[p] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+            idx += 3
+            p += 1
+        }
+        return Bitmap.createBitmap(pixelArray, 0, width, width, height, Bitmap.Config.ARGB_8888)
+    }
 }

@@ -149,16 +149,12 @@ See [StableDiffusionActivity example](examples.md#stablediffusionactivity) for c
 
 **Threading:**
 
-- **ALWAYS use `Dispatchers.IO`** for model loading and inference - native JNI operations are blocking I/O
-- **DO NOT use `Dispatchers.Default`** for native operations - it has limited parallelism (CPU core count) and causes thread starvation
-- Update UI only via `withContext(Dispatchers.Main)`
-- Call `.close()` in `onDestroy()` to free native memory
+- For heavy CPU-bound native inference (StableDiffusion CPU generation, large LLM decoding), prefer `Dispatchers.Default` so work schedules onto CPU-optimized thread pool sized to the device cores.
+- For blocking calls that wait on I/O (downloads, filesystem access, or JNI calls that wait on network/IO), prefer `Dispatchers.IO`.
+- Update UI only via `withContext(Dispatchers.Main)`.
+- Call `.close()` in `onDestroy()` to free native memory.
 
-**Why `Dispatchers.IO` for native operations:**
-- `Dispatchers.Default` is sized to CPU cores (typically 4-8 on mobile) and meant for CPU-bound work
-- Native JNI calls completely block the calling thread during inference
-- When all Default dispatcher threads are blocked, new coroutines queue up causing slowness
-- `Dispatchers.IO` has a larger thread pool (64+ threads) designed for blocking operations
+Note: Choosing the correct dispatcher depends on the workload. JNI calls that use CPU-bound native kernels (like `txt2img`) should use Default; calls that perform blocking I/O should use IO.
 
 **Memory optimization:**
 

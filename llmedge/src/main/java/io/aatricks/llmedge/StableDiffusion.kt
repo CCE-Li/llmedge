@@ -22,6 +22,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     private val generationMutex = Mutex()
     private var modelMetadata: VideoModelMetadata? = null
     private val cancellationRequested = AtomicBoolean(false)
+    private val rgbBytesThreadLocal = ThreadLocal<ByteArray>()
 
     @Volatile private var cachedProgressCallback: VideoProgressCallback? = null
 
@@ -37,7 +38,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 height: Int,
                 steps: Int,
                 cfg: Float,
-                seed: Long
+                seed: Long,
         ): ByteArray?
 
         fun txt2vid(
@@ -54,35 +55,35 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 strength: Float,
                 initImage: ByteArray?,
                 initWidth: Int,
-                initHeight: Int
+                initHeight: Int,
         ): Array<ByteArray>?
 
         fun precomputeCondition(
-            handle: Long,
-            prompt: String,
-            negative: String,
-            width: Int,
-            height: Int,
-            clipSkip: Int
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                clipSkip: Int
         ): PrecomputedCondition? = null
 
         fun txt2vidWithPrecomputedCondition(
-            handle: Long,
-            prompt: String,
-            negative: String,
-            width: Int,
-            height: Int,
-            videoFrames: Int,
-            steps: Int,
-            cfg: Float,
-            seed: Long,
-            scheduler: Scheduler,
-            strength: Float,
-            initImage: ByteArray?,
-            initWidth: Int,
-            initHeight: Int,
-            cond: PrecomputedCondition?,
-            uncond: PrecomputedCondition?
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                videoFrames: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                scheduler: Scheduler,
+                strength: Float,
+                initImage: ByteArray?,
+                initWidth: Int,
+                initHeight: Int,
+                cond: PrecomputedCondition?,
+                uncond: PrecomputedCondition?
         ): Array<ByteArray>? = txt2vid(
             handle,
             prompt,
@@ -661,6 +662,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 keepVaeOnCpu: Boolean = false,
                 flashAttn: Boolean = true,
                 sequentialLoad: Boolean? = null,
+                forceVulkan: Boolean = false,
                 token: String? = null,
                 forceDownload: Boolean = false,
         ): StableDiffusion =
@@ -790,14 +792,16 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     var effectiveOffloadToCpu = offloadToCpu
                     var effectiveKeepClipOnCpu = keepClipOnCpu
                     var effectiveKeepVaeOnCpu = keepVaeOnCpu
+                    var chosenDevice = -1
+                    var estimatedParams: Long = 0
+                    var freeBytes: Long = 0
 
                     if (effectiveSequentialLoad) {
                         android.util.Log.i(
                                 LOG_TAG,
                                 "Enabling sequential load for low memory optimization"
                         )
-                        // effectiveOffloadToCpu = true // Don't force CPU offload, allow GPU if
-                        // requested
+                        effectiveOffloadToCpu = true
                         effectiveKeepClipOnCpu = true
                         effectiveKeepVaeOnCpu = true
                     }
@@ -807,6 +811,9 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     // automatically
                     try {
                         if (!effectiveOffloadToCpu) {
+                            if (forceVulkan) {
+                                android.util.Log.i(LOG_TAG, "forceVulkan=true requested; skipping Vulkan VRAM heuristics and preferring GPU path")
+                            }
                             val vulkanDevices = nativeGetVulkanDeviceCount()
                             if (vulkanDevices > 0) {
                                 var chosenDevice = -1
@@ -832,7 +839,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         if (mem != null && mem.size >= 2) {
                                             val freeBytes = mem[0]
                                             val THRESHOLD = 0.9
-                                            if (estimatedParams.toDouble() >
+                                            if (!forceVulkan && estimatedParams.toDouble() >
                                                             freeBytes.toDouble() * THRESHOLD
                                             ) {
                                                 android.util.Log.i(
@@ -860,7 +867,19 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         )
                     }
 
-                    val handle =
+                        // Log final effective flags before creating native handle - this aids debugging
+                        Log.i(
+                            LOG_TAG,
+                            "Initializing StableDiffusion (effective): modelPath=$resolvedModelPath, " +
+                                "nThreads=$nThreads, sequentialLoad=$effectiveSequentialLoad, " +
+                                "offloadToCpu=$effectiveOffloadToCpu, keepClipOnCpu=$effectiveKeepClipOnCpu, " +
+                                "keepVaeOnCpu=$effectiveKeepVaeOnCpu, flashAttn=$flashAttn"
+                        )
+                        if (chosenDevice >= 0) {
+                            Log.i(LOG_TAG, "Vulkan chosenDevice=$chosenDevice, estimatedModelParamsMB=${String.format("%.2f", estimatedParams / 1024.0 / 1024.0)}, freeMB=${String.format("%.2f", freeBytes / 1024.0 / 1024.0)}")
+                        }
+
+                        var handle =
                             nativeCreate(
                                     resolvedModelPath,
                                     resolvedVaePath,
@@ -871,6 +890,24 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     effectiveKeepVaeOnCpu,
                                     flashAttn,
                             )
+                        // If we requested preferred GPU path but nativeCreate failed, retry with CPU offload
+                        if (handle == 0L && forceVulkan) {
+                            android.util.Log.w(LOG_TAG, "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback")
+                            // Fallback: enable offload + keepClip/Vae on CPU and set sequentialLoad to true
+                            effectiveOffloadToCpu = true
+                            effectiveKeepClipOnCpu = true
+                            effectiveKeepVaeOnCpu = true
+                            handle = nativeCreate(
+                                resolvedModelPath,
+                                resolvedVaePath,
+                                resolvedT5xxlPath,
+                                nThreads,
+                                effectiveOffloadToCpu,
+                                effectiveKeepClipOnCpu,
+                                effectiveKeepVaeOnCpu,
+                                flashAttn,
+                            )
+                        }
                     if (handle == 0L)
                             throw IllegalStateException(
                                     "Failed to initialize Stable Diffusion context"
@@ -902,6 +939,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 keepVaeOnCpu: Boolean = false,
                 flashAttn: Boolean = true,
                 sequentialLoad: Boolean? = null,
+            forceVulkan: Boolean = false,
                 token: String? = null,
                 forceDownload: Boolean = false,
                 preferSystemDownloader: Boolean = true,
@@ -938,7 +976,54 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         effectiveKeepVaeOnCpu = true
                     }
 
-                    val handle =
+                    var chosenDevice = -1
+                    var estimatedParams: Long = -1
+                    var freeBytes: Long = -1
+                    if (!effectiveOffloadToCpu && forceVulkan) {
+                        android.util.Log.i(LOG_TAG, "forceVulkan=true requested; skipping Vulkan VRAM heuristics and preferring GPU path for HF loaded model")
+                    }
+                    try {
+                        if (!effectiveOffloadToCpu) {
+                            val vulkanDevices = nativeGetVulkanDeviceCount()
+                            if (vulkanDevices > 0) {
+                                var maxTotal: Long = 0
+                                for (i in 0 until vulkanDevices) {
+                                    val mem = nativeGetVulkanDeviceMemory(i)
+                                    if (mem != null && mem.size >= 2) {
+                                        val total = mem[1]
+                                        if (total > maxTotal) {
+                                            maxTotal = total
+                                            chosenDevice = i
+                                        }
+                                    }
+                                }
+                                if (chosenDevice >= 0) {
+                                    estimatedParams = nativeEstimateModelParamsMemory(modelRes.file.absolutePath, chosenDevice)
+                                    if (estimatedParams > 0) {
+                                        val mem = nativeGetVulkanDeviceMemory(chosenDevice)
+                                        if (mem != null && mem.size >= 2) {
+                                            freeBytes = mem[0]
+                                            val THRESHOLD = 0.9
+                                            if (!forceVulkan && estimatedParams.toDouble() > freeBytes.toDouble() * THRESHOLD) {
+                                                android.util.Log.i(LOG_TAG, "Vulkan VRAM insufficient for HF model; enabling offload_to_cpu (estimated: ${String.format("%.2f", estimatedParams / 1024.0 / 1024.0)} MB, free: ${String.format("%.2f", freeBytes / 1024.0 / 1024.0)} MB)")
+                                                effectiveOffloadToCpu = true
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        android.util.Log.w(LOG_TAG, "Failed to query Vulkan VRAM or estimate HF model memory: ${t.message}")
+                    }
+
+                        // Debug log for model initialization choices
+                        Log.i(
+                            LOG_TAG,
+                            "Initializing StableDiffusion from HF (effective): model=${modelRes.file.absolutePath}, nThreads=$nThreads, sequentialLoad=$effectiveSequentialLoad, offloadToCpu=$effectiveOffloadToCpu, keepClipOnCpu=$effectiveKeepClipOnCpu, keepVaeOnCpu=$effectiveKeepVaeOnCpu, flashAttn=$flashAttn"
+                        )
+
+                        var handle =
                             nativeCreate(
                                     modelRes.file.absolutePath,
                                     vaeRes?.file?.absolutePath,
@@ -949,6 +1034,22 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     effectiveKeepVaeOnCpu,
                                     flashAttn,
                             )
+                        if (handle == 0L && forceVulkan) {
+                            android.util.Log.w(LOG_TAG, "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback (HF)")
+                            effectiveOffloadToCpu = true
+                            effectiveKeepClipOnCpu = true
+                            effectiveKeepVaeOnCpu = true
+                            handle = nativeCreate(
+                                modelRes.file.absolutePath,
+                                vaeRes?.file?.absolutePath,
+                                t5Res?.file?.absolutePath,
+                                nThreads,
+                                effectiveOffloadToCpu,
+                                effectiveKeepClipOnCpu,
+                                effectiveKeepVaeOnCpu,
+                                flashAttn,
+                            )
+                        }
                     if (handle == 0L)
                             throw IllegalStateException(
                                     "Failed to initialize Stable Diffusion context"
@@ -1228,10 +1329,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
     fun getLastGenerationMetrics(): GenerationMetrics? = lastGenerationMetrics
 
-    suspend fun txt2img(params: GenerateParams): Bitmap =
-            // Use Dispatchers.IO for blocking native JNI operations
-            // Dispatchers.Default is CPU-bound and has limited parallelism (core count)
-            withContext(Dispatchers.IO) {
+        suspend fun txt2img(params: GenerateParams): Bitmap =
+            // Use Dispatchers.Default for CPU-bound generation to prefer a CPU-optimized
+            // thread pool and reduce context-switching/stack allocations compared to IO.
+            withContext(Dispatchers.Default) {
                 val bytes =
                         generationMutex.withLock {
                             nativeBridge.txt2img(
@@ -1369,7 +1470,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         val height = safeBitmap.height
         val pixels = IntArray(width * height)
         safeBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        val rgb = ByteArray(width * height * 3)
+        val requiredSize = width * height * 3
+        var rgb = rgbBytesThreadLocal.get()
+        if (rgb == null || rgb.size < requiredSize) {
+            rgb = ByteArray(requiredSize)
+            rgbBytesThreadLocal.set(rgb)
+        }
         var rgbIndex = 0
         for (pixel in pixels) {
             rgb[rgbIndex++] = ((pixel shr 16) and 0xFF).toByte()
@@ -1387,10 +1493,11 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         val batchSize = determineBatchSize(frameBytes.size)
         val bitmaps = ArrayList<Bitmap>(frameBytes.size)
         var index = 0
+        val pixelBuffer = IntArray(width * height) // Reuse single buffer per batch, reduces allocations
         while (index < frameBytes.size) {
             val end = min(index + batchSize, frameBytes.size)
             for (i in index until end) {
-                bitmaps += rgbBytesToBitmap(frameBytes[i], width, height)
+                bitmaps += rgbBytesToBitmap(frameBytes[i], width, height, pixelBuffer)
             }
             val remaining = frameBytes.size - end
             if (remaining > 0) {
@@ -1525,21 +1632,13 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 bitmaps
             }
 
+    // Compat wrapper for callers expecting the 3-arg signature.
     private fun rgbBytesToBitmap(bytes: ByteArray, width: Int, height: Int): Bitmap {
-        val pixels = IntArray(width * height)
-        var idx = 0
-        var out = 0
-        while (idx + 2 < bytes.size && out < pixels.size) {
-            val r = bytes[idx].toInt() and 0xFF
-            val g = bytes[idx + 1].toInt() and 0xFF
-            val b = bytes[idx + 2].toInt() and 0xFF
-            pixels[out] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
-            idx += 3
-            out += 1
-        }
-        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
-            setPixels(pixels, 0, width, 0, 0, width, height)
-        }
+        return io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(bytes, width, height)
+    }
+
+    private fun rgbBytesToBitmap(bytes: ByteArray, width: Int, height: Int, pixels: IntArray): Bitmap {
+        return io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(bytes, width, height, pixels)
     }
 
     private fun determineBatchSize(frameCount: Int): Int =

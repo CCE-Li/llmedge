@@ -27,7 +27,7 @@ object CpuTopology {
     enum class TaskType {
         PROMPT_PROCESSING, // Latency-sensitive, use all P-cores
         TOKEN_GENERATION, // Throughput-oriented, use fewer cores
-        DIFFUSION, // Compute-heavy, use all cores
+        DIFFUSION, // Compute-heavy, use maximum parallelism
         LIGHT_TASK // Quick operations, use 1-2 cores
     }
 
@@ -125,12 +125,10 @@ object CpuTopology {
 
         return when (taskType) {
             TaskType.PROMPT_PROCESSING -> {
-                // Use all performance cores for latency-sensitive prompt processing
-                if (coreInfo.performanceCores >= 2) {
-                    coreInfo.performanceCores.coerceAtMost(8)
-                } else {
-                    Runtime.getRuntime().availableProcessors().coerceAtMost(8)
-                }
+                // Restore prior fast default: 4 threads for small LLMs (matches previous SmolLM default)
+                // On larger devices, allow up to 8 threads but never below 4.
+                val avail = Runtime.getRuntime().availableProcessors().coerceAtMost(8)
+                avail.coerceAtLeast(4)
             }
             TaskType.TOKEN_GENERATION -> {
                 // Use fewer cores to reduce contention
@@ -142,16 +140,9 @@ object CpuTopology {
                 }
             }
             TaskType.DIFFUSION -> {
-                // For diffusion on mobile, use performance cores only to avoid thermal throttling
-                // Using all cores (including efficiency cores) causes thermal issues and power drain
-                // which leads to sustained performance degradation
-                if (coreInfo.performanceCores >= 2) {
-                    // Use all P-cores but cap at 6 to prevent thermal throttling
-                    coreInfo.performanceCores.coerceAtMost(6)
-                } else {
-                    // Fallback for homogeneous cores: use 75% of cores, capped at 6
-                    (Runtime.getRuntime().availableProcessors() * 3 / 4).coerceIn(2, 6)
-                }
+                // Revert to prior behavior: use all available CPU cores for maximum throughput.
+                // This restores the faster generation speed observed before LLMEdgeManager changes.
+                Runtime.getRuntime().availableProcessors().coerceAtLeast(2)
             }
             TaskType.LIGHT_TASK -> {
                 // Use 1-2 cores for quick operations
