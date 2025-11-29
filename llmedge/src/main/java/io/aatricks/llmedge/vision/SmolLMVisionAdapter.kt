@@ -204,7 +204,8 @@ class SmolLMVisionAdapter(
      * Release resources.
      */
     fun close() {
-        smolLM.close()
+        // Do not close smolLM as it may be shared/managed by LLMEdgeManager
+        // smolLM.close()
         hasVisionSupport = false
         modelPath = null
         mmprojPath = null

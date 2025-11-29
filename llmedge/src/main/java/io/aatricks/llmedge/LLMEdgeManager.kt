@@ -57,7 +57,6 @@ object LLMEdgeManager {
 
         @Volatile private var cachedModel: StableDiffusion? = null
         @Volatile private var cachedSmolLM: io.aatricks.llmedge.SmolLM? = null
-        @Volatile private var cachedOcrEngine: io.aatricks.llmedge.vision.ocr.MlKitOcrEngine? = null
         @Volatile private var isLoading = false
         private var contextRef: WeakReference<Context>? = null
         /** When true, prefer higher throughput and lower memory-safety heuristics. */
@@ -289,10 +288,7 @@ object LLMEdgeManager {
                 }
         }
 
-        /**
-         * Returns the shared SmolLM instance WITHOUT loading a model. Useful for activities that
-         * want to manage the loading process themselves (e.g. HuggingFaceDemoActivity).
-         */
+        /** Returns the shared SmolLM instance WITHOUT loading a model. Useful for activities that want to manage the loading process themselves (e.g. HuggingFaceDemoActivity). */
         suspend fun getSmolLMInstance(context: Context): io.aatricks.llmedge.SmolLM {
                 return textModelMutex.withLock {
                         contextRef = WeakReference(context.applicationContext)
@@ -305,117 +301,146 @@ object LLMEdgeManager {
         /** Extracts text from an image using OCR. */
         suspend fun extractText(context: Context, image: Bitmap): String =
                 textModelMutex.withLock {
-                        val engine = getOrLoadOcrEngine(context)
-                        val result =
-                                engine.extractText(
-                                        io.aatricks.llmedge.vision.ImageSource.BitmapSource(image)
-                                )
-                        return@withLock result.text
-                }
-
-        /** Analyzes an image using a Vision Language Model (VLM). */
-        suspend fun analyzeImage(
-                context: Context,
-                params: VisionAnalysisParams,
-                onProgress: ((String) -> Unit)? = null
-        ): String =
-                textModelMutex.withLock {
-                        contextRef = WeakReference(context.applicationContext)
-
-                        // Unload heavy diffusion models
-                        unloadDiffusionModel()
-
-                        // Ensure files
-                        val modelFile = getFile(context, params.modelId, params.modelFilename)
-                        val projFile = getFile(context, params.modelId, params.projFilename)
-
-                        // Load SmolLM
-                        val smol = getOrLoadSmolLM(context, params.modelId, params.modelFilename)
-
-                        // Prepare Vision Adapter
-                        val adapter = io.aatricks.llmedge.vision.SmolLMVisionAdapter(context, smol)
-
+                        // Create a fresh engine instance and close it immediately after use to free resources
+                        val engine = io.aatricks.llmedge.vision.ocr.MlKitOcrEngine(context)
                         try {
-                                // We need to initialize the projector and encode the image
-                                // This is complex logic from LlavaVisionActivity, simplified here.
-
-                                                                // 1. Save bitmap to temp file
-                                                                        onProgress?.invoke("Preparing image")
-                                val tempImageFile =
-                                        File.createTempFile(
-                                                "vision_input",
-                                                ".jpg",
-                                                context.cacheDir
-                                        )
-                                val preparedImageFile =
-                                        File.createTempFile(
-                                                "vision_prepared",
-                                                ".bin",
-                                                context.cacheDir
-                                        )
-
-                                try {
-                                        // Preprocess and save
-                                        val scaled =
-                                                io.aatricks.llmedge.vision.ImageUtils
-                                                        .preprocessImage(
-                                                                params.image,
-                                                                correctOrientation = true,
-                                                                maxDimension = 1024,
-                                                                enhance = false
-                                                        )
-                                        tempImageFile.outputStream().use { out ->
-                                                scaled.compress(Bitmap.CompressFormat.JPEG, 90, out)
-                                        }
-
-                                        // 2. Run Projector
-                                        onProgress?.invoke("Encoding image")
-                                        val projector = io.aatricks.llmedge.vision.Projector()
-                                        projector.init(
-                                                projFile.absolutePath,
-                                                smol.getNativeModelPointer()
-                                        )
-                                        val ok =
-                                                projector.encodeImageToFile(
-                                                        tempImageFile.absolutePath,
-                                                        preparedImageFile.absolutePath
+                                val result =
+                                        engine.extractText(
+                                                io.aatricks.llmedge.vision.ImageSource.BitmapSource(
+                                                        image
                                                 )
-                                        projector.close()
-
-                                        val imageSource =
-                                                if (ok) {
-                                                        io.aatricks.llmedge.vision.ImageSource
-                                                                .FileSource(preparedImageFile)
-                                                } else {
-                                                        // Fallback
-                                                        io.aatricks.llmedge.vision.ImageSource
-                                                                .FileSource(tempImageFile)
-                                                }
-
-                                        // 3. Run Analysis
-                                        onProgress?.invoke("Running vision analysis")
-                                        adapter.loadVisionModel(modelFile.absolutePath)
-                                        val result =
-                                                adapter.analyze(
-                                                        imageSource,
-                                                        params.prompt,
-                                                        io.aatricks.llmedge.vision.VisionParams()
-                                                )
-                                        return@withLock result.text
-                                } finally {
-                                        tempImageFile.delete()
-                                        preparedImageFile.delete()
-                                        adapter.close() // Close adapter but keep SmolLM cached? Or
-                                        // close both?
-                                        // Adapter doesn't own SmolLM, so it's safe to close
-                                        // adapter.
-                                }
-                        } catch (e: Exception) {
-                                Log.e(TAG, "Vision analysis failed", e)
-                                throw e
+                                        )
+                                return@withLock result.text
+                        } finally {
+                                engine.close()
                         }
                 }
 
+                /** Analyzes an image using a Vision Language Model (VLM). */
+                suspend fun analyzeImage(
+                        context: Context,
+                        params: VisionAnalysisParams,
+                        onProgress: ((String) -> Unit)? = null
+                ): String =
+                        textModelMutex.withLock {
+                                contextRef = WeakReference(context.applicationContext)
+        
+                                // Unload heavy diffusion models
+                                unloadDiffusionModel()
+                                // Also unload cached SmolLM to free up memory for this heavy operation
+                                unloadSmolLM()
+        
+                                // Ensure files
+                                val modelFile = getFile(context, params.modelId, params.modelFilename)
+                                val projFile = getFile(context, params.modelId, params.projFilename)
+        
+                                // Instantiate a fresh SmolLM for this specific vision task
+                                // mirroring the configuration in the working backup:
+                                // - storeChats = false (saves memory/context)
+                                // - temperature = 0.0f (deterministic)
+                                // - thinkingMode = DISABLED
+                                val optimalThreads = if (preferPerformanceMode) {
+                                        CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING)
+                                } else {
+                                        2
+                                }
+                                
+                                // Use explicit Vulkan setting based on preference
+                                val smol = io.aatricks.llmedge.SmolLM(useVulkan = preferPerformanceMode)
+                                
+                                try {
+                                        prepareMemoryForLoading()
+                                        
+                                        smol.load(
+                                                modelPath = modelFile.absolutePath,
+                                                params = io.aatricks.llmedge.SmolLM.InferenceParams(
+                                                        numThreads = optimalThreads,
+                                                        contextSize = null, 
+                                                        storeChats = false,
+                                                        temperature = 0.0f,
+                                                        thinkingMode = io.aatricks.llmedge.SmolLM.ThinkingMode.DISABLED
+                                                )
+                                        )
+        
+                                        // Prepare Vision Adapter
+                                        val adapter = io.aatricks.llmedge.vision.SmolLMVisionAdapter(context, smol)
+        
+                                        try {
+                                                // 1. Save bitmap to temp file
+                                                onProgress?.invoke("Preparing image")
+                                                val tempImageFile =
+                                                        File.createTempFile(
+                                                                "vision_input",
+                                                                ".jpg",
+                                                                context.cacheDir
+                                                        )
+                                                val preparedImageFile =
+                                                        File.createTempFile(
+                                                                "vision_prepared",
+                                                                ".bin",
+                                                                context.cacheDir
+                                                        )
+        
+                                                try {
+                                                        // Preprocess and save
+                                                        val scaled =
+                                                                io.aatricks.llmedge.vision.ImageUtils
+                                                                        .preprocessImage(
+                                                                                params.image,
+                                                                                correctOrientation = true,
+                                                                                maxDimension = 1024,
+                                                                                enhance = false
+                                                                        )
+                                                        tempImageFile.outputStream().use { out ->
+                                                                scaled.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                                                        }
+        
+                                                        // 2. Run Projector
+                                                        onProgress?.invoke("Encoding image")
+                                                        val projector = io.aatricks.llmedge.vision.Projector()
+                                                        projector.init(
+                                                                projFile.absolutePath,
+                                                                smol.getNativeModelPointer()
+                                                        )
+                                                        val ok =
+                                                                projector.encodeImageToFile(
+                                                                        tempImageFile.absolutePath,
+                                                                        preparedImageFile.absolutePath
+                                                                )
+                                                        projector.close()
+        
+                                                        val imageSource =
+                                                                if (ok) {
+                                                                        io.aatricks.llmedge.vision.ImageSource
+                                                                                .FileSource(preparedImageFile)
+                                                                } else {
+                                                                        io.aatricks.llmedge.vision.ImageSource
+                                                                                .FileSource(tempImageFile)
+                                                                }
+        
+                                                        // 3. Run Analysis
+                                                        onProgress?.invoke("Running vision analysis")
+                                                        adapter.loadVisionModel(modelFile.absolutePath)
+                                                        val result =
+                                                                adapter.analyze(
+                                                                        imageSource,
+                                                                        params.prompt,
+                                                                        io.aatricks.llmedge.vision.VisionParams()
+                                                                )
+                                                        return@withLock result.text
+                                                } finally {
+                                                        tempImageFile.delete()
+                                                        preparedImageFile.delete()
+                                                        adapter.close() 
+                                                }
+                                        } catch (e: Exception) {
+                                                Log.e(TAG, "Vision analysis failed", e)
+                                                throw e
+                                        }
+                                } finally {
+                                        smol.close()
+                                }
+                        }
         /**
          * Generates an image using the default or configured model. Automatically handles
          * sequential loading for low-memory devices.
@@ -1012,14 +1037,23 @@ object LLMEdgeManager {
                         return cachedModel
                 }
 
-                val smol = io.aatricks.llmedge.SmolLM()
-
                 // Phase 3: Use core-aware threading
-                val optimalThreads =
+                val optimalThreads = if (preferPerformanceMode) {
                         CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING)
+                } else {
+                        // Conservative threading for stability/background use
+                        2
+                }
 
-                Log.i(TAG, "Loading SmolLM with $optimalThreads threads (${coreInfo})")
+                Log.i(TAG, "Loading SmolLM with $optimalThreads threads (${coreInfo}), vulkan=$preferPerformanceMode")
                 val loadStart = System.currentTimeMillis()
+
+                // Initialize SmolLM with Vulkan setting based on performance mode
+                // If preferPerformanceMode is false, useVulkan=false (CPU only) to avoid hangs on some devices
+                val smol = io.aatricks.llmedge.SmolLM(useVulkan = preferPerformanceMode)
+
+                // Help clear heap before loading large model
+                prepareMemoryForLoading()
 
                 smol.load(
                         modelPath = finalPath.absolutePath,
@@ -1068,17 +1102,6 @@ object LLMEdgeManager {
                                 onProgress = onProgress
                         )
                         .file
-        }
-
-        private fun getOrLoadOcrEngine(
-                context: Context
-        ): io.aatricks.llmedge.vision.ocr.MlKitOcrEngine {
-                cachedOcrEngine?.let {
-                        return it
-                }
-                val engine = io.aatricks.llmedge.vision.ocr.MlKitOcrEngine(context)
-                cachedOcrEngine = engine
-                return engine
         }
 
         private fun unloadDiffusionModel() {
