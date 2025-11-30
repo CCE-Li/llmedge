@@ -72,6 +72,14 @@ class VideoGenerationTest {
 
                 override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
                 override fun cancelGeneration(handle: Long) {}
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): StableDiffusion.PrecomputedCondition? = null
             }
         }
         true
@@ -331,9 +339,8 @@ class VideoGenerationTest {
 
         val result = sd.txt2vid(params)
 
-        val metrics = sd.getLastGenerationMetrics()
-        assertNotNull("Should have generation metrics", metrics)
-        assertTrue("Total time should be positive", metrics!!.totalTimeSeconds > 0)
+        val metrics = requireNotNull(sd.getLastGenerationMetrics())
+        assertTrue("Total time should be positive", metrics.totalTimeSeconds > 0)
         assertTrue("Frames per second should be positive", metrics.framesPerSecond > 0)
         assertEquals(4, result.size) // Verify frame count matches
     }

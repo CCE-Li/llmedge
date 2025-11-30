@@ -353,6 +353,12 @@ SD_API sd_image_t* sd_generate_video_with_precomputed_condition(
     const sd_condition_raw_t* uncond,
     int* num_frames_out);
 
+SD_API sd_image_t* sd_generate_image_with_precomputed_condition(
+    sd_ctx_t* sd_ctx,
+    const sd_img_gen_params_t* sd_img_gen_params,
+    const sd_condition_raw_t* cond,
+    const sd_condition_raw_t* uncond);
+
 typedef struct upscaler_ctx_t upscaler_ctx_t;
 
 SD_API upscaler_ctx_t* new_upscaler_ctx(const char* esrgan_path,

@@ -29,6 +29,18 @@ internal object HFEndpoints {
 
     val fileDownloadEndpoint: (String, String, String) -> String =
         { modelId, revision, filePath ->
-            "https://huggingface.co/$modelId/resolve/$revision/$filePath"
+            // Encode individual path segments so spaces and special characters are escaped,
+            // but preserve slashes (/) which separate segments.
+            fun encodeSegment(segment: String): String =
+                java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
+
+            // Sanitize and encode model id segments (owner/repo)
+            val encodedModelId = modelId.trim('/').split('/').joinToString("/") { encodeSegment(it) }
+            // Encode revision as a single segment
+            val encodedRevision = encodeSegment(revision)
+            // Encode each file path element to preserve subdirectories
+            val encodedFilePath = filePath.trim('/').split('/').joinToString("/") { encodeSegment(it) }
+
+            "https://huggingface.co/$encodedModelId/resolve/$encodedRevision/$encodedFilePath"
         }
 }

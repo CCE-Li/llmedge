@@ -153,4 +153,13 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
     fun disableProgressDelays() {
         progressCallbackDelayMs = 0L
     }
+
+    override fun precomputeCondition(
+        handle: Long,
+        prompt: String,
+        negative: String,
+        width: Int,
+        height: Int,
+        clipSkip: Int,
+    ): StableDiffusion.PrecomputedCondition? = null
 }

@@ -62,6 +62,14 @@ class VideoCancellationTest : BaseVideoIntegrationTest() {
                     cancelInvoked.set(true)
                     cancelled = true
                 }
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): StableDiffusion.PrecomputedCondition? = null
             }
         }
         val sd = createStableDiffusion()

@@ -26,9 +26,17 @@ class WanVideoE2ETest {
     @Test
     fun wanModelGeneratesVideoFrames() = runBlocking {
         assumeTrue("Requires arm64 device", Build.SUPPORTED_ABIS.any { it.contains("arm64") })
+        assumeTrue("Native library not loaded", StableDiffusion.isNativeLibraryLoaded())
 
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val targetContext = instrumentation.targetContext
+        // Ensure critical assets exist in the test APK; otherwise skip this heavy test
+        try {
+            instrumentation.context.assets.open(WAN_MODEL_ASSET_NAME).close()
+            instrumentation.context.assets.open(WAN_VAE_ASSET_NAME).close()
+        } catch (t: Throwable) {
+            org.junit.Assume.assumeTrue("Required WAN assets missing from test APK", false)
+        }
         val wanAssets = ensureWanAssetsOnDisk(targetContext)
 
         val engine = StableDiffusion.load(
@@ -36,7 +44,7 @@ class WanVideoE2ETest {
             modelPath = wanAssets.model.absolutePath,
             vaePath = wanAssets.vae.absolutePath,
             t5xxlPath = wanAssets.textEncoder.absolutePath,
-            nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(4),
+            nThreads = io.aatricks.llmedge.CpuTopology.getOptimalThreadCount(io.aatricks.llmedge.CpuTopology.TaskType.DIFFUSION).coerceAtMost(4),
             offloadToCpu = false,
             keepClipOnCpu = false,
             keepVaeOnCpu = false,

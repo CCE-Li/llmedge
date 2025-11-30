@@ -63,7 +63,7 @@ internal class HFModelSearch(
         config: Boolean = true,
     ): List<ModelSearchResult> {
         val response =
-            if (nextPageUrl == null) {
+            nextPageUrl?.let { client.get(it) } ?: run {
                 client.get(HFEndpoints.listModelsEndpoint()) {
                     url {
                         parameters.append("search", query)
@@ -78,8 +78,6 @@ internal class HFModelSearch(
                         parameters.append("config", config.toString())
                     }
                 }
-            } else {
-                client.get(nextPageUrl!!)
             }
 
         if (!response.status.isSuccess()) {

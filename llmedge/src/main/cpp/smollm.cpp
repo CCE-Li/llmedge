@@ -287,6 +287,14 @@ Java_io_aatricks_llmedge_Projector_nativeCloseProjector(JNIEnv* env, jobject thi
     (void) thiz;
     mtmd_context* ctx = reinterpret_cast<mtmd_context*>(nativePtr);
     if (ctx) {
+        // Remove mapping from ctx -> llama_model* to avoid stale references
+        {
+            std::lock_guard<std::mutex> lk(g_mtmd_map_mutex);
+            auto it = g_mtmd_model_map.find(ctx);
+            if (it != g_mtmd_model_map.end()) {
+                g_mtmd_model_map.erase(it);
+            }
+        }
         mtmd_free(ctx);
     }
 }

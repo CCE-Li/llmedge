@@ -15,11 +15,11 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 
 - Run GGUF models directly on Android using llama.cpp (JNI)
 - Download and cache models from Hugging Face
-- **Video Generation**: Generate short video clips (4-64 frames) from text using Wan models
-- **Image Generation**: Stable Diffusion integration for txt2img
+- Video Generation: Generate short video clips (4-64 frames) from text using Wan models
+- Image Generation: Stable Diffusion integration for txt2img
 - Minimal on-device RAG (retrieval-augmented generation) pipeline
-- **OCR Support**: Extract text from images using Google ML Kit
-- **Vision Model Ready**: Architecture prepared for vision-capable LLMs (LLaVA)
+- OCR Support: Extract text from images using Google ML Kit
+- Vision Model Ready: Architecture prepared for vision-capable LLMs (LLaVA)
 - Built-in memory usage metrics
 - Optional Vulkan acceleration
 
@@ -64,23 +64,26 @@ Open the project in Android Studio. If it does not build automatically, use ***B
 
 ### Quick Start
 
-Load a local GGUF file and run a blocking prompt from a background coroutine:
+The easiest way to use the library is via the `LLMEdgeManager` singleton, which handles model loading, caching, and threading automatically.
 
 ```kotlin
-val smol = SmolLM()
-
+// Generate text using a default lightweight model (SmolLM-135M)
+// The model is automatically downloaded if needed.
 CoroutineScope(Dispatchers.IO).launch {
-    val modelFile = File(context.filesDir, "models/tinyllama.gguf")
-    smol.load(modelFile.absolutePath)
-
-    val reply = smol.getResponse("Summarize on-device LLMs in one sentence.")
+    val reply = LLMEdgeManager.generateText(
+        context = context,
+        params = LLMEdgeManager.TextGenerationParams(
+            prompt = "Summarize on-device LLMs in one sentence."
+        )
+    )
+    
     withContext(Dispatchers.Main) {
         outputView.text = reply
     }
 }
 ```
 
-Call `smol.close()` when the instance is no longer needed to free native memory.
+For streaming responses or custom model paths, you can also access the underlying `SmolLM` instance directly or use `LLMEdgeManager`'s streaming callbacks (see Usage).
 
 ### Downloading Models
 
@@ -146,27 +149,11 @@ llmedge uses Google ML Kit Text Recognition for extracting text from images.
 #### Quick Start
 
 ```kotlin
-import io.aatricks.llmedge.vision.*
-import io.aatricks.llmedge.vision.ocr.*
+import io.aatricks.llmedge.LLMEdgeManager
 
-// Initialize OCR engine
-val mlKitEngine = MlKitOcrEngine(context)
-
-// Create image understanding instance with OCR
-val imageUnderstanding = ImageUnderstanding(
-    visionAnalyzer = null, // Add vision model when available
-    ocrEngines = listOf(mlKitEngine)
-)
-
-// Process an image
-val imageFile = File("/path/to/image.jpg")
-val result = imageUnderstanding.process(
-    image = ImageSource.FileSource(imageFile),
-    mode = VisionMode.AUTO_PREFER_OCR
-)
-
-println("Extracted text: ${result.text}")
-println("Engine used: ${result.engine}")
+// Process an image (Bitmap)
+val text = LLMEdgeManager.extractText(context, bitmap)
+println("Extracted text: $text")
 ```
 
 #### OCR Engines
@@ -191,261 +178,86 @@ enum class VisionMode {
 
 ### Vision Models
 
-The library architecture supports vision-capable language models (like LLaVA), though native vision support in llama.cpp is still being integrated.
-
-#### Prepared Architecture
+Analyze images using Vision Language Models (like LLaVA or Phi-3 Vision) via `LLMEdgeManager`.
 
 ```kotlin
-// Future usage when vision models are fully supported
-val visionAdapter = SmolLMVisionAdapter(context, smolLM)
-visionAdapter.loadVisionModel(
-    modelPath = "/path/to/llava.gguf",
-    mmprojPath = "/path/to/mmproj.bin"
-)
-
-val imageUnderstanding = ImageUnderstanding(
-    visionAnalyzer = visionAdapter,
-    ocrEngines = listOf(mlKitEngine) // Fallback
-)
-
-val result = imageUnderstanding.process(
-    image = ImageSource.FileSource(imageFile),
-    mode = VisionMode.AUTO_PREFER_VISION,
-    prompt = "Describe what you see in this image."
-)
+val description = LLMEdgeManager.analyzeImage(
+    context = context,
+    params = LLMEdgeManager.VisionAnalysisParams(
+        image = bitmap,
+        prompt = "Describe this image in detail."
+    )
+) { status ->
+    Log.d("Vision", "Status: $status")
+}
 ```
 
-Vision model support will be enabled once llama.cpp's multimodal capabilities are integrated into the Android build.
+The manager handles the complex pipeline of:
+1. Preprocessing the image
+2. Loading the vision projector and model
+3. Encoding the image to embeddings
+4. Generating the textual response
+
+Vision model support is currently experimental and requires specific model architectures (like LLaVA-Phi-3).
 
 
 ### Stable Diffusion (image generation)
 
-llmedge now includes a Stable Diffusion integration for on-device image generation via the `StableDiffusion` Kotlin API. The examples app (`llmedge-examples`) contains a working demo at `StableDiffusionActivity.kt` that demonstrates downloading required assets from Hugging Face, loading the model, and generating images safely on memory-constrained devices.
-
-Key points:
-- The library can download model weights and auxiliary files (for example a VAE) from Hugging Face and cache them under the app files directory.
-- Large files should be downloaded using the system downloader (`preferSystemDownloader = true`) to avoid allocating large buffers on the app heap which can lead to OOMs.
-- Stable Diffusion models are memory intensive. Use conservative image resolutions and enable CPU offloading when necessary (see example below).
-
-Quick Kotlin example (adapted from `StableDiffusionActivity`):
+Generate images on-device using `LLMEdgeManager`. This automatically handles model downloading (MeinaMix), caching, and memory safety.
 
 ```kotlin
-// Ensure a VAE safetensors file is present (optional depending on the model repo)
-val vaeDownload = io.aatricks.llmedge.huggingface.HuggingFaceHub.ensureRepoFileOnDisk(
-    context = this,
-    modelId = "Meina/MeinaMix",
-    filename = "MeinaPastel - baked VAE.safetensors",
-    token = null,
-    forceDownload = false,
-    preferSystemDownloader = true,
-    onProgress = null
-)
-
-val sd = StableDiffusion.load(
-    context = this,
-    modelId = "Meina/MeinaMix",
-    filename = "MeinaPastel - baked VAE.safetensors", // let the loader pick the gguf in the repo
-    nThreads = Runtime.getRuntime().availableProcessors(),
-    offloadToCpu = true,     // reduce native memory pressure by offloading some tensors to CPU
-    keepClipOnCpu = true,    // keep CLIP on CPU if device GPU/ram is constrained
-    keepVaeOnCpu = false,    // VAE can be kept on GPU when available, choose based on device
-    vaePath = vaeDownload.file.absolutePath
-)
-
-val bmp = sd.txt2img(
-    StableDiffusion.GenerateParams(
+val bitmap = LLMEdgeManager.generateImage(
+    context = context,
+    params = LLMEdgeManager.ImageGenerationParams(
         prompt = "a cute pastel anime cat, soft colors, high quality",
-        steps = 20,
-        cfgScale = 7.0f,
-        width = 128,
-        height = 128,
-        seed = 42L
+        width = 256,
+        height = 256,
+        steps = 20
     )
 )
-
-imageView.setImageBitmap(bmp)
-sd.close()
+imageView.setImageBitmap(bitmap)
 ```
 
-Memory & troubleshooting:
-- If you encounter OutOfMemoryError during generation, reduce width/height and number of steps, or enable more aggressive CPU offloading.
-- The example app falls back to a smaller resolution when a generation OOM occurs; you should do the same in production code.
+For advanced usage (custom models, explicit memory control), you can still use the `StableDiffusion` class directly as shown in the `llmedge-examples` repository.
 
 ### Video Generation
 
-llmedge now supports **on-device video generation** using Wan models via the `StableDiffusion` class. Generate short video clips (4-64 frames) from text prompts entirely on Android devices.
+Generate short video clips using Wan models via `LLMEdgeManager`. This handles the complex requirement of loading three separate models (Diffusion, VAE, T5 Encoder) and offers sequential loading for devices with limited RAM.
 
-**⚠️ Hardware Requirements**:
-- **Minimum RAM**: 12GB recommended for Wan 2.1 T2V-1.3B with mixed precision (fp16 main + Q3_K_S T5XXL)
-- **Supported Devices**: Galaxy S23 Ultra (12GB), Pixel 8 Pro (12GB), OnePlus 12 (16GB+)
-- **Not Supported**: 8GB RAM devices (Galaxy S22, Pixel 7) - insufficient memory for 3-model pipeline
-
-**Why 12GB?**
-Wan models require loading **three separate components**:
-1. Main diffusion model (fp16): ~2.7GB RAM
-2. T5XXL text encoder (Q3_K_S GGUF): ~5.9GB RAM (decompresses from 2.86GB file)
-3. VAE decoder (fp16): ~0.14GB RAM
-4. Working memory + overhead: ~1GB RAM
-
-**Total**: ~9.7GB minimum, 12GB recommended for stable operation.
-
-**Supported Models**:
-- **Wan 2.1**: T2V-1.3B (text-to-video) - **12GB+ RAM required**
-- **Wan 2.2**: TI2V-5B (text+image-to-video) - **16GB+ RAM required**
-- **14B models**: Not supported on mobile (rejected at load time)
-
-**Note**: GGUF quantization of the main model is currently blocked by metadata issues in community conversions. Only safetensors format works reliably.
-
-**Basic Usage**:
+**Hardware Requirements**:
+- **12GB+ RAM** recommended for standard loading.
+- **8GB+ RAM** supported via `forceSequentialLoad = true` (slower but memory-safe).
 
 ```kotlin
-// Download all three required model files explicitly
-val modelFile = io.aatricks.llmedge.huggingface.HuggingFaceHub.ensureRepoFileOnDisk(
-    context = this,
-    modelId = "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
-    revision = "main",
-    filename = "wan2.1_t2v_1.3B_fp16.safetensors",
-    allowedExtensions = listOf(".safetensors"),
-    preferSystemDownloader = true
-)
-
-val vaeFile = io.aatricks.llmedge.huggingface.HuggingFaceHub.ensureRepoFileOnDisk(
-    context = this,
-    modelId = "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
-    revision = "main",
-    filename = "wan_2.1_vae.safetensors",
-    allowedExtensions = listOf(".safetensors"),
-    preferSystemDownloader = true
-)
-
-val t5xxlFile = io.aatricks.llmedge.huggingface.HuggingFaceHub.ensureRepoFileOnDisk(
-    context = this,
-    modelId = "city96/umt5-xxl-encoder-gguf",
-    revision = "main",
-    filename = "umt5-xxl-encoder-Q3_K_S.gguf",
-    allowedExtensions = listOf(".gguf"),
-    preferSystemDownloader = true
-)
-
-// Load all three models together
-val sd = StableDiffusion.load(
-    context = this,
-    modelPath = modelFile.file.absolutePath,
-    vaePath = vaeFile.file.absolutePath,
-    t5xxlPath = t5xxlFile.file.absolutePath,
-    nThreads = Runtime.getRuntime().availableProcessors(),
-    offloadToCpu = true,
-    keepClipOnCpu = true,
-    keepVaeOnCpu = true
-)
-
-val params = StableDiffusion.VideoGenerateParams(
+// 1. Define parameters
+val params = LLMEdgeManager.VideoGenerationParams(
     prompt = "a cat walking in a garden, high quality",
-    videoFrames = 8,  // Start small: 4-8 frames
-    width = 256,      // Conservative resolution
-    height = 256,
-    steps = 20,
-    cfgScale = 7.0,
-    seed = 42
+    videoFrames = 8,  // Start small: 8-16 frames
+    width = 480,      // Balanced resolution
+    height = 480,
+    steps = 15,
+    forceSequentialLoad = true // Recommended for mobile
 )
 
-val frames: List<Bitmap> = sd.txt2vid(params)
-
-// Save frames to video file or display
-frames.forEachIndexed { index, bitmap ->
-    // Process each frame
+// 2. Generate video
+val frames = LLMEdgeManager.generateVideo(
+    context = context,
+    params = params
+) { status, current, total ->
+    // Update progress: "Generating frame 1/8"
+    Log.d("VideoGen", "$status")
 }
 
-sd.close()
+// 3. Use the frames (List<Bitmap>)
+previewImageView.setImageBitmap(frames.first())
 ```
 
-**Model Selection**:
+`LLMEdgeManager` automatically:
+1. Downloads the necessary Wan 2.1 model files (Diffusion, VAE, T5).
+2. Sequentially loads components to minimize peak memory usage (if requested).
+3. Manages the generation loop and frame conversion.
 
-⚠️ **Important**: Due to memory constraints, video generation requires explicit multi-file loading. The simplified `modelId` + `filename` approach does not work for Wan models.
-
-Check device RAM before attempting to load:
-
-```kotlin
-val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-val memInfo = ActivityManager.MemoryInfo()
-activityManager.getMemoryInfo(memInfo)
-val totalRamGB = memInfo.totalMem / (1024.0 * 1024.0 * 1024.0)
-
-if (totalRamGB < 12.0) {
-    // Show error: device does not have enough RAM for video generation
-    // Recommend cloud inference API or alternative approaches
-    throw UnsupportedOperationException(
-        "Video generation requires 12GB+ RAM. " +
-        "This device has ${String.format("%.1f", totalRamGB)}GB. " +
-        "Consider using cloud inference APIs instead."
-    )
-}
-
-// Proceed with model loading (see Basic Usage above)
-```
-
-**Advanced Parameters**:
-
-```kotlin
-val params = StableDiffusion.VideoGenerateParams(
-    prompt = "a serene ocean sunset, waves gently rolling",
-    videoFrames = 32,
-    width = 512,
-    height = 512,
-    steps = 25,
-    cfgScale = 7.5,
-    seed = -1,  // -1 for random seed
-    scheduler = StableDiffusion.Scheduler.DDIM,
-    strength = 0.8,  // For image-to-video (0.0-1.0)
-    initImage = null  // Optional: initial image for I2V models
-)
-```
-
-**Progress Monitoring**:
-
-```kotlin
-sd.setProgressCallback { step, totalSteps ->
-    val progress = (step.toFloat() / totalSteps * 100).toInt()
-    runOnUiThread {
-        progressBar.progress = progress
-        statusText.text = "Generating: $progress%"
-    }
-}
-
-val frames = sd.txt2vid(params)
-```
-
-**Cancellation**:
-
-```kotlin
-// Cancel long-running generation
-sd.cancelGeneration()
-```
-
-**Performance Tips**:
-- Start with 256x256 resolution and 4-8 frames for testing
-- Use 512x512 only on 16GB+ devices
-- Use 10-20 steps for faster generation (20-30 for quality)
-- Enable Vulkan acceleration on Android 11+ devices for 2-5x speedup
-- 1.3B models generate ~3-8 seconds/frame on mid-range devices (Vulkan enabled)
-- Expect 30-120 seconds for an 8-frame 256x256 video
-
-**Memory Management**:
-- Wan 2.1 T2V-1.3B peaks at ~9.7GB RAM (fp16 main + Q3_K_S T5XXL + fp16 VAE)
-- Wan 2.2 TI2V-5B peaks at ~16GB+ RAM
-- 14B models are rejected at load time (require 20-40GB RAM)
-- All memory optimizations are already enabled:
-  - `free_params_immediately = true` (frees buffers after loading)
-  - `offload_params_to_cpu = true` (uses CPU backend)
-  - Quantized T5XXL encoder (Q3_K_S reduces 9.5GB → 5.9GB at runtime)
-
-**Known Limitations**:
-- GGUF quantization of main model blocked by metadata issues
-- Sequential loading not supported - all three models load simultaneously
-- No disk streaming - models must fit in RAM
-- 8GB RAM devices cannot run Wan models (architectural constraint)
-
-See `llmedge-examples/app/src/main/java/io/aatricks/llmedge/VideoGenerationActivity.kt` for a complete working example.
+See `llmedge-examples` for a complete UI implementation.
 
 
 Running the example app:

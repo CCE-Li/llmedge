@@ -20,6 +20,8 @@ class WanVideoSimpleTest {
         runBlocking {
             assumeTrue("Requires arm64 device", Build.SUPPORTED_ABIS.any { it.contains("arm64") })
 
+            assumeTrue("Native library not loaded", StableDiffusion.isNativeLibraryLoaded())
+
             val context = InstrumentationRegistry.getInstrumentation().targetContext
             val filesDir = context.filesDir.absolutePath
 
@@ -33,10 +35,10 @@ class WanVideoSimpleTest {
             android.util.Log.i(TAG, "Wan 2.1 T2V Full Stack Test")
             android.util.Log.i(TAG, "====================================")
 
-            // Verify files exist
-            assertTrue("Model file not found", File(modelPath).exists())
-            assertTrue("VAE file not found", File(vaePath).exists())
-            assertTrue("T5XXL file not found", File(t5xxlPath).exists())
+            // Verify files exist; otherwise skip the test on devices without preloaded models
+            assumeTrue("Model file not found", File(modelPath).exists())
+            assumeTrue("VAE file not found", File(vaePath).exists())
+            assumeTrue("T5XXL file not found", File(t5xxlPath).exists())
 
             android.util.Log.i(TAG, "Model: ${File(modelPath).length() / 1024 / 1024}MB")
             android.util.Log.i(TAG, "VAE: ${File(vaePath).length() / 1024 / 1024}MB")

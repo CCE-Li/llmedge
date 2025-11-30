@@ -115,10 +115,11 @@ class ImageUnderstanding(
         prompt: String,
         startTime: Long
     ): ImageUnderstandingResult {
-        val result = visionAnalyzer!!.analyze(image, prompt)
+        val analyzer = requireNotNull(visionAnalyzer) { "Vision analyzer not available" }
+        val result = analyzer.analyze(image, prompt)
         return ImageUnderstandingResult(
             text = result.text,
-            engine = "vision:${visionAnalyzer.getModelId()}",
+            engine = "vision:${analyzer.getModelId()}",
             durationMs = System.currentTimeMillis() - startTime,
             confidence = null
         )

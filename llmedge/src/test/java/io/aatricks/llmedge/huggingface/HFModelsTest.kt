@@ -46,25 +46,22 @@ class HFModelsTest {
     }
 
     @Test
-    fun `all factory methods return instances with the same client`() {
+    fun `info tree and search factory methods share the same HttpClient`() {
         val info = HFModels.info()
         val tree = HFModels.tree()
         val search = HFModels.search()
-        val download = HFModels.download()
 
-        // All instances should be using the same shared client
+        // info, tree, and search use the shared Ktor HttpClient
+        // Note: HFModelDownload uses OkHttp directly for streaming downloads
         val infoClientField = HFModelInfo::class.java.getDeclaredField("client").apply { isAccessible = true }
         val treeClientField = HFModelTree::class.java.getDeclaredField("client").apply { isAccessible = true }
         val searchClientField = HFModelSearch::class.java.getDeclaredField("client").apply { isAccessible = true }
-        val downloadClientField = HFModelDownload::class.java.getDeclaredField("client").apply { isAccessible = true }
 
         val infoClient = infoClientField.get(info)
         val treeClient = treeClientField.get(tree)
         val searchClient = searchClientField.get(search)
-        val downloadClient = downloadClientField.get(download)
 
-        assertTrue("All instances should share the same HttpClient", infoClient === treeClient)
-        assertTrue("All instances should share the same HttpClient", treeClient === searchClient)
-        assertTrue("All instances should share the same HttpClient", searchClient === downloadClient)
+        assertTrue("info and tree should share the same HttpClient", infoClient === treeClient)
+        assertTrue("tree and search should share the same HttpClient", treeClient === searchClient)
     }
 }
