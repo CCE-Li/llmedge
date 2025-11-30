@@ -55,6 +55,10 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
@@ -71,6 +75,10 @@ class StableDiffusionTxt2VidTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): Array<ByteArray> = frames.map { it.clone() }.toTypedArray()
 
                 override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {
@@ -178,6 +186,10 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
@@ -194,6 +206,10 @@ class StableDiffusionTxt2VidTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): Array<ByteArray> {
                     capturedBytes = initImage
                     capturedInitWidth = initWidth
@@ -252,6 +268,10 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
@@ -268,6 +288,10 @@ class StableDiffusionTxt2VidTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): Array<ByteArray> = emptyArray()
 
                 override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
@@ -310,6 +334,10 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
@@ -389,6 +417,10 @@ class StableDiffusionTxt2VidTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): Array<ByteArray> = frames.map { it.clone() }.toTypedArray()
 
                 override fun setProgressCallback(

@@ -26,6 +26,10 @@ class VideoProgressCallbackTest : BaseVideoIntegrationTest() {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray? = null
 
                 override fun txt2vid(
@@ -43,6 +47,10 @@ class VideoProgressCallbackTest : BaseVideoIntegrationTest() {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): Array<ByteArray>? {
                     repeat(videoFrames) { index ->
                         callback?.onProgress(

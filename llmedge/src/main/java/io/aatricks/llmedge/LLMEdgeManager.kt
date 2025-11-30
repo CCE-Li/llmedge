@@ -83,7 +83,9 @@ object LLMEdgeManager {
                 val path: String?,
                 val vaePath: String?,
                 val t5xxlPath: String?,
-                val flowShift: Float = Float.POSITIVE_INFINITY
+                val flowShift: Float = Float.POSITIVE_INFINITY,
+                val loraModelDir: String? = null,
+                val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
         )
         private var currentDiffusionModelSpec: LoadedDiffusionModelSpec? = null
 
@@ -97,6 +99,10 @@ object LLMEdgeManager {
                 val seed: Long = -1L,
                 val flashAttn: Boolean = true,
                 val forceSequentialLoad: Boolean = false
+                ,
+                val easyCache: StableDiffusion.EasyCacheParams = StableDiffusion.EasyCacheParams(),
+                val loraModelDir: String? = null,
+                val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
         )
 
         data class VideoGenerationParams(
@@ -111,6 +117,10 @@ object LLMEdgeManager {
                 val flowShift: Float = Float.POSITIVE_INFINITY,
                 val flashAttn: Boolean = true,
                 val forceSequentialLoad: Boolean = false
+                ,
+                val easyCache: StableDiffusion.EasyCacheParams = StableDiffusion.EasyCacheParams(),
+                val loraModelDir: String? = null,
+                val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
         )
 
         data class TextGenerationParams(
@@ -478,56 +488,40 @@ object LLMEdgeManager {
                         unloadSmolLM() // Free up memory from LLM
 
                         val isLowMem = isLowMemoryDevice(context)
-                        val useSequential = params.forceSequentialLoad || isLowMem
+                        // Sequential load logic is handled inside getOrLoadImageModel via auto-detection if null,
+                        // or we can force it here if needed. Current implementation uses default (null).
 
-                        if (useSequential) {
-                                // Sequential load not supported for single-file SD models like
-                                // MeinaMix yet
-                                // Fallback to standard load or implement if needed
-                                // For now, just use standard load as MeinaMix is smaller than Wan
-                                // 2.1
-                                val model =
-                                        getOrLoadImageModel(
-                                                context,
-                                                params.flashAttn,
-                                                params.width,
-                                                params.height,
-                                                onProgress
-                                        )
-                                // Use txt2img(GenerateParams) which returns Bitmap directly
-                                // The raw ByteArray version returns RGB bytes, not encoded image
-                                val sdParams = StableDiffusion.GenerateParams(
-                                        prompt = params.prompt,
-                                        negative = params.negative,
-                                        width = params.width,
-                                        height = params.height,
-                                        steps = params.steps,
-                                        cfgScale = params.cfgScale,
-                                        seed = params.seed
+                        val model =
+                                getOrLoadImageModel(
+                                        context,
+                                        params.flashAttn,
+                                        params.width,
+                                        params.height,
+                                        onProgress,
+                                        loraModelDir = params.loraModelDir,
+                                        loraApplyMode = params.loraApplyMode
                                 )
-                                return model.txt2img(sdParams)
+
+                        // Auto-detect and enable EasyCache if supported
+                        val easyCacheSupported = model.isEasyCacheSupported()
+                        val finalEasyCacheParams = if (easyCacheSupported) {
+                            params.easyCache.copy(enabled = true)
                         } else {
-                                val model =
-                                        getOrLoadImageModel(
-                                                context,
-                                                params.flashAttn,
-                                                params.width,
-                                                params.height,
-                                                onProgress
-                                        )
-                                // Use txt2img(GenerateParams) which returns Bitmap directly
-                                // The raw ByteArray version returns RGB bytes, not encoded image
-                                val sdParams = StableDiffusion.GenerateParams(
-                                        prompt = params.prompt,
-                                        negative = params.negative,
-                                        width = params.width,
-                                        height = params.height,
-                                        steps = params.steps,
-                                        cfgScale = params.cfgScale,
-                                        seed = params.seed
-                                )
-                                return model.txt2img(sdParams)
+                            params.easyCache.copy(enabled = false)
                         }
+
+                        // Use txt2img(GenerateParams) which returns Bitmap directly
+                        val sdParams = StableDiffusion.GenerateParams(
+                                prompt = params.prompt,
+                                negative = params.negative,
+                                width = params.width,
+                                height = params.height,
+                                steps = params.steps,
+                                cfgScale = params.cfgScale,
+                                seed = params.seed,
+                                easyCacheParams = finalEasyCacheParams
+                        )
+                        return model.txt2img(sdParams)
                 }
 
         /** Generates a video using the default or configured model. */
@@ -547,12 +541,15 @@ object LLMEdgeManager {
                                 return generateVideoSequentially(context, params, onProgress)
                         } else {
                                 val model =
-                                        getOrLoadVideoModel(
+                                getOrLoadVideoModel(
                                                 context,
                                                 params.flashAttn,
                                                 params.flowShift,
                                                 onProgress,
                                                 sequentialLoad = useSequential
+                                                ,
+                                                loraModelDir = params.loraModelDir,
+                                                loraApplyMode = params.loraApplyMode
                                         )
                                 val sdParams =
                                         StableDiffusion.VideoGenerateParams(
@@ -563,7 +560,8 @@ object LLMEdgeManager {
                                                 videoFrames = params.videoFrames,
                                                 steps = params.steps,
                                                 cfgScale = params.cfgScale,
-                                                seed = params.seed
+                                                seed = params.seed,
+                                                easyCacheParams = params.easyCache
                                         )
 
                                 // We need a progress callback wrapper
@@ -679,7 +677,9 @@ object LLMEdgeManager {
                                         width = params.width,
                                         height = params.height,
                                         onProgress = onProgress,
-                                        sequentialLoad = true
+                                        sequentialLoad = true,
+                                        loraModelDir = params.loraModelDir,
+                                        loraApplyMode = params.loraApplyMode
                                 )
 
                         val bytes =
@@ -773,7 +773,9 @@ object LLMEdgeManager {
                                         flowShift = params.flowShift,
                                         onProgress = onProgress,
                                         sequentialLoad = true,
-                                        loadT5 = false
+                                        loadT5 = false,
+                                        loraModelDir = params.loraModelDir,
+                                        loraApplyMode = params.loraApplyMode
                                 )
 
                         val sdParams =
@@ -832,7 +834,9 @@ object LLMEdgeManager {
                 width: Int = 512,
                 height: Int = 512,
                 onProgress: ((String, Int, Int) -> Unit)?,
-                sequentialLoad: Boolean? = null
+                sequentialLoad: Boolean? = null,
+                loraModelDir: String? = null,
+                loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
         ): StableDiffusion {
                 // Check if we already have the correct IMAGE model loaded
                 val spec = currentDiffusionModelSpec
@@ -842,7 +846,9 @@ object LLMEdgeManager {
                             spec.filename == DEFAULT_IMAGE_MODEL_FILENAME &&
                             spec.vaePath == null && // Image models don't use separate VAE
                             spec.t5xxlPath == null && // Image models don't use T5
-                            spec.flowShift == Float.POSITIVE_INFINITY) {
+                            spec.flowShift == Float.POSITIVE_INFINITY &&
+                            spec.loraModelDir == loraModelDir &&
+                            spec.loraApplyMode == loraApplyMode) {
                                 return it
                         }
                         // Wrong model type loaded - unload it first
@@ -883,7 +889,7 @@ object LLMEdgeManager {
                 val modelFile = getFile(context, DEFAULT_IMAGE_MODEL_ID, DEFAULT_IMAGE_MODEL_FILENAME)
 
                 // Build cache key
-                val cacheKey = makeDiffusionCacheKey(modelFile.absolutePath, null, null)
+                val cacheKey = makeDiffusionCacheKey(modelFile.absolutePath, null, null, Float.POSITIVE_INFINITY, loraModelDir, loraApplyMode)
 
                 // Check cache
                 diffusionModelCache.get(cacheKey)?.let { cached ->
@@ -894,7 +900,9 @@ object LLMEdgeManager {
                                 filename = DEFAULT_IMAGE_MODEL_FILENAME,
                                 path = modelFile.absolutePath,
                                 vaePath = null,
-                                t5xxlPath = null
+                                t5xxlPath = null,
+                                loraModelDir = loraModelDir,
+                                loraApplyMode = loraApplyMode
                         )
                         return cached
                 }
@@ -916,6 +924,9 @@ object LLMEdgeManager {
                         forceVulkan = preferPerformanceMode,
                         preferPerformanceMode = preferPerformanceMode,
                         flashAttn = adaptiveFlashAttn
+                        ,
+                        loraModelDir = loraModelDir,
+                        loraApplyMode = loraApplyMode
                         // sequentialLoad defaults to null, allowing auto-detection
                 )
                 val loadTime = System.currentTimeMillis() - loadStart
@@ -932,7 +943,9 @@ object LLMEdgeManager {
                         filename = DEFAULT_IMAGE_MODEL_FILENAME,
                         path = modelFile.absolutePath,
                         vaePath = null,
-                        t5xxlPath = null
+                        t5xxlPath = null,
+                        loraModelDir = loraModelDir,
+                        loraApplyMode = loraApplyMode
                 )
                 return model
         }
@@ -944,6 +957,9 @@ object LLMEdgeManager {
                 onProgress: ((String, Int, Int) -> Unit)?,
                 sequentialLoad: Boolean? = null,
                 loadT5: Boolean = true
+                ,
+                loraModelDir: String? = null,
+                loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
         ): StableDiffusion {
                 // Check if we already have the correct VIDEO model loaded
                 val spec = currentDiffusionModelSpec
@@ -955,7 +971,9 @@ object LLMEdgeManager {
                             spec.filename == DEFAULT_VIDEO_MODEL_FILENAME &&
                             spec.vaePath != null && // Video models require VAE
                             t5Match &&
-                            spec.flowShift == flowShift) {
+                            spec.flowShift == flowShift &&
+                            spec.loraModelDir == loraModelDir &&
+                            spec.loraApplyMode == loraApplyMode) {
                                 return it
                         }
                         // Wrong model type loaded - unload it first
@@ -985,7 +1003,9 @@ object LLMEdgeManager {
                         modelFile.absolutePath,
                         vaeFile.absolutePath,
                         t5File?.absolutePath,
-                        flowShift
+                        flowShift,
+                        loraModelDir,
+                        loraApplyMode
                 )
                 diffusionModelCache.get(cacheKey)?.let { cached ->
                         Log.i(TAG, "Loaded Video model from cache: $cacheKey")
@@ -996,7 +1016,9 @@ object LLMEdgeManager {
                                 path = modelFile.absolutePath,
                                 vaePath = vaeFile.absolutePath,
                                 t5xxlPath = t5File?.absolutePath,
-                                flowShift = flowShift
+                                flowShift = flowShift,
+                                loraModelDir = loraModelDir,
+                                loraApplyMode = loraApplyMode
                         )
                         return cached
                 }
@@ -1020,6 +1042,9 @@ object LLMEdgeManager {
                         keepVaeOnCpu = finalKeepVaeOnCpu,
                         flashAttn = flashAttn,
                         flowShift = flowShift
+                        ,
+                        loraModelDir = loraModelDir,
+                        loraApplyMode = loraApplyMode
                 )
                 val loadTime = System.currentTimeMillis() - loadStart
                 val modelSize = modelFile.length()
@@ -1034,7 +1059,9 @@ object LLMEdgeManager {
                         path = modelFile.absolutePath,
                         vaePath = vaeFile.absolutePath,
                         t5xxlPath = t5File?.absolutePath,
-                        flowShift = flowShift
+                        flowShift = flowShift,
+                        loraModelDir = loraModelDir,
+                        loraApplyMode = loraApplyMode
                 )
                 Log.i(TAG, "Loaded Video model from cache: $cacheKey, sequentialLoad=${sequentialLoad}")
                 return model
@@ -1157,7 +1184,7 @@ object LLMEdgeManager {
                 // key; otherwise, fall back to closing the cached instance.
                 val spec = currentDiffusionModelSpec
                 if (spec != null) {
-                        val key = makeDiffusionCacheKey(spec.path ?: "", spec.vaePath, spec.t5xxlPath, spec.flowShift)
+                        val key = makeDiffusionCacheKey(spec.path ?: "", spec.vaePath, spec.t5xxlPath, spec.flowShift, spec.loraModelDir, spec.loraApplyMode)
                         diffusionModelCache.remove(key)
                         currentDiffusionModelSpec = null
                         cachedModel = null
@@ -1293,15 +1320,17 @@ object LLMEdgeManager {
         }
 
         /**
-         * Build a cache key for diffusion models using model path + optional VAE + T5 path.
+         * Build a cache key for diffusion models using model path + optional VAE + T5 path + LoRA.
          */
         private fun makeDiffusionCacheKey(
                 modelPath: String,
                 vaePath: String?,
                 t5Path: String?,
-                flowShift: Float = Float.POSITIVE_INFINITY
+                flowShift: Float = Float.POSITIVE_INFINITY,
+                loraModelDir: String? = null,
+                loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
         ): String {
-                return listOf(modelPath, vaePath ?: "", t5Path ?: "", flowShift.toString()).joinToString("|")
+                return listOf(modelPath, vaePath ?: "", t5Path ?: "", flowShift.toString(), loraModelDir ?: "", loraApplyMode.name).joinToString("|")
         }
 
         /**

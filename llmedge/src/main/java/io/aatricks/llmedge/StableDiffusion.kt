@@ -39,6 +39,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 steps: Int,
                 cfg: Float,
                 seed: Long,
+            easyCacheEnabled: Boolean,
+            easyCacheReuseThreshold: Float,
+            easyCacheStartPercent: Float,
+            easyCacheEndPercent: Float,
         ): ByteArray?
 
         fun txt2vid(
@@ -56,6 +60,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 initImage: ByteArray?,
                 initWidth: Int,
                 initHeight: Int,
+            easyCacheEnabled: Boolean,
+            easyCacheReuseThreshold: Float,
+            easyCacheStartPercent: Float,
+            easyCacheEndPercent: Float,
         ): Array<ByteArray>?
 
         fun precomputeCondition(
@@ -83,7 +91,11 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 initWidth: Int,
                 initHeight: Int,
                 cond: PrecomputedCondition?,
-                uncond: PrecomputedCondition?
+                uncond: PrecomputedCondition?,
+            easyCacheEnabled: Boolean,
+            easyCacheReuseThreshold: Float,
+            easyCacheStartPercent: Float,
+            easyCacheEndPercent: Float,
         ): Array<ByteArray>? = txt2vid(
             handle,
             prompt,
@@ -98,7 +110,11 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             strength,
             initImage,
             initWidth,
-            initHeight
+            initHeight,
+            easyCacheEnabled,
+            easyCacheReuseThreshold,
+            easyCacheStartPercent,
+            easyCacheEndPercent
         )
 
         fun setProgressCallback(handle: Long, callback: VideoProgressCallback?)
@@ -114,8 +130,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             cfg: Float,
             seed: Long,
             cond: PrecomputedCondition?,
-            uncond: PrecomputedCondition?
-        ): ByteArray? = txt2img(handle, prompt, negative, width, height, steps, cfg, seed)
+            uncond: PrecomputedCondition?,
+            easyCacheEnabled: Boolean,
+            easyCacheReuseThreshold: Float,
+            easyCacheStartPercent: Float,
+            easyCacheEndPercent: Float,
+        ): ByteArray? = txt2img(handle, prompt, negative, width, height, steps, cfg, seed, easyCacheEnabled, easyCacheReuseThreshold, easyCacheStartPercent, easyCacheEndPercent)
     }
 
     /** Generates an image from text. */
@@ -126,29 +146,15 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             height: Int = 512,
             steps: Int = 20,
             cfg: Float = 7.0f,
-            seed: Long = 42L
+            seed: Long = 42L,
+            easyCacheEnabled: Boolean = false,
+            easyCacheReuseThreshold: Float = 0.2f,
+            easyCacheStartPercent: Float = 0.15f,
+            easyCacheEndPercent: Float = 0.95f
     ): ByteArray? {
-        return nativeBridge.txt2img(handle, prompt, negative, width, height, steps, cfg, seed)
+        return nativeBridge.txt2img(handle, prompt, negative, width, height, steps, cfg, seed,
+            easyCacheEnabled, easyCacheReuseThreshold, easyCacheStartPercent, easyCacheEndPercent)
     }
-
-    // Correction: txt2vid signature in NativeBridge takes initImage: ByteArray?, initWidth: Int,
-    // initHeight: Int.
-    // VideoGenerateParams has initImage: Bitmap?.
-    // I need to convert Bitmap to ByteArray (RGB/RGBA?) and get dims.
-    // For now, to avoid complexity in this file, I will change the public wrapper to take explicit
-    // args or handle it.
-    // But LLMEdgeManager calls it with VideoGenerateParams.
-    // Let's look at VideoGenerateParams definition again.
-    // It has `val initImage: Bitmap? = null`.
-
-    // I will implement a simple bitmapToBytes here or use a helper if available.
-    // Since I can't easily see ImageUtils, I'll use a standard Android way if possible, or just
-    // pass null for now if I can't convert.
-    // But wait, the user wants it to work.
-    // I'll assume for now that I can use a simple buffer copy if I had the bitmap.
-    // Let's defer the Bitmap conversion to the caller or add a simple one.
-    // Actually, LLMEdgeManager passes VideoGenerateParams.
-    // I'll overload txt2vid or just implement it.
 
     fun txt2vid(
             prompt: String,
@@ -163,7 +169,11 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             strength: Float,
             initImage: ByteArray?,
             initWidth: Int,
-            initHeight: Int
+            initHeight: Int,
+            easyCacheEnabled: Boolean = false,
+            easyCacheReuseThreshold: Float = 0.2f,
+            easyCacheStartPercent: Float = 0.15f,
+            easyCacheEndPercent: Float = 0.95f
     ): Array<ByteArray>? {
         return nativeBridge.txt2vid(
                 handle,
@@ -179,11 +189,15 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 strength,
                 initImage,
                 initWidth,
-                initHeight
+                initHeight,
+                easyCacheEnabled,
+                easyCacheReuseThreshold,
+                easyCacheStartPercent,
+                easyCacheEndPercent
         )
     }
 
-    fun txt2ImgWithPrecomputedCondition(
+        fun txt2ImgWithPrecomputedCondition(
             prompt: String,
             negative: String,
             width: Int,
@@ -193,7 +207,11 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             seed: Long,
             cond: PrecomputedCondition?,
             uncond: PrecomputedCondition?
-    ): ByteArray? {
+            , easyCacheEnabled: Boolean = false,
+            easyCacheReuseThreshold: Float = 0.2f,
+            easyCacheStartPercent: Float = 0.15f,
+            easyCacheEndPercent: Float = 0.95f,
+        ): ByteArray? {
         return nativeBridge.txt2ImgWithPrecomputedCondition(
                 handle,
                 prompt,
@@ -205,6 +223,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 seed,
                 cond,
                 uncond
+            , easyCacheEnabled,
+            easyCacheReuseThreshold,
+            easyCacheStartPercent,
+            easyCacheEndPercent
         )
     }
 
@@ -234,6 +256,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         steps: Int,
                         cfg: Float,
                         seed: Long,
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float,
                 ): ByteArray? =
                         instance.nativeTxt2Img(
                                 handle,
@@ -244,6 +270,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 steps,
                                 cfg,
                                 seed,
+                                easyCacheEnabled,
+                                easyCacheReuseThreshold,
+                                easyCacheStartPercent,
+                                easyCacheEndPercent
                         )
 
                 override fun txt2vid(
@@ -261,6 +291,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         initImage: ByteArray?,
                         initWidth: Int,
                         initHeight: Int,
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float,
                 ): Array<ByteArray>? =
                         instance.nativeTxt2Vid(
                                 handle,
@@ -277,6 +311,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 initImage,
                                 initWidth,
                                 initHeight,
+                                easyCacheEnabled,
+                                easyCacheReuseThreshold,
+                                easyCacheStartPercent,
+                                easyCacheEndPercent
                         )
 
                 override fun precomputeCondition(
@@ -332,6 +370,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         initHeight: Int,
                         cond: PrecomputedCondition?,
                         uncond: PrecomputedCondition?,
+                easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float, easyCacheStartPercent: Float, easyCacheEndPercent: Float
                 ): Array<ByteArray>? {
                     val condArr =
                             cond?.let {
@@ -355,7 +394,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         it.cConcatDims
                                 )
                             }
-                    return instance.nativeTxt2VidWithPrecomputedCondition(
+                        return instance.nativeTxt2VidWithPrecomputedCondition(
                             handle,
                             prompt,
                             negative,
@@ -372,6 +411,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             initHeight,
                             condArr,
                             uncondArr,
+                            easyCacheEnabled,
+                            easyCacheReuseThreshold,
+                            easyCacheStartPercent,
+                            easyCacheEndPercent,
                     )
                 }
 
@@ -394,6 +437,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         seed: Long,
                         cond: PrecomputedCondition?,
                         uncond: PrecomputedCondition?
+                    , easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float, easyCacheStartPercent: Float, easyCacheEndPercent: Float
                 ): ByteArray? {
                     val condArr =
                             cond?.let {
@@ -426,8 +470,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             steps,
                             cfg,
                             seed,
-                            condArr,
-                            uncondArr
+                        condArr,
+                        uncondArr,
+                        easyCacheEnabled,
+                        easyCacheReuseThreshold,
+                        easyCacheStartPercent,
+                        easyCacheEndPercent
                     )
                 }
             }
@@ -485,15 +533,17 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
         @JvmStatic
         private external fun nativeCreate(
-                modelPath: String?,
-                vaePath: String?,
-                t5xxlPath: String?,
-                nThreads: Int,
-                offloadToCpu: Boolean,
-                keepClipOnCpu: Boolean,
-                keepVaeOnCpu: Boolean,
-                flashAttn: Boolean,
-                flowShift: Float,
+            modelPath: String?,
+            vaePath: String?,
+            t5xxlPath: String?,
+            nThreads: Int,
+            offloadToCpu: Boolean,
+            keepClipOnCpu: Boolean,
+            keepVaeOnCpu: Boolean,
+            flashAttn: Boolean,
+            flowShift: Float,
+            loraModelDir: String?,
+            loraApplyMode: Int,
         ): Long
 
         @JvmStatic private external fun nativeGetVulkanDeviceCount(): Int
@@ -711,6 +761,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 token: String? = null,
                 forceDownload: Boolean = false,
                 flowShift: Float = Float.POSITIVE_INFINITY,
+                loraModelDir: String? = null,
+                loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
         ): StableDiffusion =
                 withContext(Dispatchers.IO) {
                     var resolvedModelPath: String
@@ -967,6 +1019,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     effectiveKeepVaeOnCpu,
                                     flashAttn,
                                     flowShift,
+                                loraModelDir,
+                                loraApplyMode.id,
                             )
                         // If we requested preferred GPU path but nativeCreate failed, retry with CPU offload
                         if (handle == 0L && forceVulkan) {
@@ -985,6 +1039,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 effectiveKeepVaeOnCpu,
                                 flashAttn,
                                 flowShift,
+                                loraModelDir,
+                                loraApplyMode.id,
                             )
                         }
                     if (handle == 0L)
@@ -1024,6 +1080,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 forceDownload: Boolean = false,
                 preferSystemDownloader: Boolean = true,
                 flowShift: Float = Float.POSITIVE_INFINITY,
+                loraModelDir: String? = null,
+                loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
                 onProgress: ((name: String, downloaded: Long, total: Long?) -> Unit)? = null,
         ): StableDiffusion =
                 withContext(Dispatchers.IO) {
@@ -1142,6 +1200,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     effectiveKeepVaeOnCpu,
                                     flashAttn,
                                     flowShift,
+                                loraModelDir,
+                                loraApplyMode.id,
                             )
                         if (handle == 0L && forceVulkan) {
                             android.util.Log.w(LOG_TAG, "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback (HF)")
@@ -1158,6 +1218,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 effectiveKeepVaeOnCpu,
                                 flashAttn,
                                 flowShift,
+                                loraModelDir,
+                                loraApplyMode.id,
                             )
                         }
                     if (handle == 0L)
@@ -1175,15 +1237,25 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 }
     }
 
-    data class GenerateParams(
+        data class GenerateParams(
             val prompt: String,
             val negative: String = "",
             val width: Int = 512,
             val height: Int = 512,
             val steps: Int = 20,
             val cfgScale: Float = 7.0f,
-            val seed: Long = 42L
-    )
+            val seed: Long = 42L,
+            val easyCacheParams: EasyCacheParams = EasyCacheParams()
+        )
+    
+
+
+        data class EasyCacheParams(
+            val enabled: Boolean = false,
+            val reuseThreshold: Float = 0.2f,
+            val startPercent: Float = 0.15f,
+            val endPercent: Float = 0.95f,
+        )
 
     enum class Scheduler {
         /** Euler Ancestral - Default, good balance of quality and speed */
@@ -1199,7 +1271,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         LCM
     }
 
-    data class VideoGenerateParams(
+        data class VideoGenerateParams(
             val prompt: String,
             val negative: String = "",
             val width: Int = 512,
@@ -1211,7 +1283,9 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             val initImage: Bitmap? = null,
             val strength: Float = 0.8f,
             val scheduler: Scheduler = Scheduler.EULER_A
-    ) {
+            ,
+            val easyCacheParams: EasyCacheParams = EasyCacheParams()
+        ) {
         fun validate(): Result<Unit> = runCatching {
             require(prompt.isNotBlank()) { "Prompt cannot be blank" }
             require(width % 64 == 0 && width in 256..960) {
@@ -1238,6 +1312,13 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
         companion object {
             fun default(prompt: String = "") = VideoGenerateParams(prompt = prompt)
+        }
+    }
+
+    enum class LoraApplyMode(val id: Int) {
+        AUTO(0), IMMEDIATELY(1), AT_RUNTIME(2);
+        companion object {
+            fun fromId(id: Int): LoraApplyMode = values().firstOrNull { it.id == id } ?: AUTO
         }
     }
 
@@ -1370,6 +1451,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         initBytes,
                                         initWidth,
                                         initHeight,
+                                    params.easyCacheParams.enabled,
+                                    params.easyCacheParams.reuseThreshold,
+                                    params.easyCacheParams.startPercent,
+                                    params.easyCacheParams.endPercent,
                                 )
                                         ?: throw IllegalStateException("Video generation failed")
                             }
@@ -1445,7 +1530,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             withContext(Dispatchers.Default) {
                 val bytes =
                         generationMutex.withLock {
-                            nativeBridge.txt2img(
+                                nativeBridge.txt2img(
                                     handle,
                                     params.prompt,
                                     params.negative,
@@ -1454,7 +1539,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     params.steps,
                                     params.cfgScale,
                                     params.seed
-                            )
+                                    ,
+                                    params.easyCacheParams.enabled,
+                                    params.easyCacheParams.reuseThreshold,
+                                    params.easyCacheParams.startPercent,
+                                    params.easyCacheParams.endPercent
+                                )
                                     ?: throw IllegalStateException("Image generation failed")
                         }
 
@@ -1476,6 +1566,11 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 bmp.setPixels(pixels, 0, params.width, 0, 0, params.width, params.height)
                 bmp
             }
+
+    fun isEasyCacheSupported(): Boolean {
+        if (!isNativeLibraryAvailable) return false
+        return nativeIsEasyCacheSupported(handle)
+    }
 
     override fun close() {
         // T096: Proper cleanup - cancel any ongoing generation, destroy native context, reset state
@@ -1502,6 +1597,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             steps: Int,
             cfg: Float,
             seed: Long,
+            easyCacheEnabled: Boolean = false,
+            easyCacheReuseThreshold: Float = 0.2f,
+            easyCacheStartPercent: Float = 0.15f,
+            easyCacheEndPercent: Float = 0.95f,
     ): ByteArray?
 
     private external fun nativeTxt2Vid(
@@ -1519,6 +1618,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             initImage: ByteArray?,
             initWidth: Int,
             initHeight: Int,
+            easyCacheEnabled: Boolean = false,
+            easyCacheReuseThreshold: Float = 0.2f,
+            easyCacheStartPercent: Float = 0.15f,
+            easyCacheEndPercent: Float = 0.95f,
     ): Array<ByteArray>?
 
     private external fun nativeSetProgressCallback(
@@ -1554,6 +1657,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             initHeight: Int,
             cond: Array<Any?>?,
             uncond: Array<Any?>?,
+            easyCacheEnabled: Boolean = false,
+            easyCacheReuseThreshold: Float = 0.2f,
+            easyCacheStartPercent: Float = 0.15f,
+            easyCacheEndPercent: Float = 0.95f,
     ): Array<ByteArray>?
 
     private external fun nativeTxt2ImgWithPrecomputedCondition(
@@ -1567,7 +1674,13 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             seed: Long,
             cond: Array<Any?>?,
             uncond: Array<Any?>?
+            , easyCacheEnabled: Boolean = false,
+            easyCacheReuseThreshold: Float = 0.2f,
+            easyCacheStartPercent: Float = 0.15f,
+            easyCacheEndPercent: Float = 0.95f
     ): ByteArray?
+
+    private external fun nativeIsEasyCacheSupported(handle: Long): Boolean
 
     private fun bitmapToRgbBytes(bitmap: Bitmap): Triple<ByteArray, Int, Int> {
         val safeBitmap =
@@ -1687,6 +1800,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         initHeight,
                                         cond,
                                         uncond,
+                                    params.easyCacheParams.enabled,
+                                    params.easyCacheParams.reuseThreshold,
+                                    params.easyCacheParams.startPercent,
+                                    params.easyCacheParams.endPercent,
                                 )
                                         ?: throw IllegalStateException("Video generation failed")
                             }

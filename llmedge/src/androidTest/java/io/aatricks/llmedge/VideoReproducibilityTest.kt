@@ -33,6 +33,10 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                 steps: Int,
                 cfg: Float,
                 seed: Long,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
             ): ByteArray? = null
             override fun txt2vid(
                 handle: Long,
@@ -49,6 +53,10 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                 initImage: ByteArray?,
                 initWidth: Int,
                 initHeight: Int,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
             ): Array<ByteArray>? {
                 // Generate deterministic frames based on seed
                 return Array(videoFrames) { frameIndex ->
@@ -92,6 +100,10 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                 steps: Int,
                 cfg: Float,
                 seed: Long,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
             ): ByteArray? = null
             override fun txt2vid(
                 handle: Long,
@@ -108,6 +120,10 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                 initImage: ByteArray?,
                 initWidth: Int,
                 initHeight: Int,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
             ): Array<ByteArray>? {
                 // Generate random frames (ignoring seed parameter to simulate randomness)
                 val actualSeed = System.nanoTime()

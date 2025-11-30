@@ -136,6 +136,26 @@ object SmolLMJavaCompat {
         }
     }
 
+    /** Java-friendly helper to export model state bytes (KV cache + full state). */
+    @JvmStatic
+    fun getStateBytes(smol: SmolLM): ByteArray? = smol.getStateBytes()
+
+    /** Java-friendly helper to import model state bytes (KV cache + full state). */
+    @JvmStatic
+    fun setStateBytes(smol: SmolLM, state: ByteArray): Boolean = smol.setStateBytes(state)
+
+    /** Java-friendly helper to export sequence state bytes (per-sequence KV cache). */
+    @JvmStatic
+    fun getSequenceStateBytes(smol: SmolLM, seqId: Int): ByteArray? = smol.getSequenceStateBytes(seqId)
+
+    /** Java-friendly helper to import sequence state bytes (per-sequence KV cache). */
+    @JvmStatic
+    fun setSequenceStateBytes(smol: SmolLM, seqId: Int, state: ByteArray): Boolean = smol.setSequenceStateBytes(seqId, state)
+
+    /** Java-friendly helper to clear KV cache in the current model context. */
+    @JvmStatic
+    fun clearKvCache(smol: SmolLM) = smol.clearKvCache()
+
     /** Shutdown helper for internal dispatcher (optional). */
     @JvmStatic
     fun shutdownCompatDispatcher() {

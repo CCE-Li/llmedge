@@ -37,16 +37,17 @@ static void save_frame_as_ppm(const uint8_t* data, int width, int height, int fr
 
 extern "C" {
 JNIEXPORT jlong JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
-        JNIEnv* env, jclass clazz, jstring jModelPath, jstring jVaePath, jstring jT5xxlPath,
-        jint nThreads, jboolean offloadToCpu, jboolean keepClipOnCpu, jboolean keepVaeOnCpu,
-        jboolean flashAttn, jfloat flowShift);
+    JNIEnv* env, jclass clazz, jstring jModelPath, jstring jVaePath, jstring jT5xxlPath,
+    jint nThreads, jboolean offloadToCpu, jboolean keepClipOnCpu, jboolean keepVaeOnCpu,
+    jboolean flashAttn, jfloat flowShift, jstring jLoraModelDir, jint jLoraApplyMode);
 JNIEXPORT void JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeDestroy(JNIEnv* env, jobject thiz, jlong handlePtr);
 JNIEXPORT jobjectArray JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
-        JNIEnv* env, jobject thiz, jlong handlePtr,
-        jstring jPrompt, jstring jNegative,
-        jint width, jint height,
-        jint videoFrames, jint steps, jfloat cfg, jlong seed,
-        jbyteArray jInitImage, jint initWidth, jint initHeight);
+    JNIEnv* env, jobject thiz, jlong handlePtr,
+    jstring jPrompt, jstring jNegative,
+    jint width, jint height,
+    jint videoFrames, jint steps, jfloat cfg, jlong seed,
+    jbyteArray jInitImage, jint initWidth, jint initHeight,
+    jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent);
 JNIEXPORT void JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeSetProgressCallback(
         JNIEnv* env, jobject thiz, jlong handlePtr, jobject progressCallback);
 JNIEXPORT jobjectArray JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
@@ -122,10 +123,10 @@ private:
 static bool test_nativeTxt2Vid_memory(JNIEnv* env) {
     reset_free_counters();
     jstring modelPath = env->NewStringUTF("stub-model.gguf");
-    jlong handle = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
+        jlong handle = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
             env, nullptr, modelPath, nullptr, nullptr, 4,
             JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
-            std::numeric_limits<float>::infinity());
+            std::numeric_limits<float>::infinity(), nullptr, 0);
     env->DeleteLocalRef(modelPath);
     if (handle == 0) {
         std::cerr << "nativeCreate returned null handle" << std::endl;
@@ -133,10 +134,11 @@ static bool test_nativeTxt2Vid_memory(JNIEnv* env) {
     }
 
     jstring prompt = env->NewStringUTF("a cat playing with yarn");
-    jobjectArray frames = Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
+        jobjectArray frames = Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
             env, nullptr, handle, prompt, nullptr,
             256, 256, 4, 12, 7.5f, 42L,
-            nullptr, 0, 0);
+            nullptr, 0, 0,
+            JNI_FALSE, 0.2f, 0.15f, 0.95f);
     env->DeleteLocalRef(prompt);
 
     bool success = true;
@@ -198,10 +200,10 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
     // Step 1: Load T5-only context
     std::cout << "Step 1: Loading T5-only context..." << std::endl;
     jstring t5Path = env->NewStringUTF("stub-t5.gguf");
-    jlong t5Handle = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
+        jlong t5Handle = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
             env, nullptr, t5Path, nullptr, nullptr, 4,
             JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
-            std::numeric_limits<float>::infinity());
+            std::numeric_limits<float>::infinity(), nullptr, 0);
     env->DeleteLocalRef(t5Path);
     
     if (t5Handle == 0) {
@@ -217,10 +219,11 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
     
     // Call the precompute function (we'll need to add this to the JNI interface)
     // For now, simulate by calling txt2vid which should internally use precompute
-    jobjectArray frames = Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
+        jobjectArray frames = Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
             env, nullptr, t5Handle, prompt, negPrompt,
             256, 256, 13, 12, 7.5f, 42L,
-            nullptr, 0, 0);
+            nullptr, 0, 0,
+            JNI_FALSE, 0.2f, 0.15f, 0.95f);
     
     if (!frames) {
         std::cerr << "Precompute conditions failed" << std::endl;
@@ -240,10 +243,10 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
     std::cout << "Step 4: Loading diffusion model..." << std::endl;
     jstring modelPath = env->NewStringUTF("stub-diffusion.safetensors");
     jstring vaePath = env->NewStringUTF("stub-vae.safetensors");
-    jlong diffusionHandle = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
+        jlong diffusionHandle = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
             env, nullptr, modelPath, vaePath, nullptr, 4,
             JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
-            std::numeric_limits<float>::infinity());
+            std::numeric_limits<float>::infinity(), nullptr, 0);
     env->DeleteLocalRef(modelPath);
     env->DeleteLocalRef(vaePath);
     
@@ -282,10 +285,10 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
     return frameCount > 0;
 }
     jstring modelPath = env->NewStringUTF("stub-model.gguf");
-    jlong handlePtr = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
+        jlong handlePtr = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
             env, nullptr, modelPath, nullptr, nullptr, 2,
             JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
-            std::numeric_limits<float>::infinity());
+            std::numeric_limits<float>::infinity(), nullptr, 0);
     env->DeleteLocalRef(modelPath);
     if (handlePtr == 0) {
         std::cerr << "Failed to create handle for progress test" << std::endl;

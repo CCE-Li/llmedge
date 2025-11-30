@@ -37,6 +37,10 @@ class VideoGenerationTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray? = null
 
                 override fun txt2vid(
@@ -54,6 +58,10 @@ class VideoGenerationTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): Array<ByteArray>? {
                     // Simulate a generation that checks for cancellation and gives some time to cancel
                     val flag = cancellationField.get(instance) as java.util.concurrent.atomic.AtomicBoolean
@@ -171,6 +179,10 @@ class VideoGenerationTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray? = null
 
                 override fun txt2vid(
@@ -188,6 +200,10 @@ class VideoGenerationTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): Array<ByteArray>? {
                     // Signal we've started
                     println("[VideoGenerationTest] Mock txt2vid called (thread=${Thread.currentThread().name})")

@@ -35,6 +35,7 @@ set(SMOLLM_SOURCES
         ${LLAMA_DIR}/src/llama-model.cpp
         ${LLAMA_DIR}/src/llama-model-loader.cpp
         ${LLAMA_DIR}/src/llama-impl.cpp
+        ${LLAMA_DIR}/src/llama-io.cpp
         ${LLAMA_DIR}/src/llama-memory.cpp
         ${LLAMA_DIR}/src/llama-memory-recurrent.cpp
         ${LLAMA_DIR}/src/llama-memory-hybrid.cpp

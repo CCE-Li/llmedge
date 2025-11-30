@@ -764,6 +764,13 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             nBatch: Int
     ): Boolean
 
+        // State persistence helpers (KV cache and other context state)
+        private external fun nativeGetStateBytes(modelPtr: Long): ByteArray?
+        private external fun nativeSetStateBytes(modelPtr: Long, state: ByteArray): Boolean
+        private external fun nativeGetSequenceStateBytes(modelPtr: Long, seqId: Int): ByteArray?
+        private external fun nativeSetSequenceStateBytes(modelPtr: Long, seqId: Int, state: ByteArray): Boolean
+        private external fun nativeClearKvCache(modelPtr: Long)
+
     /**
      * Decode prepared embeddings previously produced by Projector.encodeImageToFile. This will
      * replay the required llama.decode steps using the current loaded model/context so the image
@@ -775,6 +782,67 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             nativeBridge.nativeDecodePreparedEmbeddings(this, nativePtr, embdPath, metaPath, nBatch)
         } catch (e: UnsatisfiedLinkError) {
             false
+        }
+    }
+
+    /**
+     * Capture the full model state (including KV cache) as a byte array.
+     * Returns null on failure.
+     */
+    fun getStateBytes(): ByteArray? {
+        verifyHandle()
+        return try {
+            nativeGetStateBytes(nativePtr)
+        } catch (e: UnsatisfiedLinkError) {
+            null
+        }
+    }
+
+    /**
+     * Restore the full model state (including KV cache) from a byte array.
+     */
+    fun setStateBytes(state: ByteArray): Boolean {
+        verifyHandle()
+        return try {
+            nativeSetStateBytes(nativePtr, state)
+        } catch (e: UnsatisfiedLinkError) {
+            false
+        }
+    }
+
+    /**
+     * Export a single sequence (seq_id) state blob which contains the KV cache for that sequence.
+     */
+    fun getSequenceStateBytes(seqId: Int = 0): ByteArray? {
+        verifyHandle()
+        return try {
+            nativeGetSequenceStateBytes(nativePtr, seqId)
+        } catch (e: UnsatisfiedLinkError) {
+            null
+        }
+    }
+
+    /**
+     * Import a single sequence (seq_id) state blob which contains the KV cache for that sequence.
+     */
+    fun setSequenceStateBytes(seqId: Int, state: ByteArray): Boolean {
+        verifyHandle()
+        return try {
+            nativeSetSequenceStateBytes(nativePtr, seqId, state)
+        } catch (e: UnsatisfiedLinkError) {
+            false
+        }
+    }
+
+    /**
+     * Clears the KV cache stored in the model context.
+     */
+    fun clearKvCache() {
+        verifyHandle()
+        try {
+            nativeClearKvCache(nativePtr)
+        } catch (e: UnsatisfiedLinkError) {
+            // ignore if not available
         }
     }
 

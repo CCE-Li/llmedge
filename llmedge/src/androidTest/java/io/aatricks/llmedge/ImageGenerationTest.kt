@@ -29,6 +29,10 @@ class ImageGenerationTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray {
                     // Solid gradient pattern independent of prompt
                     val bytes = ByteArray(width * height * 3)
@@ -63,6 +67,10 @@ class ImageGenerationTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): Array<ByteArray>? {
                     // Not used in this test
                     return null

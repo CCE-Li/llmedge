@@ -93,13 +93,13 @@ class LLMEdgeManagerTest {
         // Override StableDiffusion native bridge so precompute and generation can be mocked
         StableDiffusion.overrideNativeBridgeForTests { instance ->
             object : StableDiffusion.NativeBridge {
-                override fun txt2img(handle: Long, prompt: String, negative: String, width: Int, height: Int, steps: Int, cfg: Float, seed: Long): ByteArray? {
+                override fun txt2img(handle: Long, prompt: String, negative: String, width: Int, height: Int, steps: Int, cfg: Float, seed: Long, easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float, easyCacheStartPercent: Float, easyCacheEndPercent: Float): ByteArray? {
                     return ByteArray(3 * width * height) { 0 }
                 }
 
                 override fun txt2vid(handle: Long, prompt: String, negative: String, width: Int, height: Int,
                                      videoFrames: Int, steps: Int, cfg: Float, seed: Long, scheduler: StableDiffusion.Scheduler,
-                                     strength: Float, initImage: ByteArray?, initWidth: Int, initHeight: Int): Array<ByteArray>? {
+                                     strength: Float, initImage: ByteArray?, initWidth: Int, initHeight: Int, easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float, easyCacheStartPercent: Float, easyCacheEndPercent: Float): Array<ByteArray>? {
                     return Array(videoFrames) { ByteArray(width * height * 3) { ((it + 1) % 255).toByte() } }
                 }
 
