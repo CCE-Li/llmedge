@@ -233,9 +233,11 @@ Generate short video clips using Wan models via `LLMEdgeManager`. This handles t
 val params = LLMEdgeManager.VideoGenerationParams(
     prompt = "a cat walking in a garden, high quality",
     videoFrames = 8,  // Start small: 8-16 frames
-    width = 480,      // Balanced resolution
-    height = 480,
-    steps = 15,
+    width = 512,
+    height = 512,
+    steps = 20,
+    cfgScale = 7.0f,
+    flowShift = 3.0f,
     forceSequentialLoad = true // Recommended for mobile
 )
 

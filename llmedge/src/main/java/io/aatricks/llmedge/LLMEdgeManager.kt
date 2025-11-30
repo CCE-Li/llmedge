@@ -82,7 +82,8 @@ object LLMEdgeManager {
                 val filename: String,
                 val path: String?,
                 val vaePath: String?,
-                val t5xxlPath: String?
+                val t5xxlPath: String?,
+                val flowShift: Float = Float.POSITIVE_INFINITY
         )
         private var currentDiffusionModelSpec: LoadedDiffusionModelSpec? = null
 
@@ -107,6 +108,7 @@ object LLMEdgeManager {
                 val steps: Int = 20,
                 val cfgScale: Float = 7.0f,
                 val seed: Long = -1L,
+                val flowShift: Float = Float.POSITIVE_INFINITY,
                 val flashAttn: Boolean = true,
                 val forceSequentialLoad: Boolean = false
         )
@@ -548,6 +550,7 @@ object LLMEdgeManager {
                                         getOrLoadVideoModel(
                                                 context,
                                                 params.flashAttn,
+                                                params.flowShift,
                                                 onProgress,
                                                 sequentialLoad = useSequential
                                         )
@@ -767,6 +770,7 @@ object LLMEdgeManager {
                                 getOrLoadVideoModel(
                                         context = context,
                                         flashAttn = params.flashAttn,
+                                        flowShift = params.flowShift,
                                         onProgress = onProgress,
                                         sequentialLoad = true,
                                         loadT5 = false
@@ -837,7 +841,8 @@ object LLMEdgeManager {
                         if (spec != null && 
                             spec.filename == DEFAULT_IMAGE_MODEL_FILENAME &&
                             spec.vaePath == null && // Image models don't use separate VAE
-                            spec.t5xxlPath == null) { // Image models don't use T5
+                            spec.t5xxlPath == null && // Image models don't use T5
+                            spec.flowShift == Float.POSITIVE_INFINITY) {
                                 return it
                         }
                         // Wrong model type loaded - unload it first
@@ -935,6 +940,7 @@ object LLMEdgeManager {
         private suspend fun getOrLoadVideoModel(
                 context: Context,
                 flashAttn: Boolean,
+                flowShift: Float,
                 onProgress: ((String, Int, Int) -> Unit)?,
                 sequentialLoad: Boolean? = null,
                 loadT5: Boolean = true
@@ -948,7 +954,8 @@ object LLMEdgeManager {
                         if (spec != null &&
                             spec.filename == DEFAULT_VIDEO_MODEL_FILENAME &&
                             spec.vaePath != null && // Video models require VAE
-                            t5Match) {
+                            t5Match &&
+                            spec.flowShift == flowShift) {
                                 return it
                         }
                         // Wrong model type loaded - unload it first
@@ -974,7 +981,12 @@ object LLMEdgeManager {
                         Log.i(TAG, "Not loading T5 encoder into video model (loadT5=false) to reduce peak memory during sequential load")
                 }
 
-                val cacheKey = makeDiffusionCacheKey(modelFile.absolutePath, vaeFile.absolutePath, t5File?.absolutePath)
+                val cacheKey = makeDiffusionCacheKey(
+                        modelFile.absolutePath,
+                        vaeFile.absolutePath,
+                        t5File?.absolutePath,
+                        flowShift
+                )
                 diffusionModelCache.get(cacheKey)?.let { cached ->
                         Log.i(TAG, "Loaded Video model from cache: $cacheKey")
                         cachedModel = cached
@@ -983,7 +995,8 @@ object LLMEdgeManager {
                                 filename = DEFAULT_VIDEO_MODEL_FILENAME,
                                 path = modelFile.absolutePath,
                                 vaePath = vaeFile.absolutePath,
-                                t5xxlPath = t5File?.absolutePath
+                                t5xxlPath = t5File?.absolutePath,
+                                flowShift = flowShift
                         )
                         return cached
                 }
@@ -1005,7 +1018,8 @@ object LLMEdgeManager {
                         preferPerformanceMode = preferPerformanceMode,
                         keepClipOnCpu = finalKeepClipOnCpu,
                         keepVaeOnCpu = finalKeepVaeOnCpu,
-                        flashAttn = flashAttn
+                        flashAttn = flashAttn,
+                        flowShift = flowShift
                 )
                 val loadTime = System.currentTimeMillis() - loadStart
                 val modelSize = modelFile.length()
@@ -1019,7 +1033,8 @@ object LLMEdgeManager {
                         filename = DEFAULT_VIDEO_MODEL_FILENAME,
                         path = modelFile.absolutePath,
                         vaePath = vaeFile.absolutePath,
-                        t5xxlPath = t5File?.absolutePath
+                        t5xxlPath = t5File?.absolutePath,
+                        flowShift = flowShift
                 )
                 Log.i(TAG, "Loaded Video model from cache: $cacheKey, sequentialLoad=${sequentialLoad}")
                 return model
@@ -1142,7 +1157,7 @@ object LLMEdgeManager {
                 // key; otherwise, fall back to closing the cached instance.
                 val spec = currentDiffusionModelSpec
                 if (spec != null) {
-                        val key = makeDiffusionCacheKey(spec.path ?: "", spec.vaePath, spec.t5xxlPath)
+                        val key = makeDiffusionCacheKey(spec.path ?: "", spec.vaePath, spec.t5xxlPath, spec.flowShift)
                         diffusionModelCache.remove(key)
                         currentDiffusionModelSpec = null
                         cachedModel = null
@@ -1280,8 +1295,13 @@ object LLMEdgeManager {
         /**
          * Build a cache key for diffusion models using model path + optional VAE + T5 path.
          */
-        private fun makeDiffusionCacheKey(modelPath: String, vaePath: String?, t5Path: String?): String {
-                return listOf(modelPath, vaePath ?: "", t5Path ?: "").joinToString("|")
+        private fun makeDiffusionCacheKey(
+                modelPath: String,
+                vaePath: String?,
+                t5Path: String?,
+                flowShift: Float = Float.POSITIVE_INFINITY
+        ): String {
+                return listOf(modelPath, vaePath ?: "", t5Path ?: "", flowShift.toString()).joinToString("|")
         }
 
         /**

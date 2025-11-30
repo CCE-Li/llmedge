@@ -51,8 +51,11 @@ val frames = LLMEdgeManager.generateVideo(
     params = LLMEdgeManager.VideoGenerationParams(
         prompt = "A robot dancing in the rain",
         videoFrames = 16,
-        width = 480,
-        height = 480,
+        width = 512,
+        height = 512,
+        steps = 20,
+        cfgScale = 7.0f,
+        flowShift = 3.0f,
         forceSequentialLoad = true // Recommended for devices with <12GB RAM
     )
 ) { status, currentFrame, totalFrames ->
