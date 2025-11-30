@@ -15,8 +15,11 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 
 - Run GGUF models directly on Android using llama.cpp (JNI)
 - Download and cache models from Hugging Face
-- Video Generation: Generate short video clips (4-64 frames) from text using Wan models
-- Image Generation: Stable Diffusion integration for txt2img
+- Optimized Inference: KV Cache reuse for multi-turn conversations, reducing latency for subsequent prompts.
+- Video Generation: Generate short video clips (4-64 frames) from text using Wan models with sequential loading for lower RAM usage.
+- Image Generation: Stable Diffusion integration with:
+- EasyCache: Accelerates generation for supported models (DiT architecture) by reusing diffusion steps.
+- LoRA Support: Apply Low-Rank Adaptation models (e.g., for style transfer) with automatic downloading.
 - Minimal on-device RAG (retrieval-augmented generation) pipeline
 - OCR Support: Extract text from images using Google ML Kit
 - Vision Model Ready: Architecture prepared for vision-capable LLMs (LLaVA)
@@ -209,14 +212,22 @@ Generate images on-device using `LLMEdgeManager`. This automatically handles mod
 val bitmap = LLMEdgeManager.generateImage(
     context = context,
     params = LLMEdgeManager.ImageGenerationParams(
-        prompt = "a cute pastel anime cat, soft colors, high quality",
-        width = 256,
-        height = 256,
-        steps = 20
+        prompt = "a cute pastel anime cat, soft colors, high quality <lora:detail_tweaker:1.0>",
+        width = 512,
+        height = 512,
+        steps = 20,
+        // Optional: Apply a LoRA model from a directory
+        loraModelDir = "/path/to/loras",
+        loraApplyMode = StableDiffusion.LoraApplyMode.AUTO
     )
 )
 imageView.setImageBitmap(bitmap)
 ```
+
+**Key Optimizations:**
+- **EasyCache**: Automatically detected and enabled for supported models (like Flux/Wan), speeding up generation by reusing intermediate diffusion states.
+- **Flash Attention**: Automatically enabled for compatible image dimensions.
+- **LoRA**: Apply fine-tuned weights on the fly without merging models.
 
 For advanced usage (custom models, explicit memory control), you can still use the `StableDiffusion` class directly as shown in the `llmedge-examples` repository.
 

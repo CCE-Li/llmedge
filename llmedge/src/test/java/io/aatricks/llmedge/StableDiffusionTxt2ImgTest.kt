@@ -47,6 +47,10 @@ class StableDiffusionTxt2ImgTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray? = rgb
 
                 override fun txt2vid(
@@ -64,6 +68,10 @@ class StableDiffusionTxt2ImgTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): Array<ByteArray>? = null
 
                 override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}

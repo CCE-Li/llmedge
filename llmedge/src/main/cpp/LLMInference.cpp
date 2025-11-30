@@ -155,7 +155,9 @@ LLMInference::startCompletion(const char *query) {
         throw std::runtime_error("llama_chat_apply_template() in LLMInference::startCompletion() failed");
     }
     std::string prompt(_formattedMessages.begin() + _prevLen, _formattedMessages.begin() + newLen);
-    _promptTokens = common_tokenize(llama_model_get_vocab(_model), prompt, true, true);
+    // Only add special tokens (like BOS) if we are at the start of the context
+    bool add_special = (_prevLen == 0); 
+    _promptTokens = common_tokenize(llama_model_get_vocab(_model), prompt, add_special, true);
     if (_promptTokens.empty()) {
         LOGe("tokenize() returned no tokens for prompt; aborting completion");
         throw std::runtime_error("empty prompt tokenization");
@@ -171,6 +173,31 @@ LLMInference::startCompletion(const char *query) {
     std::memset(_batch, 0, sizeof(llama_batch));
     _batch->token = _promptTokens.data();
     _batch->n_tokens = static_cast<int32_t>(_promptTokens.size());
+
+    // Fix KV cache reuse
+    int n_past = 0;
+    if (_storeChats && _prevLen > 0) {
+         // We are appending to existing context
+         // Retrieve current KV cache position
+         // seq_id 0 is assumed
+         int max_seq_pos = llama_memory_seq_pos_max(llama_get_memory(_ctx), 0);
+         if (max_seq_pos >= 0) {
+             n_past = max_seq_pos + 1;
+         }
+    } else {
+         // New conversation or no history storage -> overwrite from 0
+         n_past = 0;
+         // Clear KV cache to ensure fresh start
+         llama_memory_seq_rm(llama_get_memory(_ctx), -1, -1, -1);
+    }
+    
+    LOGi("startCompletion: n_past=%d, n_tokens=%d, prevLen=%d", n_past, _batch->n_tokens, _prevLen);
+
+    _batchPos.resize(_promptTokens.size());
+    for (size_t i = 0; i < _promptTokens.size(); ++i) {
+        _batchPos[i] = n_past + i;
+    }
+    _batch->pos = _batchPos.data();
 }
 
 // taken from:
@@ -252,7 +279,13 @@ LLMInference::completionLoop() {
     // in the KV cache
     _batch->token = &_currToken;
     _batch->n_tokens = 1;
-    _batch->pos = nullptr;
+    
+    // Set position for the next token (append to KV cache)
+    int n_past_next = llama_memory_seq_pos_max(llama_get_memory(_ctx), 0) + 1;
+    if (_batchPos.size() < 1) _batchPos.resize(1);
+    _batchPos[0] = n_past_next;
+    _batch->pos = _batchPos.data();
+
     _batch->seq_id = nullptr;
     _batch->n_seq_id = nullptr;
     _batch->logits = nullptr;

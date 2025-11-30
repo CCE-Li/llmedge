@@ -25,6 +25,10 @@ class VideoMemoryRegressionTest : BaseVideoIntegrationTest() {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
@@ -41,6 +45,10 @@ class VideoMemoryRegressionTest : BaseVideoIntegrationTest() {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): Array<ByteArray>? = frames.map { it.copyOf() }.toTypedArray()
 
                 override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit

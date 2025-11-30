@@ -30,6 +30,10 @@ abstract class BaseVideoIntegrationTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray? {
                     // Simple black image stub
                     return ByteArray((width * height * 3).coerceAtLeast(0)) { 0 }
@@ -50,6 +54,10 @@ abstract class BaseVideoIntegrationTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): Array<ByteArray>? {
                     // Deterministic grayscale frames
                     val frames = Array(videoFrames.coerceAtLeast(0)) { index ->

@@ -235,7 +235,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         jboolean keepClipOnCpu,
         jboolean keepVaeOnCpu,
         jboolean flashAttn,
-        jfloat flowShift) {
+        jfloat flowShift,
+        jstring jLoraModelDir, jint jLoraApplyMode) {
     (void)clazz;
     const char* modelPath = jModelPath ? env->GetStringUTFChars(jModelPath, nullptr) : nullptr;
     const char* vaePath   = jVaePath   ? env->GetStringUTFChars(jVaePath,   nullptr) : nullptr;
@@ -268,6 +269,14 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     p.keep_vae_on_cpu = keepVaeOnCpu;
     p.diffusion_flash_attn = flashAttn;
     p.flow_shift = flowShift;
+    if (jLoraModelDir) {
+        const char* loraPath = env->GetStringUTFChars(jLoraModelDir, nullptr);
+        if (loraPath) {
+            p.lora_model_dir = strdup(loraPath);
+            env->ReleaseStringUTFChars(jLoraModelDir, loraPath);
+        }
+    }
+    p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
 
     sd_ctx_t* ctx = new_sd_ctx(&p);
 
@@ -365,12 +374,21 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeDestroy(JNIEnv* env, jobject, jlo
     delete handle;
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_aatricks_llmedge_StableDiffusion_nativeIsEasyCacheSupported(JNIEnv* env, jobject, jlong handlePtr) {
+    if (handlePtr == 0) return JNI_FALSE;
+    auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
+    if (!handle->ctx) return JNI_FALSE;
+    return sd_is_easycache_supported(handle->ctx) ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
-        JNIEnv* env, jobject thiz, jlong handlePtr,
-        jstring jPrompt, jstring jNegative,
-        jint width, jint height,
-        jint steps, jfloat cfg, jlong seed) {
+    JNIEnv* env, jobject thiz, jlong handlePtr,
+    jstring jPrompt, jstring jNegative,
+    jint width, jint height,
+    jint steps, jfloat cfg, jlong seed,
+    jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
     (void)thiz;
     if (handlePtr == 0) {
         ALOGE("StableDiffusion not initialized");
@@ -394,6 +412,10 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
     gen.sample_params = sample;
     gen.seed = seed;
     gen.batch_count = 1;
+    gen.easycache.enabled = jEasyCacheEnabled ? true : false;
+    gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
+    gen.easycache.start_percent = (float)jEasyCacheStartPercent;
+    gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
     sd_image_t* out = generate_image(handle->ctx, &gen);
 
@@ -423,12 +445,13 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
 
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
-        JNIEnv* env, jobject thiz, jlong handlePtr,
-        jstring jPrompt, jstring jNegative,
-        jint width, jint height,
-        jint videoFrames, jint steps, jfloat cfg, jlong seed,
-        jint jScheduler, jfloat jStrength,
-        jbyteArray jInitImage, jint initWidth, jint initHeight) {
+    JNIEnv* env, jobject thiz, jlong handlePtr,
+    jstring jPrompt, jstring jNegative,
+    jint width, jint height,
+    jint videoFrames, jint steps, jfloat cfg, jlong seed,
+    jint jScheduler, jfloat jStrength,
+    jbyteArray jInitImage, jint initWidth, jint initHeight,
+    jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
     (void)thiz;
     if (handlePtr == 0) {
         throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion not initialized");
@@ -489,6 +512,11 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
             gen.init_image.channel = 3;
             gen.init_image.data = initImageData.data();
         }
+
+            gen.easycache.enabled = jEasyCacheEnabled ? true : false;
+            gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
+            gen.easycache.start_percent = (float)jEasyCacheStartPercent;
+            gen.easycache.end_percent = (float)jEasyCacheEndPercent;
     }
 
     handle->stepsPerFrame = sample.sample_steps > 0 ? sample.sample_steps : 0;
@@ -821,11 +849,12 @@ static sd_condition_raw_t* reconstruct_condition(JNIEnv* env, jobjectArray condA
 
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
-        JNIEnv* env, jobject thiz, jlong handlePtr,
-        jstring jPrompt, jstring jNegative,
-        jint width, jint height,
-        jint steps, jfloat cfg, jlong seed,
-        jobjectArray condArr, jobjectArray uncondArr) {
+    JNIEnv* env, jobject thiz, jlong handlePtr,
+    jstring jPrompt, jstring jNegative,
+    jint width, jint height,
+    jint steps, jfloat cfg, jlong seed,
+    jobjectArray condArr, jobjectArray uncondArr,
+    jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
     (void)thiz;
     if (handlePtr == 0) {
         ALOGE("StableDiffusion not initialized");
@@ -855,6 +884,10 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
     gen.sample_params = sample;
     gen.seed = seed;
     gen.batch_count = 1;
+    gen.easycache.enabled = jEasyCacheEnabled ? true : false;
+    gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
+    gen.easycache.start_percent = (float)jEasyCacheStartPercent;
+    gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
     sd_image_t* out = sd_generate_image_with_precomputed_condition(handle->ctx, &gen, cond, uncond);
 

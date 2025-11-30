@@ -20,6 +20,7 @@ class LLMInference {
     // stores the tokens for the last query
     // appended to `_messages`
     std::vector<llama_token> _promptTokens;
+    std::vector<llama_pos>   _batchPos;
     int                      _prevLen = 0;
     const char*              _chatTemplate;
 

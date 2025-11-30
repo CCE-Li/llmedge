@@ -25,6 +25,10 @@ private val disableNativeLoadForTests = run {
                 steps: Int,
                 cfg: Float,
                 seed: Long,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
             ): ByteArray? = null
             override fun txt2vid(
                 handle: Long,
@@ -41,6 +45,10 @@ private val disableNativeLoadForTests = run {
                 initImage: ByteArray?,
                 initWidth: Int,
                 initHeight: Int,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
             ): Array<ByteArray>? = arrayOf(byteArrayOf(1, 2, 3))
 
             override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
