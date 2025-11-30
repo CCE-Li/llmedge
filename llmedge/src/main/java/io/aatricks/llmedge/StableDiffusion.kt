@@ -849,13 +849,20 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     var freeBytes: Long = 0
 
                     if (effectiveSequentialLoad) {
-                        android.util.Log.i(
-                                LOG_TAG,
-                                "Enabling sequential load for low memory optimization"
-                        )
-                        effectiveOffloadToCpu = true
-                        effectiveKeepClipOnCpu = true
-                        effectiveKeepVaeOnCpu = true
+                        if (sequentialLoad == null) {
+                            android.util.Log.i(
+                                    LOG_TAG,
+                                    "Enabling sequential load for low memory optimization"
+                            )
+                            effectiveOffloadToCpu = true
+                            effectiveKeepClipOnCpu = true
+                            effectiveKeepVaeOnCpu = true
+                        } else {
+                            android.util.Log.i(
+                                    LOG_TAG,
+                                    "Sequential load explicitly requested; keeping existing offload settings"
+                            )
+                        }
                     }
 
                     // Debug log: show the inputs that influenced the combined sequential load
@@ -1044,9 +1051,16 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     var effectiveKeepVaeOnCpu = keepVaeOnCpu
 
                     if (effectiveSequentialLoad) {
-                        effectiveOffloadToCpu = true
-                        effectiveKeepClipOnCpu = true
-                        effectiveKeepVaeOnCpu = true
+                        if (sequentialLoad == null) {
+                            effectiveOffloadToCpu = true
+                            effectiveKeepClipOnCpu = true
+                            effectiveKeepVaeOnCpu = true
+                        } else {
+                            android.util.Log.i(
+                                    LOG_TAG,
+                                    "Sequential load explicitly requested for HF model; keeping existing offload settings"
+                            )
+                        }
                     }
 
                     try {

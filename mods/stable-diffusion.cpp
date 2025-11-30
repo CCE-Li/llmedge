@@ -3097,7 +3097,7 @@ sd_image_t* generate_image(sd_ctx_t* sd_ctx, const sd_img_gen_params_t* sd_img_g
     }
 
     struct ggml_init_params params;
-    params.mem_size   = static_cast<size_t>(1024 * 1024) * 1024;  // 1G
+    params.mem_size   = static_cast<size_t>(128 * 1024) * 1024;  // 128M
     params.mem_buffer = nullptr;
     params.no_alloc   = false;
     // LOG_DEBUG("mem_size %u ", params.mem_size);
@@ -3390,7 +3390,7 @@ SD_API sd_image_t* generate_video(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* s
     }
 
     struct ggml_init_params params;
-    params.mem_size   = static_cast<size_t>(1024 * 1024) * 1024;  // 1G
+    params.mem_size   = static_cast<size_t>(128 * 1024) * 1024;  // 128M
     params.mem_buffer = nullptr;
     params.no_alloc   = false;
     // LOG_DEBUG("mem_size %u ", params.mem_size);
@@ -4251,7 +4251,7 @@ SD_API sd_image_t* sd_generate_image_with_precomputed_condition(
     LOG_INFO("generate_image_with_precomputed_condition");
 
     struct ggml_init_params params;
-    params.mem_size   = static_cast<size_t>(1024 * 1024) * 1024;  // 1G
+    params.mem_size   = static_cast<size_t>(128 * 1024) * 1024;  // 128M
     params.mem_buffer = nullptr;
     params.no_alloc   = false;
 
