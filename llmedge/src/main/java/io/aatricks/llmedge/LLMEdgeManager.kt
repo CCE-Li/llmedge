@@ -8,6 +8,7 @@ import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import java.io.File
 import java.lang.ref.WeakReference
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -262,12 +263,17 @@ object LLMEdgeManager {
 
                         if (onProgress != null) {
                                 val sb = StringBuilder()
-                                // We need to use flow for streaming
-                                // Assuming SmolLM has getResponseAsFlow
-                                smol.getResponseAsFlow(params.prompt).collect { token ->
+                                // We need to use flow for streaming and respect maxTokens
+                                var tokenCount = 0
+                                var flow = smol.getResponseAsFlow(params.prompt)
+                                if (params.maxTokens > 0) {
+                                        flow = flow.take(params.maxTokens)
+                                }
+                                flow.collect { token ->
                                         if (token != "[EOG]") {
                                                 sb.append(token)
                                                 onProgress(token)
+                                                tokenCount++
                                         }
                                 }
                                 return@withLock sb.toString()
@@ -816,11 +822,16 @@ object LLMEdgeManager {
         }
 
         fun cancelGeneration() {
+                Log.d(TAG, "cancelGeneration invoked: cancelling any active generation")
+                // Cancel diffusion model generation if running
                 cachedModel?.cancelGeneration()
-                // SmolLM doesn't expose cancel explicitly in the wrapper yet, but we can try to
-                // close it if
-                // needed
-                // or just rely on it checking interruption.
+                // Also attempt to stop SmolLM completion if active
+                try {
+                        cachedSmolLM?.stopCompletion()
+                        Log.d(TAG, "LLMEdgeManager.cancelGeneration: SmolLM.stopCompletion invoked")
+                } catch (e: Throwable) {
+                        Log.w(TAG, "SmolLM.stopCompletion failed: ${'$'}{e.message}")
+                }
         }
 
         /** Debug helper: returns current video model's T5 path, if any. */
@@ -1113,13 +1124,22 @@ object LLMEdgeManager {
                 }
 
                 // Phase 3: Use core-aware threading
-                val optimalThreads = if (preferPerformanceMode) {
+                var optimalThreads = if (preferPerformanceMode) {
                         CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING)
                 } else {
                         // Conservative threading for stability/background use
                         2
                 }
 
+                // If the model file is large, use more conservative settings to avoid high memory
+                // and concurrency which can cause native failures on some devices.
+                val modelSizeMB = finalPath.length() / (1024L * 1024L)
+                var overrideContextSize: Long? = null
+                if (modelSizeMB >= 250L) {
+                        Log.w(TAG, "Large model detected: ${modelSizeMB}MB. Forcing conservative settings: threads=1, context=2048")
+                        optimalThreads = 1
+                        overrideContextSize = 2048L
+                }
                 Log.i(TAG, "Loading SmolLM with $optimalThreads threads (${coreInfo}), vulkan=$preferPerformanceMode")
                 val loadStart = System.currentTimeMillis()
 
@@ -1132,13 +1152,10 @@ object LLMEdgeManager {
 
                 smol.load(
                         modelPath = finalPath.absolutePath,
-                        params =
-                                io.aatricks.llmedge.SmolLM.InferenceParams(
-                                        numThreads = optimalThreads,
-                                        // Let SmolLM handle context size automatically based on
-                                        // heap
-                                        contextSize = null
-                                )
+                        params = io.aatricks.llmedge.SmolLM.InferenceParams(
+                                numThreads = optimalThreads,
+                                contextSize = overrideContextSize
+                        )
                 )
 
                 val loadTime = System.currentTimeMillis() - loadStart

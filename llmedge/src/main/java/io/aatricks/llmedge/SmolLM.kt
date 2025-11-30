@@ -693,6 +693,18 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         return response
     }
 
+    /** Public helper to stop a currently running completion loop (best effort). */
+    fun stopCompletion() {
+        if (nativePtr == 0L) return
+        logD(LOG_TAG, "stopCompletion invoked")
+        try {
+            nativeBridge.stopCompletion(this, nativePtr)
+        } catch (e: Throwable) {
+            // best-effort: log and ignore
+            logW(LOG_TAG, "stopCompletion failed: ${'$'}{e.message}")
+        }
+    }
+
     /**
      * Unloads the LLM model and releases resources. This method should be called when the SmolLM
      * instance is no longer needed to prevent memory leaks.
