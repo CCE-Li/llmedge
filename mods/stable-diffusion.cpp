@@ -1036,6 +1036,9 @@ public:
             int64_t t0 = ggml_time_ms();
 
             auto lora = load_lora_model_from_file(kv.first, kv.second, backend);
+            if (lora == nullptr) {
+                continue;
+            }
             lora->apply(tensors, version, n_threads);
             lora->free_params_buffer();
 
@@ -3069,6 +3072,13 @@ sd_image_t* generate_image_internal(sd_ctx_t* sd_ctx,
     ggml_free(work_ctx);
 
     return result_images;
+}
+
+SD_API bool sd_is_easycache_supported(sd_ctx_t* sd_ctx) {
+    if (sd_ctx == nullptr || sd_ctx->sd == nullptr) {
+        return false;
+    }
+    return sd_version_is_dit(sd_ctx->sd->version);
 }
 
 sd_image_t* generate_image(sd_ctx_t* sd_ctx, const sd_img_gen_params_t* sd_img_gen_params) {
