@@ -493,6 +493,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 keepClipOnCpu: Boolean,
                 keepVaeOnCpu: Boolean,
                 flashAttn: Boolean,
+                flowShift: Float,
         ): Long
 
         @JvmStatic private external fun nativeGetVulkanDeviceCount(): Int
@@ -709,6 +710,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 preferPerformanceMode: Boolean = false,
                 token: String? = null,
                 forceDownload: Boolean = false,
+                flowShift: Float = Float.POSITIVE_INFINITY,
         ): StableDiffusion =
                 withContext(Dispatchers.IO) {
                     var resolvedModelPath: String
@@ -742,6 +744,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         token = token,
                                         forceDownload = forceDownload,
                                         preferSystemDownloader = true,
+                                        flowShift = flowShift,
                                 )
                             }
                         } catch (t: Throwable) {
@@ -963,6 +966,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     effectiveKeepClipOnCpu,
                                     effectiveKeepVaeOnCpu,
                                     flashAttn,
+                                    flowShift,
                             )
                         // If we requested preferred GPU path but nativeCreate failed, retry with CPU offload
                         if (handle == 0L && forceVulkan) {
@@ -980,6 +984,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 effectiveKeepClipOnCpu,
                                 effectiveKeepVaeOnCpu,
                                 flashAttn,
+                                flowShift,
                             )
                         }
                     if (handle == 0L)
@@ -1018,6 +1023,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 token: String? = null,
                 forceDownload: Boolean = false,
                 preferSystemDownloader: Boolean = true,
+                flowShift: Float = Float.POSITIVE_INFINITY,
                 onProgress: ((name: String, downloaded: Long, total: Long?) -> Unit)? = null,
         ): StableDiffusion =
                 withContext(Dispatchers.IO) {
@@ -1135,6 +1141,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     effectiveKeepClipOnCpu,
                                     effectiveKeepVaeOnCpu,
                                     flashAttn,
+                                    flowShift,
                             )
                         if (handle == 0L && forceVulkan) {
                             android.util.Log.w(LOG_TAG, "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback (HF)")
@@ -1150,6 +1157,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 effectiveKeepClipOnCpu,
                                 effectiveKeepVaeOnCpu,
                                 flashAttn,
+                                flowShift,
                             )
                         }
                     if (handle == 0L)

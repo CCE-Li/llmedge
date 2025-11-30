@@ -6,6 +6,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <limits>
 
 static void save_frame_as_ppm(const uint8_t* data, int width, int height, int frame_index) {
     std::string filename = "/tmp/cat_frame_" + std::to_string(frame_index) + ".ppm";
@@ -37,7 +38,8 @@ static void save_frame_as_ppm(const uint8_t* data, int width, int height, int fr
 extern "C" {
 JNIEXPORT jlong JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         JNIEnv* env, jclass clazz, jstring jModelPath, jstring jVaePath, jstring jT5xxlPath,
-        jint nThreads, jboolean offloadToCpu, jboolean keepClipOnCpu, jboolean keepVaeOnCpu);
+        jint nThreads, jboolean offloadToCpu, jboolean keepClipOnCpu, jboolean keepVaeOnCpu,
+        jboolean flashAttn, jfloat flowShift);
 JNIEXPORT void JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeDestroy(JNIEnv* env, jobject thiz, jlong handlePtr);
 JNIEXPORT jobjectArray JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
         JNIEnv* env, jobject thiz, jlong handlePtr,
@@ -121,7 +123,9 @@ static bool test_nativeTxt2Vid_memory(JNIEnv* env) {
     reset_free_counters();
     jstring modelPath = env->NewStringUTF("stub-model.gguf");
     jlong handle = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
-            env, nullptr, modelPath, nullptr, nullptr, 4, JNI_FALSE, JNI_FALSE, JNI_FALSE);
+            env, nullptr, modelPath, nullptr, nullptr, 4,
+            JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
+            std::numeric_limits<float>::infinity());
     env->DeleteLocalRef(modelPath);
     if (handle == 0) {
         std::cerr << "nativeCreate returned null handle" << std::endl;
@@ -195,7 +199,9 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
     std::cout << "Step 1: Loading T5-only context..." << std::endl;
     jstring t5Path = env->NewStringUTF("stub-t5.gguf");
     jlong t5Handle = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
-            env, nullptr, t5Path, nullptr, nullptr, 4, JNI_FALSE, JNI_FALSE, JNI_FALSE);
+            env, nullptr, t5Path, nullptr, nullptr, 4,
+            JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
+            std::numeric_limits<float>::infinity());
     env->DeleteLocalRef(t5Path);
     
     if (t5Handle == 0) {
@@ -235,7 +241,9 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
     jstring modelPath = env->NewStringUTF("stub-diffusion.safetensors");
     jstring vaePath = env->NewStringUTF("stub-vae.safetensors");
     jlong diffusionHandle = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
-            env, nullptr, modelPath, vaePath, nullptr, 4, JNI_FALSE, JNI_FALSE, JNI_FALSE);
+            env, nullptr, modelPath, vaePath, nullptr, 4,
+            JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
+            std::numeric_limits<float>::infinity());
     env->DeleteLocalRef(modelPath);
     env->DeleteLocalRef(vaePath);
     
@@ -275,7 +283,9 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
 }
     jstring modelPath = env->NewStringUTF("stub-model.gguf");
     jlong handlePtr = Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
-            env, nullptr, modelPath, nullptr, nullptr, 2, JNI_FALSE, JNI_FALSE, JNI_FALSE);
+            env, nullptr, modelPath, nullptr, nullptr, 2,
+            JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
+            std::numeric_limits<float>::infinity());
     env->DeleteLocalRef(modelPath);
     if (handlePtr == 0) {
         std::cerr << "Failed to create handle for progress test" << std::endl;

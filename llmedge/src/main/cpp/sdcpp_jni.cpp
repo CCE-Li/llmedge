@@ -234,7 +234,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         jboolean offloadToCpu,
         jboolean keepClipOnCpu,
         jboolean keepVaeOnCpu,
-        jboolean flashAttn) {
+        jboolean flashAttn,
+        jfloat flowShift) {
     (void)clazz;
     const char* modelPath = jModelPath ? env->GetStringUTFChars(jModelPath, nullptr) : nullptr;
     const char* vaePath   = jVaePath   ? env->GetStringUTFChars(jVaePath,   nullptr) : nullptr;
@@ -266,6 +267,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     p.keep_clip_on_cpu = keepClipOnCpu;
     p.keep_vae_on_cpu = keepVaeOnCpu;
     p.diffusion_flash_attn = flashAttn;
+    p.flow_shift = flowShift;
 
     sd_ctx_t* ctx = new_sd_ctx(&p);
 
