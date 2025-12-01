@@ -57,7 +57,11 @@ class MockStableDiffusionBridgeTest {
             strength = 0.8f,
             initImage = byteArrayOf(1, 2, 3),
             initWidth = 256,
-            initHeight = 256
+            initHeight = 256,
+            easyCacheEnabled = false,
+            easyCacheReuseThreshold = 0.2f,
+            easyCacheStartPercent = 0.15f,
+            easyCacheEndPercent = 0.95f
         )
 
         assertEquals(1L, call.handle)
@@ -96,6 +100,10 @@ class MockStableDiffusionBridgeTest {
             initImage = null,
             initWidth = 0,
             initHeight = 0
+            , easyCacheEnabled = false
+            , easyCacheReuseThreshold = 0.2f
+            , easyCacheStartPercent = 0.15f
+            , easyCacheEndPercent = 0.95f
         )
 
         assertNotNull("Should return frame array", result)
@@ -129,6 +137,10 @@ class MockStableDiffusionBridgeTest {
             initImage = null,
             initWidth = 0,
             initHeight = 0
+            , easyCacheEnabled = false
+            , easyCacheReuseThreshold = 0.2f
+            , easyCacheStartPercent = 0.15f
+            , easyCacheEndPercent = 0.95f
         )
 
         assertNull("Should return null when configured for failure", result)

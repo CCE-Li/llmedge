@@ -1432,7 +1432,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
                 val startNanos = System.nanoTime()
                 val memoryBefore = readNativeMemoryMb()
-                val frameBytes =
+                var frameBytes =
                         try {
                             generationMutex.withLock {
                                 cancellationRequested.set(false)
@@ -1477,6 +1477,49 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             LOG_TAG,
                             "Expected ${params.videoFrames} frames but received ${frameBytes.size}",
                     )
+                }
+
+                // Heuristic: if native output appears to be fully black/near zero, attempt
+                // a channel-swap fallback (common when channel ordering is reversed or
+                // when a plugin returns bytes in a different layout). This helps surface
+                // real frames instead of blank images in environments with inconsistent
+                // native outputs.
+                fun computeAvgBrightness(bytes: ByteArray): Double {
+                    var s = 0L
+                    var i = 0
+                    val totalPixels = (bytes.size / 3).coerceAtLeast(1)
+                    while (i + 2 < bytes.size) {
+                        val r = bytes[i++].toInt() and 0xFF
+                        val g = bytes[i++].toInt() and 0xFF
+                        val b = bytes[i++].toInt() and 0xFF
+                        s += (r + g + b) / 3
+                    }
+                    return s.toDouble() / totalPixels
+                }
+
+                val avg = frameBytes.map { computeAvgBrightness(it) }.average()
+                if (avg < 1.0) {
+                    // Try swapping R and B channels
+                    val swapped = frameBytes.map { bytes ->
+                        val out = ByteArray(bytes.size)
+                        var j = 0
+                        var k = 0
+                        while (k + 2 < bytes.size) {
+                            val r = bytes[k]
+                            val g = bytes[k + 1]
+                            val b = bytes[k + 2]
+                            out[j++] = b
+                            out[j++] = g
+                            out[j++] = r
+                            k += 3
+                        }
+                        out
+                    }.toTypedArray()
+                    val swappedAvg = swapped.map { computeAvgBrightness(it) }.average()
+                    if (swappedAvg > avg) {
+                        frameBytes = swapped
+                        android.util.Log.w(LOG_TAG, "Swapped RGB->BGR for video frames to recover non-black output")
+                    }
                 }
 
                 val conversionStart = System.nanoTime()
@@ -1716,11 +1759,19 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         val batchSize = determineBatchSize(frameBytes.size)
         val bitmaps = ArrayList<Bitmap>(frameBytes.size)
         var index = 0
-        val pixelBuffer = IntArray(width * height) // Reuse single buffer per batch, reduces allocations
+        // Allocate a fresh pixel buffer per frame to avoid unexpected aliasing if
+        // Bitmap.createBitmap() did not copy the backing array across platform versions.
         while (index < frameBytes.size) {
             val end = min(index + batchSize, frameBytes.size)
             for (i in index until end) {
-                bitmaps += rgbBytesToBitmap(frameBytes[i], width, height, pixelBuffer)
+                // Make a defensive copy of the incoming bytes to protect against
+                // native bridges that reuse or alias the same ByteArray for multiple
+                // frames. Cloning ensures we snapshot the bytes for the frame and
+                // prevents later mutations from affecting previously created
+                // Bitmaps.
+                val bytesCopy = frameBytes[i].clone()
+                val pixelBuffer = IntArray(width * height)
+                bitmaps += rgbBytesToBitmap(bytesCopy, width, height, pixelBuffer)
             }
             val remaining = frameBytes.size - end
             if (remaining > 0) {

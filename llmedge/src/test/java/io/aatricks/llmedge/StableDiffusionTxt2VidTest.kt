@@ -354,7 +354,11 @@ class StableDiffusionTxt2VidTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
-                ): Array<ByteArray>? {
+                            easyCacheEnabled: Boolean,
+                            easyCacheReuseThreshold: Float,
+                            easyCacheStartPercent: Float,
+                            easyCacheEndPercent: Float,
+                        ): Array<ByteArray>? {
                     instance.cancelGeneration()
                     throw RuntimeException("native aborted")
                 }
@@ -401,6 +405,10 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
@@ -421,7 +429,7 @@ class StableDiffusionTxt2VidTest {
                     easyCacheReuseThreshold: Float,
                     easyCacheStartPercent: Float,
                     easyCacheEndPercent: Float,
-                ): Array<ByteArray> = frames.map { it.clone() }.toTypedArray()
+                ): Array<ByteArray>? = frames.map { it.clone() }.toTypedArray()
 
                 override fun setProgressCallback(
                     handle: Long,

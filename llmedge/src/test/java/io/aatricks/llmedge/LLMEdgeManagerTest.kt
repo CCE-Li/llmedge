@@ -114,13 +114,13 @@ class LLMEdgeManagerTest {
                     )
                 }
 
-                override fun txt2vidWithPrecomputedCondition(handle: Long, prompt: String, negative: String, width: Int, height: Int, videoFrames: Int, steps: Int, cfg: Float, seed: Long, scheduler: StableDiffusion.Scheduler, strength: Float, initImage: ByteArray?, initWidth: Int, initHeight: Int, cond: StableDiffusion.PrecomputedCondition?, uncond: StableDiffusion.PrecomputedCondition?): Array<ByteArray>? {
+                override fun txt2vidWithPrecomputedCondition(handle: Long, prompt: String, negative: String, width: Int, height: Int, videoFrames: Int, steps: Int, cfg: Float, seed: Long, scheduler: StableDiffusion.Scheduler, strength: Float, initImage: ByteArray?, initWidth: Int, initHeight: Int, cond: StableDiffusion.PrecomputedCondition?, uncond: StableDiffusion.PrecomputedCondition?, easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float, easyCacheStartPercent: Float, easyCacheEndPercent: Float): Array<ByteArray>? {
                     return Array(videoFrames) { ByteArray(width * height * 3) { 5 } }
                 }
 
                 override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
                 override fun cancelGeneration(handle: Long) {}
-                override fun txt2ImgWithPrecomputedCondition(handle: Long, prompt: String, negative: String, width: Int, height: Int, steps: Int, cfg: Float, seed: Long, cond: StableDiffusion.PrecomputedCondition?, uncond: StableDiffusion.PrecomputedCondition?): ByteArray? { return ByteArray(width * height * 3) { 3 } }
+                override fun txt2ImgWithPrecomputedCondition(handle: Long, prompt: String, negative: String, width: Int, height: Int, steps: Int, cfg: Float, seed: Long, cond: StableDiffusion.PrecomputedCondition?, uncond: StableDiffusion.PrecomputedCondition?, easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float, easyCacheStartPercent: Float, easyCacheEndPercent: Float): ByteArray? { return ByteArray(width * height * 3) { 3 } }
             }
         }
 
