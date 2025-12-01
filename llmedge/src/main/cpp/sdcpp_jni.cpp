@@ -290,6 +290,9 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     p.keep_vae_on_cpu = keepVaeOnCpu;
     p.diffusion_flash_attn = flashAttn;
     p.flow_shift = flowShift;
+    // Enable VAE encoder for I2V (Image-to-Video) support
+    // Default is true (decode-only), but we need encoder for I2V
+    p.vae_decode_only = false;
     if (jLoraModelDir) {
         const char* loraPath = env->GetStringUTFChars(jLoraModelDir, nullptr);
         if (loraPath) {

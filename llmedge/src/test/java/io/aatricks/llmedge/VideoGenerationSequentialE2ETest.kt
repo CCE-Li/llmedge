@@ -261,15 +261,6 @@ class VideoGenerationSequentialE2ETest {
 
     @Test
     fun `sequential I2V generation matches Android device path`() = runBlocking {
-        // I2V requires VAE encoder (decode_only=false) which isn't supported when loading
-        // the model without text encoders in the sequential path. This is a limitation of
-        // the current stable-diffusion.cpp implementation, not our JNI code.
-        // Skip this test until the upstream issue is resolved.
-        Assume.assumeTrue(
-            "I2V sequential path requires VAE encoder support (decode_only=false) which isn't available when loading without text encoders",
-            false
-        )
-        
         // Skip test if model paths are not provided
         val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
         val t5Path = System.getenv("LLMEDGE_TEST_T5_PATH") ?: System.getProperty("LLMEDGE_TEST_T5_PATH")

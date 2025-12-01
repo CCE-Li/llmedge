@@ -172,4 +172,100 @@ class VideoGenerationLinuxE2ETest {
             assertTrue("Expected at least two unique frames", hashes.toSet().size > 1)
         }
     }
+
+    @Test
+    fun `desktop I2V video generation`() = runBlocking {
+        // Skip test if model paths are not provided
+        val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
+        val t5Path = System.getenv("LLMEDGE_TEST_T5_PATH") ?: System.getProperty("LLMEDGE_TEST_T5_PATH")
+        val vaePath = System.getenv("LLMEDGE_TEST_VAE_PATH") ?: System.getProperty("LLMEDGE_TEST_VAE_PATH")
+        
+        println("[VideoGenerationLinuxE2ETest-I2V] modelPath=$modelPath t5Path=$t5Path vaePath=$vaePath")
+        Assume.assumeTrue("Model path not set", !modelPath.isNullOrBlank())
+        Assume.assumeTrue("T5 path not set", !t5Path.isNullOrBlank())
+        Assume.assumeTrue("VAE path not set", !vaePath.isNullOrBlank())
+
+        val libPath = System.getenv(LIB_PATH_ENV)
+            ?: System.getProperty(LIB_PATH_ENV)
+            ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
+        Assume.assumeTrue("Native library not found", java.io.File(libPath).exists())
+        Assume.assumeTrue("Native loading disabled", System.getProperty("llmedge.disableNativeLoad") != "true")
+
+        val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
+
+        // Test parameters for I2V
+        val width = 256
+        val height = 256
+        val videoFrames = 5
+        val steps = 10
+        val cfgScale = 7.0f
+        val seed = 42L
+        val strength = 0.8f
+        val prompt = "A cat walking in a garden"
+
+        println("[VideoGenerationLinuxE2ETest-I2V] Starting I2V generation (non-sequential path)")
+        val startTime = System.currentTimeMillis()
+
+        // Create a simple init image (gradient)
+        val initBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val r = (x * 255 / width)
+                val g = (y * 255 / height)
+                val b = 128
+                initBitmap.setPixel(x, y, (0xFF shl 24) or (r shl 16) or (g shl 8) or b)
+            }
+        }
+        println("[VideoGenerationLinuxE2ETest-I2V] Created init image ${width}x${height}")
+
+        // Load model with all components (non-sequential)
+        println("[VideoGenerationLinuxE2ETest-I2V] Loading StableDiffusion model...")
+        val sd = StableDiffusion.load(
+            context = context,
+            modelPath = modelPath,
+            vaePath = vaePath,
+            t5xxlPath = t5Path,
+            nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
+            offloadToCpu = true,
+            keepClipOnCpu = true,
+            keepVaeOnCpu = true,
+            flashAttn = true,
+            sequentialLoad = false
+        )
+
+        println("[VideoGenerationLinuxE2ETest-I2V] Model loaded, generating I2V...")
+
+        val bitmaps = try {
+            val params = StableDiffusion.VideoGenerateParams(
+                prompt = prompt,
+                negative = "",
+                width = width,
+                height = height,
+                videoFrames = videoFrames,
+                steps = steps,
+                cfgScale = cfgScale,
+                seed = seed,
+                initImage = initBitmap,
+                strength = strength
+            )
+
+            sd.txt2vid(params) { step, totalSteps, currentFrame, totalFrames, timePerStep ->
+                println("[VideoGenerationLinuxE2ETest-I2V] Progress: step=$step/$totalSteps, frame=$currentFrame/$totalFrames")
+            }
+        } finally {
+            sd.close()
+            initBitmap.recycle()
+        }
+
+        val elapsed = System.currentTimeMillis() - startTime
+        println("[VideoGenerationLinuxE2ETest-I2V] I2V completed in ${elapsed}ms, got ${bitmaps.size} frames")
+
+        assertTrue("Expected at least 1 frame", bitmaps.isNotEmpty())
+        bitmaps.forEach { bmp ->
+            assertEquals(width, bmp.width)
+            assertEquals(height, bmp.height)
+        }
+
+        println("[VideoGenerationLinuxE2ETest-I2V] ✓ I2V validation passed!")
+    }
 }
