@@ -75,7 +75,7 @@ class VideoGenerationLinuxE2ETest {
         // Test parameters
         val width = 256
         val height = 256
-        val videoFrames = 4
+        val videoFrames = 5  // Minimum 5 frames required for Wan model
         val steps = 10
         val cfgScale = 7.0f
         val seed = 1L

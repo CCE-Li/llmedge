@@ -555,12 +555,13 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
             gen.init_image.channel = 3;
             gen.init_image.data = initImageData.data();
         }
-
-            gen.easycache.enabled = jEasyCacheEnabled ? true : false;
-            gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
-            gen.easycache.start_percent = (float)jEasyCacheStartPercent;
-            gen.easycache.end_percent = (float)jEasyCacheEndPercent;
     }
+
+    // Set easycache parameters for both T2V and I2V modes
+    gen.easycache.enabled = jEasyCacheEnabled ? true : false;
+    gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
+    gen.easycache.start_percent = (float)jEasyCacheStartPercent;
+    gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
     handle->stepsPerFrame = sample.sample_steps > 0 ? sample.sample_steps : 0;
     handle->totalSteps = handle->stepsPerFrame * handle->totalFrames;
@@ -964,7 +965,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
         jint videoFrames, jint steps, jfloat cfg, jlong seed,
         jint jScheduler, jfloat jStrength,
         jbyteArray jInitImage, jint initWidth, jint initHeight,
-        jobjectArray condArr, jobjectArray uncondArr) {
+        jobjectArray condArr, jobjectArray uncondArr,
+        jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
     (void)thiz;
     if (handlePtr == 0) {
         throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion not initialized");
@@ -1032,6 +1034,12 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
             gen.init_image.data = initImageData.data();
         }
     }
+
+    // Set easycache parameters for both T2V and I2V modes
+    gen.easycache.enabled = jEasyCacheEnabled ? true : false;
+    gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
+    gen.easycache.start_percent = (float)jEasyCacheStartPercent;
+    gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
     // Convert condArr/uncondArr to sd_condition_raw_t structures
     auto build_condition_from_objarr = [&](jobjectArray arr) -> sd_condition_raw_t* {
