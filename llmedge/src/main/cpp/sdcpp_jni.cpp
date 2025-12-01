@@ -10,12 +10,27 @@
 #include <android/log.h>
 #else
 #include <cstdio>
+#include <cstdarg>
 #define ANDROID_LOG_DEBUG 3
 #define ANDROID_LOG_INFO 4
 #define ANDROID_LOG_WARN 5
 #define ANDROID_LOG_ERROR 6
-inline int __android_log_print(int, const char*, const char* format, ...) {
-    (void)format;
+inline int __android_log_print(int level, const char* tag, const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    fprintf(stderr, "[%s] ", tag);
+    vfprintf(stderr, format, args);
+    fprintf(stderr, "\n");
+    fflush(stderr);
+    va_end(args);
+    
+    // Also print to stdout for good measure
+    va_start(args, format);
+    fprintf(stdout, "[%s] ", tag);
+    vfprintf(stdout, format, args);
+    fprintf(stdout, "\n");
+    fflush(stdout);
+    va_end(args);
     return 0;
 }
 #endif
@@ -238,6 +253,12 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         jfloat flowShift,
         jstring jLoraModelDir, jint jLoraApplyMode) {
     (void)clazz;
+    FILE* f = fopen("/tmp/sdcpp_log.txt", "a");
+    if (f) {
+        fprintf(f, "[SmolSD] nativeCreate ENTERED\n");
+        fclose(f);
+    }
+    fprintf(stderr, "[SmolSD] nativeCreate ENTERED\n"); fflush(stderr);
     const char* modelPath = jModelPath ? env->GetStringUTFChars(jModelPath, nullptr) : nullptr;
     const char* vaePath   = jVaePath   ? env->GetStringUTFChars(jVaePath,   nullptr) : nullptr;
     const char* t5xxlPath = jT5xxlPath ? env->GetStringUTFChars(jT5xxlPath, nullptr) : nullptr;
@@ -280,10 +301,6 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
 
     sd_ctx_t* ctx = new_sd_ctx(&p);
 
-    if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
-    if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
-    if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
-
     if (!ctx) {
         // Fallback: Check if we can load as T5-only context
         // This is a hack to support sequential loading where we only want the text encoder
@@ -314,20 +331,28 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
                  
                  if (!backend) {
                      ALOGE("Vulkan backend not available and CPU backend init failed/missing");
+                     if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
+                     if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+                     if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
                      return 0;
                  }
+                 ALOGI("Backend initialized for T5");
                  
                  // T5CLIPEmbedder(backend, offload, storage, use_mask, mask_pad, is_umt5)
                  bool is_umt5 = std::string(modelPath).find("umt5") != std::string::npos;
+                 ALOGI("Creating T5CLIPEmbedder (is_umt5=%d)", is_umt5);
                  
                  auto* t5 = new T5CLIPEmbedder(backend, offloadToCpu, model_loader.get_tensor_storage_map(), false, 0, is_umt5);
+                 ALOGI("Allocating params buffer for T5");
                  t5->alloc_params_buffer();
                  
                  // Load weights
                  std::map<std::string, struct ggml_tensor*> tensors;
                  t5->get_param_tensors(tensors);
+                 ALOGI("Got param tensors for T5: %zu tensors", tensors.size());
                  
                  std::set<std::string> ignore_tensors;
+                 ALOGI("Loading tensors for T5");
                  model_loader.load_tensors(tensors, ignore_tensors, get_num_physical_cores());
                  
                  auto* handle = new SdHandle();
@@ -337,6 +362,11 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
                      env->GetJavaVM(&handle->jvm);
                  }
                  ALOGI("T5-only context created successfully");
+                 
+                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
+                 if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+                 if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
+                 
                  return reinterpret_cast<jlong>(handle);
              } else {
                  ALOGE("Failed to init ModelLoader for T5");
@@ -344,8 +374,15 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         }
         
         ALOGE("Failed to create sd_ctx");
+        if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
+        if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+        if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
         return 0;
     }
+
+    if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
+    if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+    if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
 
     auto* handle = new SdHandle();
     handle->ctx = ctx;
@@ -494,6 +531,12 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
         enum scheduler_t s = static_cast<enum scheduler_t>(jScheduler);
         gen.sample_params.scheduler = s;
     }
+    
+    // Resolve default sample method, as generate_video doesn't do it
+    if (gen.sample_params.sample_method == SAMPLE_METHOD_DEFAULT) {
+        gen.sample_params.sample_method = sd_get_default_sample_method(handle->ctx);
+    }
+    
     gen.strength = jStrength;
 
     std::vector<uint8_t> initImageData;
@@ -747,9 +790,6 @@ Java_io_aatricks_llmedge_StableDiffusion_nativePrecomputeCondition(
         return nullptr;
     }
     
-    // ... rest of function ...
-
-
     // We'll return an Object[] = {float[] cross, int[] cross_dims, float[] vec, int[] vec_dims, float[] concat, int[] concat_dims}
     jclass objClass = env->FindClass("java/lang/Object");
     if (!objClass) {

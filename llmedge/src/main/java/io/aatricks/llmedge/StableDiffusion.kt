@@ -1294,7 +1294,11 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             require(height % 64 == 0 && height in 256..960) {
                 "Height must be a multiple of 64 in range 256..960"
             }
-            require(videoFrames in 4..64) { "Frame count must be between 4 and 64" }
+            // Wan model uses formula: actual_frames = (videoFrames-1)/4*4+1
+            // So 1-4 -> 1 frame, 5-8 -> 5 frames, 9-12 -> 9 frames, etc.
+            require(videoFrames in 5..64) { 
+                "Frame count must be between 5 and 64. Note: Wan model rounds to (n-1)/4*4+1, so use 5+ for multiple frames"
+            }
             require(steps in 10..50) { "Steps must be between 10 and 50" }
             require(cfgScale in 1.0f..15.0f) { "CFG scale must be between 1.0 and 15.0" }
             require(strength in 0.0f..1.0f) { "Strength must be between 0.0 and 1.0" }
@@ -1498,7 +1502,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 }
 
                 val avg = frameBytes.map { computeAvgBrightness(it) }.average()
+                Log.d(LOG_TAG, "Video frame analysis: ${frameBytes.size} frames, avg brightness=$avg, first frame size=${frameBytes.firstOrNull()?.size ?: 0}")
+                
                 if (avg < 1.0) {
+                    Log.w(LOG_TAG, "Detected potentially black frames (avg brightness < 1.0), attempting channel swap...")
                     // Try swapping R and B channels
                     val swapped = frameBytes.map { bytes ->
                         val out = ByteArray(bytes.size)
@@ -1516,9 +1523,17 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         out
                     }.toTypedArray()
                     val swappedAvg = swapped.map { computeAvgBrightness(it) }.average()
+                    Log.d(LOG_TAG, "After BGR swap: avg brightness=$swappedAvg")
                     if (swappedAvg > avg) {
                         frameBytes = swapped
-                        android.util.Log.w(LOG_TAG, "Swapped RGB->BGR for video frames to recover non-black output")
+                        Log.w(LOG_TAG, "Swapped RGB->BGR for video frames to recover non-black output")
+                    } else if (avg < 0.1) {
+                        // Still very dark - log raw byte samples for debugging
+                        val sample = frameBytes.firstOrNull()
+                        if (sample != null && sample.size >= 30) {
+                            val sampleBytes = sample.take(30).map { it.toInt() and 0xFF }
+                            Log.e(LOG_TAG, "Frame appears completely black. First 30 bytes: $sampleBytes")
+                        }
                     }
                 }
 
@@ -2023,11 +2038,12 @@ object SimpleGenerator {
     }
 }
 
-/** Converts Kotlin Scheduler enum to native sd_sample_method_t integer. */
+/** Converts Kotlin Scheduler enum to native scheduler_t integer for noise scheduling.
+ * Note: The Kotlin Scheduler enum names (EULER_A, DDIM, etc.) are sample methods, not schedulers.
+ * For video generation with Wan models, we use DEFAULT (0) which lets the native code
+ * choose the appropriate scheduler and sample method for the model.
+ */
 internal fun schedulerToNativeSampleMethod(scheduler: StableDiffusion.Scheduler): Int =
-        when (scheduler) {
-            StableDiffusion.Scheduler.EULER_A -> 0 // EULER_A
-            StableDiffusion.Scheduler.DDIM -> 10 // DDIM
-            StableDiffusion.Scheduler.DDPM -> 0 // EULER_A as fallback (DDPM not directly supported)
-            StableDiffusion.Scheduler.LCM -> 11 // LCM
-        }
+        // Return DEFAULT (0) for scheduler_t - the native code will use appropriate defaults
+        // for the model type. The Wan model uses EULER sampler internally.
+        0 // scheduler_t::DEFAULT

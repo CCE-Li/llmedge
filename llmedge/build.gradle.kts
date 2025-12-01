@@ -73,7 +73,33 @@ android {
     }
         testOptions {
             unitTests.all {
-                it.systemProperty("llmedge.disableNativeLoad", "true")
+                // Check if we're running the E2E test with native library path specified
+                val nativeLibPath = System.getenv("LLMEDGE_BUILD_NATIVE_LIB_PATH")
+                if (nativeLibPath.isNullOrBlank()) {
+                    // Disable native load for regular unit tests (no native library available)
+                    it.systemProperty("llmedge.disableNativeLoad", "true")
+                } else {
+                    // For E2E tests with native library, enable native loading and set library path
+                    it.systemProperty("llmedge.disableNativeLoad", "false")
+                    // Get the directory containing the native library
+                    val nativeLibDir = File(nativeLibPath).parent
+                    // Also include the jni-desktop build directory for dependencies
+                    val jniDesktopDir = "${rootProject.projectDir}/scripts/jni-desktop/build/bin"
+                    val libraryPath = "$nativeLibDir:$jniDesktopDir"
+                    it.jvmArgs("-Djava.library.path=$libraryPath")
+                    // Increase memory for video generation tests (needs lots of RAM for model + video frames)
+                    it.maxHeapSize = "12g"
+                    // Pass environment variables as system properties
+                    System.getenv("LLMEDGE_TEST_MODEL_PATH")?.let { path ->
+                        it.systemProperty("LLMEDGE_TEST_MODEL_PATH", path)
+                    }
+                    System.getenv("LLMEDGE_TEST_T5_PATH")?.let { path ->
+                        it.systemProperty("LLMEDGE_TEST_T5_PATH", path)
+                    }
+                    System.getenv("LLMEDGE_TEST_VAE_PATH")?.let { path ->
+                        it.systemProperty("LLMEDGE_TEST_VAE_PATH", path)
+                    }
+                }
             }
             managedDevices {
                 devices {

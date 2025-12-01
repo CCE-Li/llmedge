@@ -117,8 +117,13 @@ object LLMEdgeManager {
                 val seed: Long = -1L,
                 val flowShift: Float = Float.POSITIVE_INFINITY,
                 val flashAttn: Boolean = true,
-                val forceSequentialLoad: Boolean = false
-                ,
+                val forceSequentialLoad: Boolean = false,
+                // I2V (Image-to-Video) parameters
+                val initImage: ByteArray? = null,
+                val initWidth: Int = 0,
+                val initHeight: Int = 0,
+                val strength: Float = 1.0f, // 1.0 = full T2V, 0.0 = init image dominates
+                // Easy cache & LoRA
                 val easyCache: StableDiffusion.EasyCacheParams = StableDiffusion.EasyCacheParams(),
                 val loraModelDir: String? = null,
                 val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
@@ -567,6 +572,22 @@ object LLMEdgeManager {
                                                 steps = params.steps,
                                                 cfgScale = params.cfgScale,
                                                 seed = params.seed,
+                                                initImage = params.initImage?.let { bytes ->
+                                                        // Convert RGB byte array to Bitmap
+                                                        if (params.initWidth > 0 && params.initHeight > 0) {
+                                                                val pixels = IntArray(params.initWidth * params.initHeight)
+                                                                for (i in pixels.indices) {
+                                                                        val r = bytes[i * 3].toInt() and 0xFF
+                                                                        val g = bytes[i * 3 + 1].toInt() and 0xFF
+                                                                        val b = bytes[i * 3 + 2].toInt() and 0xFF
+                                                                        pixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                                                                }
+                                                                android.graphics.Bitmap.createBitmap(params.initWidth, params.initHeight, android.graphics.Bitmap.Config.ARGB_8888).apply {
+                                                                        setPixels(pixels, 0, params.initWidth, 0, 0, params.initWidth, params.initHeight)
+                                                                }
+                                                        } else null
+                                                },
+                                                strength = params.strength,
                                                 easyCacheParams = params.easyCache
                                         )
 
@@ -715,6 +736,23 @@ object LLMEdgeManager {
         ): List<Bitmap> {
                 ensureVideoFiles(context, onProgress)
 
+                // Check available memory before loading T5 (~6GB model)
+                val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                val memInfo = ActivityManager.MemoryInfo()
+                am.getMemoryInfo(memInfo)
+                val availMemMB = memInfo.availMem / (1024L * 1024L)
+                val requiredMemMB = 6000L // T5 Q3_K_S needs ~6GB
+                
+                if (availMemMB < requiredMemMB) {
+                        Log.e(TAG, "Insufficient memory for video generation: available=${availMemMB}MB, required=${requiredMemMB}MB")
+                        throw OutOfMemoryError(
+                                "Video generation requires ~${requiredMemMB}MB free RAM, but only ${availMemMB}MB is available. " +
+                                "Please close other apps and try again, or use a device with more RAM."
+                        )
+                }
+                
+                Log.i(TAG, "Memory check passed: available=${availMemMB}MB, required=${requiredMemMB}MB")
+
                 prepareMemoryForLoading()
                 var t5Model: StableDiffusion? = null
                 var cond: StableDiffusion.PrecomputedCondition?
@@ -793,7 +831,21 @@ object LLMEdgeManager {
                                         videoFrames = params.videoFrames,
                                         steps = params.steps,
                                         cfgScale = params.cfgScale,
-                                        seed = params.seed
+                                        seed = params.seed,
+                                        initImage = params.initImage?.let { bytes ->
+                                                // Convert RGB byte array to Bitmap for I2V
+                                                if (params.initWidth > 0 && params.initHeight > 0) {
+                                                        val pixels = IntArray(params.initWidth * params.initHeight)
+                                                        for (i in pixels.indices) {
+                                                                val r = bytes[i * 3].toInt() and 0xFF
+                                                                val g = bytes[i * 3 + 1].toInt() and 0xFF
+                                                                val b = bytes[i * 3 + 2].toInt() and 0xFF
+                                                                pixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                                                        }
+                                                        Bitmap.createBitmap(pixels, params.initWidth, params.initHeight, Bitmap.Config.ARGB_8888)
+                                                } else null
+                                        },
+                                        strength = params.strength
                                 )
 
                         val progressWrapper =
