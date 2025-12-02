@@ -489,7 +489,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     jstring jPrompt, jstring jNegative,
     jint width, jint height,
     jint videoFrames, jint steps, jfloat cfg, jlong seed,
-    jint jScheduler, jfloat jStrength,
+    jint jSampleMethod, jint jScheduler, jfloat jStrength,
     jbyteArray jInitImage, jint initWidth, jint initHeight,
     jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
     (void)thiz;
@@ -529,15 +529,19 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     gen.video_frames = videoFrames;
     gen.sample_params = sample;
     gen.seed = seed;
-    // Map scheduler enum if provided
-    if (jScheduler >= 0) {
-        enum scheduler_t s = static_cast<enum scheduler_t>(jScheduler);
-        gen.sample_params.scheduler = s;
-    }
     
-    // Resolve default sample method, as generate_video doesn't do it
+    // Map sample method enum if provided (0 = DEFAULT lets native decide)
+    if (jSampleMethod >= 0) {
+        gen.sample_params.sample_method = static_cast<enum sample_method_t>(jSampleMethod);
+    }
+    // Resolve default sample method if still DEFAULT
     if (gen.sample_params.sample_method == SAMPLE_METHOD_DEFAULT) {
         gen.sample_params.sample_method = sd_get_default_sample_method(handle->ctx);
+    }
+    
+    // Map scheduler enum if provided (0 = DEFAULT lets native decide)
+    if (jScheduler >= 0) {
+        gen.sample_params.scheduler = static_cast<enum scheduler_t>(jScheduler);
     }
     
     gen.strength = jStrength;
@@ -966,7 +970,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
         jstring jPrompt, jstring jNegative,
         jint width, jint height,
         jint videoFrames, jint steps, jfloat cfg, jlong seed,
-        jint jScheduler, jfloat jStrength,
+        jint jSampleMethod, jint jScheduler, jfloat jStrength,
         jbyteArray jInitImage, jint initWidth, jint initHeight,
         jobjectArray condArr, jobjectArray uncondArr,
         jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
@@ -1007,15 +1011,19 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
     gen.video_frames = videoFrames;
     gen.sample_params = sample;
     gen.seed = seed;
-    // Map scheduler enum if provided
-    if (jScheduler >= 0) {
-        enum scheduler_t s = static_cast<enum scheduler_t>(jScheduler);
-        gen.sample_params.scheduler = s;
-    }
     
-    // Resolve default sample method, as sd_generate_video_with_precomputed_condition doesn't do it
+    // Map sample method enum if provided (0 = DEFAULT lets native decide)
+    if (jSampleMethod >= 0) {
+        gen.sample_params.sample_method = static_cast<enum sample_method_t>(jSampleMethod);
+    }
+    // Resolve default sample method if still DEFAULT
     if (gen.sample_params.sample_method == SAMPLE_METHOD_DEFAULT) {
         gen.sample_params.sample_method = sd_get_default_sample_method(handle->ctx);
+    }
+    
+    // Map scheduler enum if provided (0 = DEFAULT lets native decide)
+    if (jScheduler >= 0) {
+        gen.sample_params.scheduler = static_cast<enum scheduler_t>(jScheduler);
     }
 
     gen.strength = jStrength;

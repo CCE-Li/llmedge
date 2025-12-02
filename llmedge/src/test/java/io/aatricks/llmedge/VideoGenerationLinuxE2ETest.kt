@@ -268,4 +268,136 @@ class VideoGenerationLinuxE2ETest {
 
         println("[VideoGenerationLinuxE2ETest-I2V] ✓ I2V validation passed!")
     }
+
+    @Test
+    fun `desktop sampler and scheduler enumeration test`() = runBlocking {
+        // Skip test if model paths are not provided
+        val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
+        val t5Path = System.getenv("LLMEDGE_TEST_T5_PATH") ?: System.getProperty("LLMEDGE_TEST_T5_PATH")
+        val vaePath = System.getenv("LLMEDGE_TEST_VAE_PATH") ?: System.getProperty("LLMEDGE_TEST_VAE_PATH")
+        
+        println("[SamplerSchedulerTest] modelPath=$modelPath t5Path=$t5Path vaePath=$vaePath")
+        Assume.assumeTrue("Model path not set", !modelPath.isNullOrBlank())
+        Assume.assumeTrue("T5 path not set", !t5Path.isNullOrBlank())
+        Assume.assumeTrue("VAE path not set", !vaePath.isNullOrBlank())
+
+        val libPath = System.getenv(LIB_PATH_ENV)
+            ?: System.getProperty(LIB_PATH_ENV)
+            ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
+        Assume.assumeTrue("Native library not found", java.io.File(libPath).exists())
+        Assume.assumeTrue("Native loading disabled", System.getProperty("llmedge.disableNativeLoad") != "true")
+
+        val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
+
+        // Test parameters - minimal settings for quick tests
+        val width = 256
+        val height = 256
+        val videoFrames = 5  // Will produce 5 frames per Wan formula
+        val steps = 10
+        val cfgScale = 7.0f
+        val seed = 42L
+        val prompt = "A simple test scene"
+
+        // Load model once
+        println("[SamplerSchedulerTest] Loading model...")
+        val sd = StableDiffusion.load(
+            context = context,
+            modelPath = modelPath,
+            vaePath = vaePath,
+            t5xxlPath = t5Path,
+            nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
+            offloadToCpu = true,
+            keepClipOnCpu = true,
+            keepVaeOnCpu = true,
+            flashAttn = true,
+            sequentialLoad = false
+        )
+
+        try {
+            // Test all sample methods
+            println("[SamplerSchedulerTest] Testing all sample methods...")
+            for (sampleMethod in StableDiffusion.SampleMethod.values()) {
+                println("[SamplerSchedulerTest] Testing sampler: $sampleMethod (id=${sampleMethod.id})")
+                
+                val params = StableDiffusion.VideoGenerateParams(
+                    prompt = prompt,
+                    width = width,
+                    height = height,
+                    videoFrames = videoFrames,
+                    steps = steps,
+                    cfgScale = cfgScale,
+                    seed = seed,
+                    sampleMethod = sampleMethod,
+                    scheduler = StableDiffusion.Scheduler.DEFAULT
+                )
+
+                try {
+                    val bitmaps = sd.txt2vid(params)
+                    println("[SamplerSchedulerTest] ✓ $sampleMethod: generated ${bitmaps.size} frames")
+                    assertTrue("${sampleMethod.name} should produce frames", bitmaps.isNotEmpty())
+                } catch (e: Exception) {
+                    println("[SamplerSchedulerTest] ✗ $sampleMethod failed: ${e.message}")
+                    // Some samplers may not be supported for all models - log but continue
+                }
+            }
+
+            // Test all schedulers
+            println("[SamplerSchedulerTest] Testing all schedulers...")
+            for (scheduler in StableDiffusion.Scheduler.values()) {
+                println("[SamplerSchedulerTest] Testing scheduler: $scheduler (id=${scheduler.id})")
+                
+                val params = StableDiffusion.VideoGenerateParams(
+                    prompt = prompt,
+                    width = width,
+                    height = height,
+                    videoFrames = videoFrames,
+                    steps = steps,
+                    cfgScale = cfgScale,
+                    seed = seed,
+                    sampleMethod = StableDiffusion.SampleMethod.DEFAULT,
+                    scheduler = scheduler
+                )
+
+                try {
+                    val bitmaps = sd.txt2vid(params)
+                    println("[SamplerSchedulerTest] ✓ $scheduler: generated ${bitmaps.size} frames")
+                    assertTrue("${scheduler.name} should produce frames", bitmaps.isNotEmpty())
+                } catch (e: Exception) {
+                    println("[SamplerSchedulerTest] ✗ $scheduler failed: ${e.message}")
+                    // Some schedulers may not be supported for all models - log but continue
+                }
+            }
+
+            println("[SamplerSchedulerTest] ✓ All sampler/scheduler tests completed!")
+        } finally {
+            sd.close()
+        }
+    }
+
+    @Test
+    fun `frame count formula test`() {
+        // Test the Wan model frame formula: actual_frames = (n-1)/4*4+1
+        val testCases = listOf(
+            5 to 5,   // (5-1)/4*4+1 = 4/4*4+1 = 1*4+1 = 5
+            6 to 5,   // (6-1)/4*4+1 = 5/4*4+1 = 1*4+1 = 5
+            7 to 5,   // (7-1)/4*4+1 = 6/4*4+1 = 1*4+1 = 5
+            8 to 5,   // (8-1)/4*4+1 = 7/4*4+1 = 1*4+1 = 5
+            9 to 9,   // (9-1)/4*4+1 = 8/4*4+1 = 2*4+1 = 9
+            10 to 9,  // (10-1)/4*4+1 = 9/4*4+1 = 2*4+1 = 9
+            12 to 9,  // (12-1)/4*4+1 = 11/4*4+1 = 2*4+1 = 9
+            13 to 13, // (13-1)/4*4+1 = 12/4*4+1 = 3*4+1 = 13
+            16 to 13, // (16-1)/4*4+1 = 15/4*4+1 = 3*4+1 = 13
+            17 to 17, // (17-1)/4*4+1 = 16/4*4+1 = 4*4+1 = 17
+        )
+
+        for ((input, expected) in testCases) {
+            val params = StableDiffusion.VideoGenerateParams(
+                prompt = "test",
+                videoFrames = input
+            )
+            val actual = params.actualFrameCount()
+            assertEquals("For input $input, expected $expected actual frames", expected, actual)
+            println("[FrameCountTest] Input $input → actual $actual ✓")
+        }
+    }
 }

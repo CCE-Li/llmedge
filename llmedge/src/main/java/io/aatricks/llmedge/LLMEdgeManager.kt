@@ -123,11 +123,20 @@ object LLMEdgeManager {
                 val initWidth: Int = 0,
                 val initHeight: Int = 0,
                 val strength: Float = 1.0f, // 1.0 = full T2V, 0.0 = init image dominates
+                // Sampling configuration
+                val sampleMethod: StableDiffusion.SampleMethod = StableDiffusion.SampleMethod.DEFAULT,
+                val scheduler: StableDiffusion.Scheduler = StableDiffusion.Scheduler.DEFAULT,
                 // Easy cache & LoRA
                 val easyCache: StableDiffusion.EasyCacheParams = StableDiffusion.EasyCacheParams(),
                 val loraModelDir: String? = null,
                 val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
-        )
+        ) {
+                /**
+                 * Calculate the actual number of frames that will be generated.
+                 * Wan model uses formula: actual_frames = (videoFrames-1)/4*4+1
+                 */
+                fun actualFrameCount(): Int = (videoFrames - 1) / 4 * 4 + 1
+        }
 
         data class TextGenerationParams(
                 val prompt: String,
@@ -588,6 +597,8 @@ object LLMEdgeManager {
                                                         } else null
                                                 },
                                                 strength = params.strength,
+                                                sampleMethod = params.sampleMethod,
+                                                scheduler = params.scheduler,
                                                 easyCacheParams = params.easyCache
                                         )
 

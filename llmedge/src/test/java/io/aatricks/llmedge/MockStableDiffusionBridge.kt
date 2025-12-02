@@ -50,6 +50,7 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         val steps: Int,
         val cfg: Float,
         val seed: Long,
+        val sampleMethod: StableDiffusion.SampleMethod,
         val scheduler: StableDiffusion.Scheduler,
         val strength: Float,
         val initImage: ByteArray?,
@@ -72,6 +73,7 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         steps: Int,
         cfg: Float,
         seed: Long,
+        sampleMethod: StableDiffusion.SampleMethod,
         scheduler: StableDiffusion.Scheduler,
         strength: Float,
         initImage: ByteArray?,
@@ -85,7 +87,7 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         // Track the call
         txt2VidCalls.add(Txt2VidCall(
             handle, prompt, negative, width, height, videoFrames, steps, cfg, seed,
-            scheduler, strength, initImage, initWidth, initHeight
+            sampleMethod, scheduler, strength, initImage, initWidth, initHeight
             , easyCacheEnabled, easyCacheReuseThreshold, easyCacheStartPercent, easyCacheEndPercent
         ))
 

@@ -55,6 +55,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 steps: Int,
                 cfg: Float,
                 seed: Long,
+                sampleMethod: SampleMethod,
                 scheduler: Scheduler,
                 strength: Float,
                 initImage: ByteArray?,
@@ -85,6 +86,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 steps: Int,
                 cfg: Float,
                 seed: Long,
+                sampleMethod: SampleMethod,
                 scheduler: Scheduler,
                 strength: Float,
                 initImage: ByteArray?,
@@ -106,6 +108,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             steps,
             cfg,
             seed,
+            sampleMethod,
             scheduler,
             strength,
             initImage,
@@ -165,6 +168,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             steps: Int,
             cfg: Float,
             seed: Long,
+            sampleMethod: SampleMethod,
             scheduler: Scheduler,
             strength: Float,
             initImage: ByteArray?,
@@ -185,6 +189,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 steps,
                 cfg,
                 seed,
+                sampleMethod,
                 scheduler,
                 strength,
                 initImage,
@@ -286,6 +291,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         steps: Int,
                         cfg: Float,
                         seed: Long,
+                        sampleMethod: SampleMethod,
                         scheduler: Scheduler,
                         strength: Float,
                         initImage: ByteArray?,
@@ -306,7 +312,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 steps,
                                 cfg,
                                 seed,
-                                schedulerToNativeSampleMethod(scheduler),
+                                sampleMethod.id,
+                                scheduler.id,
                                 strength,
                                 initImage,
                                 initWidth,
@@ -363,6 +370,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         steps: Int,
                         cfg: Float,
                         seed: Long,
+                        sampleMethod: SampleMethod,
                         scheduler: Scheduler,
                         strength: Float,
                         initImage: ByteArray?,
@@ -404,7 +412,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             steps,
                             cfg,
                             seed,
-                            schedulerToNativeSampleMethod(scheduler),
+                            sampleMethod.id,
+                            scheduler.id,
                             strength,
                             initImage,
                             initWidth,
@@ -1257,19 +1266,79 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             val endPercent: Float = 0.95f,
         )
 
-    enum class Scheduler {
-        /** Euler Ancestral - Default, good balance of quality and speed */
-        EULER_A,
-
-        /** Denoising Diffusion Implicit Models - High quality, slower */
-        DDIM,
-
-        /** Denoising Diffusion Probabilistic Models - Very high quality, slowest */
-        DDPM,
-
+    /**
+     * Sample methods for diffusion models.
+     * Maps to native sample_method_t enum values.
+     */
+    enum class SampleMethod(val id: Int) {
+        /** Let native code choose the default for the model type */
+        DEFAULT(0),
+        /** Euler sampler - Default for Flux/SD3/Wan */
+        EULER(1),
+        /** Heun sampler - Higher quality, 2x computation */
+        HEUN(2),
+        /** DPM2 sampler */
+        DPM2(3),
+        /** DPM++ 2S Ancestral */
+        DPMPP2S_A(4),
+        /** DPM++ 2M */
+        DPMPP2M(5),
+        /** DPM++ 2M v2 */
+        DPMPP2MV2(6),
+        /** IPNDM */
+        IPNDM(7),
+        /** IPNDM v */
+        IPNDM_V(8),
         /** Latent Consistency Models - Fast generation, fewer steps needed */
-        LCM
+        LCM(9),
+        /** DDIM Trailing */
+        DDIM_TRAILING(10),
+        /** TCD */
+        TCD(11),
+        /** Euler Ancestral - Good balance of quality and speed */
+        EULER_A(12);
+
+        companion object {
+            fun fromId(id: Int): SampleMethod = values().firstOrNull { it.id == id } ?: DEFAULT
+        }
     }
+
+    /**
+     * Noise schedulers for diffusion models.
+     * Maps to native scheduler_t enum values.
+     */
+    enum class Scheduler(val id: Int) {
+        /** Let native code choose the default scheduler */
+        DEFAULT(0),
+        /** Discrete scheduler */
+        DISCRETE(1),
+        /** Karras scheduler - Often better quality */
+        KARRAS(2),
+        /** Exponential scheduler */
+        EXPONENTIAL(3),
+        /** AYS scheduler */
+        AYS(4),
+        /** GITS scheduler */
+        GITS(5),
+        /** SGM Uniform scheduler */
+        SGM_UNIFORM(6),
+        /** Simple scheduler */
+        SIMPLE(7),
+        /** Smoothstep scheduler */
+        SMOOTHSTEP(8);
+
+        companion object {
+            fun fromId(id: Int): Scheduler = values().firstOrNull { it.id == id } ?: DEFAULT
+        }
+    }
+
+    // Legacy alias for backward compatibility
+    @Deprecated("Use SampleMethod enum instead", ReplaceWith("SampleMethod"))
+    val EULER_A = SampleMethod.EULER_A
+    @Deprecated("Use SampleMethod enum instead", ReplaceWith("SampleMethod"))
+    val DDIM = SampleMethod.DDIM_TRAILING
+    @Deprecated("Use SampleMethod enum instead", ReplaceWith("SampleMethod"))
+    val LCM = SampleMethod.LCM
 
         data class VideoGenerateParams(
             val prompt: String,
@@ -1282,10 +1351,17 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             val seed: Long = -1L,
             val initImage: Bitmap? = null,
             val strength: Float = 0.8f,
-            val scheduler: Scheduler = Scheduler.EULER_A
-            ,
+            val sampleMethod: SampleMethod = SampleMethod.DEFAULT,
+            val scheduler: Scheduler = Scheduler.DEFAULT,
             val easyCacheParams: EasyCacheParams = EasyCacheParams()
         ) {
+        /**
+         * Calculate the actual number of frames that will be generated.
+         * Wan model uses formula: actual_frames = (videoFrames-1)/4*4+1
+         * Examples: 5→5, 8→5, 9→9, 10→9, 12→9, 13→13
+         */
+        fun actualFrameCount(): Int = (videoFrames - 1) / 4 * 4 + 1
+
         fun validate(): Result<Unit> = runCatching {
             require(prompt.isNotBlank()) { "Prompt cannot be blank" }
             require(width % 64 == 0 && width in 256..960) {
@@ -1316,6 +1392,19 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
         companion object {
             fun default(prompt: String = "") = VideoGenerateParams(prompt = prompt)
+
+            /**
+             * Get the recommended videoFrames value to generate exactly N frames.
+             * Since Wan uses (n-1)/4*4+1, to get exactly N frames you need:
+             * 1 frame → 1-4, 5 frames → 5-8, 9 frames → 9-12, etc.
+             */
+            fun recommendedFrameInput(desiredFrames: Int): Int {
+                require(desiredFrames >= 1) { "Desired frames must be at least 1" }
+                // Reverse the formula: to get N, input N is fine if N = (N-1)/4*4+1
+                // Otherwise input N+3 at most
+                return if (desiredFrames == 1) 1
+                else ((desiredFrames - 1) / 4) * 4 + 5
+            }
         }
     }
 
@@ -1450,6 +1539,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         params.steps,
                                         params.cfgScale,
                                         params.seed,
+                                        params.sampleMethod,
                                         params.scheduler,
                                         params.strength,
                                         initBytes,
@@ -1476,10 +1566,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     throw IllegalStateException("Video generation returned no frames")
                 }
 
-                if (frameBytes.size != params.videoFrames) {
+                // Note: Wan model calculates actual frames as (n-1)/4*4+1
+                val expectedFrames = params.actualFrameCount()
+                if (frameBytes.size != expectedFrames) {
                     Log.w(
                             LOG_TAG,
-                            "Expected ${params.videoFrames} frames but received ${frameBytes.size}",
+                            "Expected $expectedFrames frames (formula: (${params.videoFrames}-1)/4*4+1) but received ${frameBytes.size}",
                     )
                 }
 
@@ -1671,6 +1763,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             steps: Int,
             cfg: Float,
             seed: Long,
+            sampleMethod: Int,
             scheduler: Int,
             strength: Float,
             initImage: ByteArray?,
@@ -1708,6 +1801,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             steps: Int,
             cfg: Float,
             seed: Long,
+            sampleMethod: Int,
             scheduler: Int,
             strength: Float,
             initImage: ByteArray?,
@@ -1859,6 +1953,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         params.steps,
                                         params.cfgScale,
                                         params.seed,
+                                        params.sampleMethod,
                                         params.scheduler,
                                         params.strength,
                                         initBytes,
@@ -1887,10 +1982,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     throw IllegalStateException("Video generation returned no frames")
                 }
 
-                if (frameBytes.size != params.videoFrames) {
+                // Note: Wan model calculates actual frames as (n-1)/4*4+1
+                val expectedFrames = params.actualFrameCount()
+                if (frameBytes.size != expectedFrames) {
                     Log.w(
                             LOG_TAG,
-                            "Expected ${params.videoFrames} frames but received ${frameBytes.size}",
+                            "Expected $expectedFrames frames (formula: (${params.videoFrames}-1)/4*4+1) but received ${frameBytes.size}",
                     )
                 }
 
@@ -2037,13 +2134,3 @@ object SimpleGenerator {
         }
     }
 }
-
-/** Converts Kotlin Scheduler enum to native scheduler_t integer for noise scheduling.
- * Note: The Kotlin Scheduler enum names (EULER_A, DDIM, etc.) are sample methods, not schedulers.
- * For video generation with Wan models, we use DEFAULT (0) which lets the native code
- * choose the appropriate scheduler and sample method for the model.
- */
-internal fun schedulerToNativeSampleMethod(scheduler: StableDiffusion.Scheduler): Int =
-        // Return DEFAULT (0) for scheduler_t - the native code will use appropriate defaults
-        // for the model type. The Wan model uses EULER sampler internally.
-        0 // scheduler_t::DEFAULT

@@ -63,6 +63,7 @@ class StableDiffusionTxt2ImgTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    sampleMethod: StableDiffusion.SampleMethod,
                     scheduler: StableDiffusion.Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
