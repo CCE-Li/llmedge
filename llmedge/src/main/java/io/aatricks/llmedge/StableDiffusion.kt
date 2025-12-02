@@ -1273,19 +1273,19 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     enum class SampleMethod(val id: Int) {
         /** Let native code choose the default for the model type */
         DEFAULT(0),
-        /** Euler sampler - Default for Flux/SD3/Wan */
+        /** Euler sampler - Default and recommended for DiT models (Flux/SD3/Wan) */
         EULER(1),
-        /** Heun sampler - Higher quality, 2x computation */
+        /** Heun sampler - Higher quality, 2x computation. Works with all models. */
         HEUN(2),
-        /** DPM2 sampler */
+        /** DPM2 sampler - Best for U-Net models (SD1.x/SD2.x/SDXL). Not recommended for Wan. */
         DPM2(3),
-        /** DPM++ 2S Ancestral */
+        /** DPM++ 2S Ancestral - Best for U-Net models. Not recommended for Wan. */
         DPMPP2S_A(4),
-        /** DPM++ 2M */
+        /** DPM++ 2M - Best for U-Net models. Not recommended for Wan video generation. */
         DPMPP2M(5),
-        /** DPM++ 2M v2 */
+        /** DPM++ 2M v2 - Best for U-Net models. Not recommended for Wan. */
         DPMPP2MV2(6),
-        /** IPNDM */
+        /** IPNDM - Fast sampler */
         IPNDM(7),
         /** IPNDM v */
         IPNDM_V(8),
@@ -1295,13 +1295,17 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         DDIM_TRAILING(10),
         /** TCD */
         TCD(11),
-        /** Euler Ancestral - Good balance of quality and speed */
+        /** Euler Ancestral - Default for U-Net models (SD1.x/SD2.x/SDXL). May work with Wan but EULER is preferred. */
         EULER_A(12);
 
         companion object {
             fun fromId(id: Int): SampleMethod = values().firstOrNull { it.id == id } ?: DEFAULT
+            
+            /** Samplers recommended for Wan video generation */
+            val WAN_RECOMMENDED = listOf(DEFAULT, EULER, HEUN)
         }
     }
+
 
     /**
      * Noise schedulers for diffusion models.
@@ -1329,6 +1333,9 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
         companion object {
             fun fromId(id: Int): Scheduler = values().firstOrNull { it.id == id } ?: DEFAULT
+            
+            /** Schedulers known to work reliably with Wan video generation */
+            val WAN_RECOMMENDED = listOf(DEFAULT)
         }
     }
 
