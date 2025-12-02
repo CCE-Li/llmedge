@@ -1289,7 +1289,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         IPNDM(7),
         /** IPNDM v */
         IPNDM_V(8),
-        /** Latent Consistency Models - Fast generation, fewer steps needed */
+        /** Latent Consistency Models - Requires LCM-distilled models. NOT compatible with Wan. */
         LCM(9),
         /** DDIM Trailing */
         DDIM_TRAILING(10),
@@ -1303,6 +1303,9 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             
             /** Samplers recommended for Wan video generation */
             val WAN_RECOMMENDED = listOf(DEFAULT, EULER, HEUN)
+            
+            /** Samplers that are NOT compatible with Wan (produce blank/noise output) */
+            val WAN_INCOMPATIBLE = listOf(LCM, DPMPP2M, DPMPP2MV2, DPM2, DPMPP2S_A)
         }
     }
 

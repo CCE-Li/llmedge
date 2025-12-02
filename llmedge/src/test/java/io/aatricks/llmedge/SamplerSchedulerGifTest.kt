@@ -117,7 +117,7 @@ class SamplerSchedulerGifTest {
             println("[SamplerGifTest] ✓ Generated ${bitmaps.size} frames")
             
             // Save as GIF
-            val gifName = "test_${sampleMethod.name.lowercase()}_${scheduler.name.lowercase()}.gif"
+            val gifName = "test_${sampleMethod.name.lowercase()}_${scheduler.name.lowercase()}_${steps}steps.gif"
             val gifFile = File(outputDir, gifName)
             saveAsGif(bitmaps, gifFile, delayMs = 100)
             println("[SamplerGifTest] ✓ Saved: ${gifFile.absolutePath}")
