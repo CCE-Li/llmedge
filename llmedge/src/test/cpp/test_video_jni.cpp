@@ -46,15 +46,20 @@ JNIEXPORT jobjectArray JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeTx
     jstring jPrompt, jstring jNegative,
     jint width, jint height,
     jint videoFrames, jint steps, jfloat cfg, jlong seed,
+    jint jScheduler, jfloat jStrength,
     jbyteArray jInitImage, jint initWidth, jint initHeight,
     jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent);
 JNIEXPORT void JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeSetProgressCallback(
         JNIEnv* env, jobject thiz, jlong handlePtr, jobject progressCallback);
 JNIEXPORT jobjectArray JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
         JNIEnv* env, jobject thiz, jlong handlePtr,
-        jbyteArray jCondCrossAttn, jbyteArray jCondVector, jbyteArray jCondConcat,
-        jbyteArray jUncondCrossAttn, jbyteArray jUncondVector, jbyteArray jUncondConcat,
-        jint width, jint height, jint videoFrames, jint steps, jfloat cfg, jlong seed);
+        jstring jPrompt, jstring jNegative,
+        jint width, jint height,
+        jint videoFrames, jint steps, jfloat cfg, jlong seed,
+        jint jScheduler, jfloat jStrength,
+        jbyteArray jInitImage, jint initWidth, jint initHeight,
+        jobjectArray condArr, jobjectArray uncondArr,
+        jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent);
 JNIEXPORT void JNICALL Java_io_aatricks_llmedge_StableDiffusion_nativeCancelGeneration(
         JNIEnv* env, jobject thiz, jlong handlePtr);
 }
@@ -265,7 +270,9 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
     frames = Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
             env, nullptr, diffusionHandle, prompt, negPrompt,
             256, 256, 13, 12, 7.5f, 42L,
-            nullptr, 0, 0);
+            0, 0.8f, // scheduler and strength
+            nullptr, 0, 0,
+            JNI_FALSE, 0.2f, 0.15f, 0.95f); // easycache params
     
     env->DeleteLocalRef(prompt);
     env->DeleteLocalRef(negPrompt);

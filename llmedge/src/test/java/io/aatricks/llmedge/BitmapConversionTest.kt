@@ -157,6 +157,32 @@ class BitmapConversionTest {
     }
 
     @Test
+    fun `convertFramesToBitmaps does not alias pixel buffer across frames`() {
+        val sd = newStableDiffusion()
+
+        // Create 2 frames with different pixel values
+        val frameBytes = arrayOf(
+            byteArrayOf(0x01.toByte(), 0x02.toByte(), 0x03.toByte()),
+            byteArrayOf(0x04.toByte(), 0x05.toByte(), 0x06.toByte())
+        )
+
+        val result = callPrivateMethod<List<Bitmap>>(
+            sd,
+            "convertFramesToBitmaps",
+            Array<ByteArray>::class.java to frameBytes,
+            Int::class.java to 1,
+            Int::class.java to 1
+        )
+
+        assertEquals(2, result.size)
+        val firstPixel = result[0].getPixel(0, 0)
+        val secondPixel = result[1].getPixel(0, 0)
+        assertNotNull("First bitmap should be created", firstPixel)
+        assertNotNull("Second bitmap should be created", secondPixel)
+        assertTrue("Frames should not be identical", firstPixel != secondPixel)
+    }
+
+    @Test
     fun `convertFramesToBitmaps handles empty frame array`() {
         val sd = newStableDiffusion()
 
@@ -169,6 +195,32 @@ class BitmapConversionTest {
         )
 
         assertEquals(0, result.size)
+    }
+
+    @Test
+    fun `convertFramesToBitmaps copies frame bytes to avoid aliasing`() {
+        val sd = newStableDiffusion()
+        val shared = byteArrayOf(0x01.toByte(), 0x02.toByte(), 0x03.toByte())
+        val frames = arrayOf(shared, shared)
+
+        val result = callPrivateMethod<List<Bitmap>>(
+            sd,
+            "convertFramesToBitmaps",
+            Array<ByteArray>::class.java to frames,
+            Int::class.java to 1,
+            Int::class.java to 1
+        )
+
+        // Mutate the shared backing buffer after conversion - bitmaps should retain their
+        // original pixel data if we copied the byte arrays during conversion.
+        shared[0] = 0xFF.toByte()
+        shared[1] = 0x00.toByte()
+        shared[2] = 0x00.toByte()
+
+        val firstPixel = result[0].getPixel(0, 0)
+        val secondPixel = result[1].getPixel(0, 0)
+        assertEquals(0xFF010203.toInt(), firstPixel)
+        assertEquals(0xFF010203.toInt(), secondPixel)
     }
 
     @Test

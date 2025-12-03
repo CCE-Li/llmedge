@@ -55,6 +55,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 steps: Int,
                 cfg: Float,
                 seed: Long,
+                sampleMethod: SampleMethod,
                 scheduler: Scheduler,
                 strength: Float,
                 initImage: ByteArray?,
@@ -85,6 +86,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 steps: Int,
                 cfg: Float,
                 seed: Long,
+                sampleMethod: SampleMethod,
                 scheduler: Scheduler,
                 strength: Float,
                 initImage: ByteArray?,
@@ -106,6 +108,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             steps,
             cfg,
             seed,
+            sampleMethod,
             scheduler,
             strength,
             initImage,
@@ -165,6 +168,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             steps: Int,
             cfg: Float,
             seed: Long,
+            sampleMethod: SampleMethod,
             scheduler: Scheduler,
             strength: Float,
             initImage: ByteArray?,
@@ -185,6 +189,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 steps,
                 cfg,
                 seed,
+                sampleMethod,
                 scheduler,
                 strength,
                 initImage,
@@ -286,6 +291,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         steps: Int,
                         cfg: Float,
                         seed: Long,
+                        sampleMethod: SampleMethod,
                         scheduler: Scheduler,
                         strength: Float,
                         initImage: ByteArray?,
@@ -306,7 +312,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 steps,
                                 cfg,
                                 seed,
-                                schedulerToNativeSampleMethod(scheduler),
+                                sampleMethod.id,
+                                scheduler.id,
                                 strength,
                                 initImage,
                                 initWidth,
@@ -363,6 +370,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         steps: Int,
                         cfg: Float,
                         seed: Long,
+                        sampleMethod: SampleMethod,
                         scheduler: Scheduler,
                         strength: Float,
                         initImage: ByteArray?,
@@ -404,7 +412,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             steps,
                             cfg,
                             seed,
-                            schedulerToNativeSampleMethod(scheduler),
+                            sampleMethod.id,
+                            scheduler.id,
                             strength,
                             initImage,
                             initWidth,
@@ -1257,19 +1266,89 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             val endPercent: Float = 0.95f,
         )
 
-    enum class Scheduler {
-        /** Euler Ancestral - Default, good balance of quality and speed */
-        EULER_A,
+    /**
+     * Sample methods for diffusion models.
+     * Maps to native sample_method_t enum values.
+     */
+    enum class SampleMethod(val id: Int) {
+        /** Let native code choose the default for the model type */
+        DEFAULT(0),
+        /** Euler sampler - Default and recommended for DiT models (Flux/SD3/Wan) */
+        EULER(1),
+        /** Heun sampler - Higher quality, 2x computation. Works with all models. */
+        HEUN(2),
+        /** DPM2 sampler - Best for U-Net models (SD1.x/SD2.x/SDXL). Not recommended for Wan. */
+        DPM2(3),
+        /** DPM++ 2S Ancestral - Best for U-Net models. Not recommended for Wan. */
+        DPMPP2S_A(4),
+        /** DPM++ 2M - Best for U-Net models. Not recommended for Wan video generation. */
+        DPMPP2M(5),
+        /** DPM++ 2M v2 - Best for U-Net models. Not recommended for Wan. */
+        DPMPP2MV2(6),
+        /** IPNDM - Fast sampler */
+        IPNDM(7),
+        /** IPNDM v */
+        IPNDM_V(8),
+        /** Latent Consistency Models - Requires LCM-distilled models. NOT compatible with Wan. */
+        LCM(9),
+        /** DDIM Trailing */
+        DDIM_TRAILING(10),
+        /** TCD */
+        TCD(11),
+        /** Euler Ancestral - Default for U-Net models (SD1.x/SD2.x/SDXL). May work with Wan but EULER is preferred. */
+        EULER_A(12);
 
-        /** Denoising Diffusion Implicit Models - High quality, slower */
-        DDIM,
-
-        /** Denoising Diffusion Probabilistic Models - Very high quality, slowest */
-        DDPM,
-
-        /** Latent Consistency Models - Fast generation, fewer steps needed */
-        LCM
+        companion object {
+            fun fromId(id: Int): SampleMethod = values().firstOrNull { it.id == id } ?: DEFAULT
+            
+            /** Samplers recommended for Wan video generation */
+            val WAN_RECOMMENDED = listOf(DEFAULT, EULER, HEUN)
+            
+            /** Samplers that are NOT compatible with Wan (produce blank/noise output) */
+            val WAN_INCOMPATIBLE = listOf(LCM, DPMPP2M, DPMPP2MV2, DPM2, DPMPP2S_A)
+        }
     }
+
+
+    /**
+     * Noise schedulers for diffusion models.
+     * Maps to native scheduler_t enum values.
+     */
+    enum class Scheduler(val id: Int) {
+        /** Let native code choose the default scheduler */
+        DEFAULT(0),
+        /** Discrete scheduler */
+        DISCRETE(1),
+        /** Karras scheduler - Often better quality */
+        KARRAS(2),
+        /** Exponential scheduler */
+        EXPONENTIAL(3),
+        /** AYS scheduler */
+        AYS(4),
+        /** GITS scheduler */
+        GITS(5),
+        /** SGM Uniform scheduler */
+        SGM_UNIFORM(6),
+        /** Simple scheduler */
+        SIMPLE(7),
+        /** Smoothstep scheduler */
+        SMOOTHSTEP(8);
+
+        companion object {
+            fun fromId(id: Int): Scheduler = values().firstOrNull { it.id == id } ?: DEFAULT
+            
+            /** Schedulers known to work reliably with Wan video generation */
+            val WAN_RECOMMENDED = listOf(DEFAULT)
+        }
+    }
+
+    // Legacy alias for backward compatibility
+    @Deprecated("Use SampleMethod enum instead", ReplaceWith("SampleMethod"))
+    val EULER_A = SampleMethod.EULER_A
+    @Deprecated("Use SampleMethod enum instead", ReplaceWith("SampleMethod"))
+    val DDIM = SampleMethod.DDIM_TRAILING
+    @Deprecated("Use SampleMethod enum instead", ReplaceWith("SampleMethod"))
+    val LCM = SampleMethod.LCM
 
         data class VideoGenerateParams(
             val prompt: String,
@@ -1282,10 +1361,17 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             val seed: Long = -1L,
             val initImage: Bitmap? = null,
             val strength: Float = 0.8f,
-            val scheduler: Scheduler = Scheduler.EULER_A
-            ,
+            val sampleMethod: SampleMethod = SampleMethod.DEFAULT,
+            val scheduler: Scheduler = Scheduler.DEFAULT,
             val easyCacheParams: EasyCacheParams = EasyCacheParams()
         ) {
+        /**
+         * Calculate the actual number of frames that will be generated.
+         * Wan model uses formula: actual_frames = (videoFrames-1)/4*4+1
+         * Examples: 5→5, 8→5, 9→9, 10→9, 12→9, 13→13
+         */
+        fun actualFrameCount(): Int = (videoFrames - 1) / 4 * 4 + 1
+
         fun validate(): Result<Unit> = runCatching {
             require(prompt.isNotBlank()) { "Prompt cannot be blank" }
             require(width % 64 == 0 && width in 256..960) {
@@ -1294,7 +1380,11 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             require(height % 64 == 0 && height in 256..960) {
                 "Height must be a multiple of 64 in range 256..960"
             }
-            require(videoFrames in 4..64) { "Frame count must be between 4 and 64" }
+            // Wan model uses formula: actual_frames = (videoFrames-1)/4*4+1
+            // So 1-4 -> 1 frame, 5-8 -> 5 frames, 9-12 -> 9 frames, etc.
+            require(videoFrames in 5..64) { 
+                "Frame count must be between 5 and 64. Note: Wan model rounds to (n-1)/4*4+1, so use 5+ for multiple frames"
+            }
             require(steps in 10..50) { "Steps must be between 10 and 50" }
             require(cfgScale in 1.0f..15.0f) { "CFG scale must be between 1.0 and 15.0" }
             require(strength in 0.0f..1.0f) { "Strength must be between 0.0 and 1.0" }
@@ -1312,6 +1402,19 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
         companion object {
             fun default(prompt: String = "") = VideoGenerateParams(prompt = prompt)
+
+            /**
+             * Get the recommended videoFrames value to generate exactly N frames.
+             * Since Wan uses (n-1)/4*4+1, to get exactly N frames you need:
+             * 1 frame → 1-4, 5 frames → 5-8, 9 frames → 9-12, etc.
+             */
+            fun recommendedFrameInput(desiredFrames: Int): Int {
+                require(desiredFrames >= 1) { "Desired frames must be at least 1" }
+                // Reverse the formula: to get N, input N is fine if N = (N-1)/4*4+1
+                // Otherwise input N+3 at most
+                return if (desiredFrames == 1) 1
+                else ((desiredFrames - 1) / 4) * 4 + 5
+            }
         }
     }
 
@@ -1432,7 +1535,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
                 val startNanos = System.nanoTime()
                 val memoryBefore = readNativeMemoryMb()
-                val frameBytes =
+                var frameBytes =
                         try {
                             generationMutex.withLock {
                                 cancellationRequested.set(false)
@@ -1446,6 +1549,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         params.steps,
                                         params.cfgScale,
                                         params.seed,
+                                        params.sampleMethod,
                                         params.scheduler,
                                         params.strength,
                                         initBytes,
@@ -1472,11 +1576,67 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     throw IllegalStateException("Video generation returned no frames")
                 }
 
-                if (frameBytes.size != params.videoFrames) {
+                // Note: Wan model calculates actual frames as (n-1)/4*4+1
+                val expectedFrames = params.actualFrameCount()
+                if (frameBytes.size != expectedFrames) {
                     Log.w(
                             LOG_TAG,
-                            "Expected ${params.videoFrames} frames but received ${frameBytes.size}",
+                            "Expected $expectedFrames frames (formula: (${params.videoFrames}-1)/4*4+1) but received ${frameBytes.size}",
                     )
+                }
+
+                // Heuristic: if native output appears to be fully black/near zero, attempt
+                // a channel-swap fallback (common when channel ordering is reversed or
+                // when a plugin returns bytes in a different layout). This helps surface
+                // real frames instead of blank images in environments with inconsistent
+                // native outputs.
+                fun computeAvgBrightness(bytes: ByteArray): Double {
+                    var s = 0L
+                    var i = 0
+                    val totalPixels = (bytes.size / 3).coerceAtLeast(1)
+                    while (i + 2 < bytes.size) {
+                        val r = bytes[i++].toInt() and 0xFF
+                        val g = bytes[i++].toInt() and 0xFF
+                        val b = bytes[i++].toInt() and 0xFF
+                        s += (r + g + b) / 3
+                    }
+                    return s.toDouble() / totalPixels
+                }
+
+                val avg = frameBytes.map { computeAvgBrightness(it) }.average()
+                Log.d(LOG_TAG, "Video frame analysis: ${frameBytes.size} frames, avg brightness=$avg, first frame size=${frameBytes.firstOrNull()?.size ?: 0}")
+                
+                if (avg < 1.0) {
+                    Log.w(LOG_TAG, "Detected potentially black frames (avg brightness < 1.0), attempting channel swap...")
+                    // Try swapping R and B channels
+                    val swapped = frameBytes.map { bytes ->
+                        val out = ByteArray(bytes.size)
+                        var j = 0
+                        var k = 0
+                        while (k + 2 < bytes.size) {
+                            val r = bytes[k]
+                            val g = bytes[k + 1]
+                            val b = bytes[k + 2]
+                            out[j++] = b
+                            out[j++] = g
+                            out[j++] = r
+                            k += 3
+                        }
+                        out
+                    }.toTypedArray()
+                    val swappedAvg = swapped.map { computeAvgBrightness(it) }.average()
+                    Log.d(LOG_TAG, "After BGR swap: avg brightness=$swappedAvg")
+                    if (swappedAvg > avg) {
+                        frameBytes = swapped
+                        Log.w(LOG_TAG, "Swapped RGB->BGR for video frames to recover non-black output")
+                    } else if (avg < 0.1) {
+                        // Still very dark - log raw byte samples for debugging
+                        val sample = frameBytes.firstOrNull()
+                        if (sample != null && sample.size >= 30) {
+                            val sampleBytes = sample.take(30).map { it.toInt() and 0xFF }
+                            Log.e(LOG_TAG, "Frame appears completely black. First 30 bytes: $sampleBytes")
+                        }
+                    }
                 }
 
                 val conversionStart = System.nanoTime()
@@ -1613,6 +1773,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             steps: Int,
             cfg: Float,
             seed: Long,
+            sampleMethod: Int,
             scheduler: Int,
             strength: Float,
             initImage: ByteArray?,
@@ -1650,6 +1811,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             steps: Int,
             cfg: Float,
             seed: Long,
+            sampleMethod: Int,
             scheduler: Int,
             strength: Float,
             initImage: ByteArray?,
@@ -1716,11 +1878,19 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         val batchSize = determineBatchSize(frameBytes.size)
         val bitmaps = ArrayList<Bitmap>(frameBytes.size)
         var index = 0
-        val pixelBuffer = IntArray(width * height) // Reuse single buffer per batch, reduces allocations
+        // Allocate a fresh pixel buffer per frame to avoid unexpected aliasing if
+        // Bitmap.createBitmap() did not copy the backing array across platform versions.
         while (index < frameBytes.size) {
             val end = min(index + batchSize, frameBytes.size)
             for (i in index until end) {
-                bitmaps += rgbBytesToBitmap(frameBytes[i], width, height, pixelBuffer)
+                // Make a defensive copy of the incoming bytes to protect against
+                // native bridges that reuse or alias the same ByteArray for multiple
+                // frames. Cloning ensures we snapshot the bytes for the frame and
+                // prevents later mutations from affecting previously created
+                // Bitmaps.
+                val bytesCopy = frameBytes[i].clone()
+                val pixelBuffer = IntArray(width * height)
+                bitmaps += rgbBytesToBitmap(bytesCopy, width, height, pixelBuffer)
             }
             val remaining = frameBytes.size - end
             if (remaining > 0) {
@@ -1793,6 +1963,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         params.steps,
                                         params.cfgScale,
                                         params.seed,
+                                        params.sampleMethod,
                                         params.scheduler,
                                         params.strength,
                                         initBytes,
@@ -1821,10 +1992,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     throw IllegalStateException("Video generation returned no frames")
                 }
 
-                if (frameBytes.size != params.videoFrames) {
+                // Note: Wan model calculates actual frames as (n-1)/4*4+1
+                val expectedFrames = params.actualFrameCount()
+                if (frameBytes.size != expectedFrames) {
                     Log.w(
                             LOG_TAG,
-                            "Expected ${params.videoFrames} frames but received ${frameBytes.size}",
+                            "Expected $expectedFrames frames (formula: (${params.videoFrames}-1)/4*4+1) but received ${frameBytes.size}",
                     )
                 }
 
@@ -1971,12 +2144,3 @@ object SimpleGenerator {
         }
     }
 }
-
-/** Converts Kotlin Scheduler enum to native sd_sample_method_t integer. */
-internal fun schedulerToNativeSampleMethod(scheduler: StableDiffusion.Scheduler): Int =
-        when (scheduler) {
-            StableDiffusion.Scheduler.EULER_A -> 0 // EULER_A
-            StableDiffusion.Scheduler.DDIM -> 10 // DDIM
-            StableDiffusion.Scheduler.DDPM -> 0 // EULER_A as fallback (DDPM not directly supported)
-            StableDiffusion.Scheduler.LCM -> 11 // LCM
-        }

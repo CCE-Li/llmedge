@@ -26,7 +26,7 @@ private val disableNativeLoadForTxt2VidTests = run {
 class StableDiffusionTxt2VidTest {
     companion object {
         private const val TEST_DIMENSION = 256
-        private const val TEST_FRAMES = 4
+        private const val TEST_FRAMES = 5  // Minimum 5 frames required for Wan model
     }
 
     @Before
@@ -70,6 +70,7 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    sampleMethod: StableDiffusion.SampleMethod,
                     scheduler: StableDiffusion.Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
@@ -201,6 +202,7 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    sampleMethod: StableDiffusion.SampleMethod,
                     scheduler: StableDiffusion.Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
@@ -283,6 +285,7 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    sampleMethod: StableDiffusion.SampleMethod,
                     scheduler: StableDiffusion.Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
@@ -349,12 +352,17 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    sampleMethod: StableDiffusion.SampleMethod,
                     scheduler: StableDiffusion.Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
-                ): Array<ByteArray>? {
+                            easyCacheEnabled: Boolean,
+                            easyCacheReuseThreshold: Float,
+                            easyCacheStartPercent: Float,
+                            easyCacheEndPercent: Float,
+                        ): Array<ByteArray>? {
                     instance.cancelGeneration()
                     throw RuntimeException("native aborted")
                 }
@@ -401,6 +409,10 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
                 ): ByteArray? = null
                 override fun txt2vid(
                     handle: Long,
@@ -412,6 +424,7 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    sampleMethod: StableDiffusion.SampleMethod,
                     scheduler: StableDiffusion.Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
@@ -421,7 +434,7 @@ class StableDiffusionTxt2VidTest {
                     easyCacheReuseThreshold: Float,
                     easyCacheStartPercent: Float,
                     easyCacheEndPercent: Float,
-                ): Array<ByteArray> = frames.map { it.clone() }.toTypedArray()
+                ): Array<ByteArray>? = frames.map { it.clone() }.toTypedArray()
 
                 override fun setProgressCallback(
                     handle: Long,

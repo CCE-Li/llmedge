@@ -56,7 +56,7 @@ class VideoGenerateParamsTest {
             videoFrames = 2,
         )
 
-        assertValidationFails(params, "Frame count must be between 4 and 64")
+        assertValidationFails(params, "Frame count must be between 5 and 64")
     }
 
     @Test
@@ -66,7 +66,7 @@ class VideoGenerateParamsTest {
             videoFrames = 0,
         )
 
-        assertValidationFails(params, "Frame count must be between 4 and 64")
+        assertValidationFails(params, "Frame count must be between 5 and 64")
     }
 
     @Test
@@ -168,17 +168,17 @@ class VideoGenerateParamsTest {
             videoFrames = 65,
         )
 
-        assertValidationFails(params, "Frame count must be between 4 and 64")
+        assertValidationFails(params, "Frame count must be between 5 and 64")
     }
 
     @Test
-    fun `minimum 4 frames passes validation`() {
+    fun `minimum 5 frames passes validation`() {
         val params = StableDiffusion.VideoGenerateParams(
             prompt = "valid",
-            videoFrames = 4,
+            videoFrames = 5,
         )
 
-        assertTrue("Min frames (4) should be valid", params.validate().isSuccess)
+        assertTrue("Min frames (5) should be valid", params.validate().isSuccess)
     }
 
     @Test

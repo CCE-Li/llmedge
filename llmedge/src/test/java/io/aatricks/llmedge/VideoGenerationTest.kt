@@ -53,6 +53,7 @@ class VideoGenerationTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    sampleMethod: StableDiffusion.SampleMethod,
                     scheduler: StableDiffusion.Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
@@ -195,6 +196,7 @@ class VideoGenerationTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
+                    sampleMethod: StableDiffusion.SampleMethod,
                     scheduler: StableDiffusion.Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
@@ -349,7 +351,7 @@ class VideoGenerationTest {
             prompt = "test",
             width = 256,
             height = 256,
-            videoFrames = 4,
+            videoFrames = 5,
             steps = 10
         )
 
@@ -358,7 +360,7 @@ class VideoGenerationTest {
         val metrics = requireNotNull(sd.getLastGenerationMetrics())
         assertTrue("Total time should be positive", metrics.totalTimeSeconds > 0)
         assertTrue("Frames per second should be positive", metrics.framesPerSecond > 0)
-        assertEquals(4, result.size) // Verify frame count matches
+        assertEquals(5, result.size) // Wan formula: (5-1)/4*4+1 = 5
     }
 
     @Test

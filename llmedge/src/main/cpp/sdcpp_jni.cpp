@@ -10,12 +10,27 @@
 #include <android/log.h>
 #else
 #include <cstdio>
+#include <cstdarg>
 #define ANDROID_LOG_DEBUG 3
 #define ANDROID_LOG_INFO 4
 #define ANDROID_LOG_WARN 5
 #define ANDROID_LOG_ERROR 6
-inline int __android_log_print(int, const char*, const char* format, ...) {
-    (void)format;
+inline int __android_log_print(int level, const char* tag, const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    fprintf(stderr, "[%s] ", tag);
+    vfprintf(stderr, format, args);
+    fprintf(stderr, "\n");
+    fflush(stderr);
+    va_end(args);
+    
+    // Also print to stdout for good measure
+    va_start(args, format);
+    fprintf(stdout, "[%s] ", tag);
+    vfprintf(stdout, format, args);
+    fprintf(stdout, "\n");
+    fflush(stdout);
+    va_end(args);
     return 0;
 }
 #endif
@@ -238,6 +253,12 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         jfloat flowShift,
         jstring jLoraModelDir, jint jLoraApplyMode) {
     (void)clazz;
+    FILE* f = fopen("/tmp/sdcpp_log.txt", "a");
+    if (f) {
+        fprintf(f, "[SmolSD] nativeCreate ENTERED\n");
+        fclose(f);
+    }
+    fprintf(stderr, "[SmolSD] nativeCreate ENTERED\n"); fflush(stderr);
     const char* modelPath = jModelPath ? env->GetStringUTFChars(jModelPath, nullptr) : nullptr;
     const char* vaePath   = jVaePath   ? env->GetStringUTFChars(jVaePath,   nullptr) : nullptr;
     const char* t5xxlPath = jT5xxlPath ? env->GetStringUTFChars(jT5xxlPath, nullptr) : nullptr;
@@ -269,6 +290,9 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     p.keep_vae_on_cpu = keepVaeOnCpu;
     p.diffusion_flash_attn = flashAttn;
     p.flow_shift = flowShift;
+    // Enable VAE encoder for I2V (Image-to-Video) support
+    // Default is true (decode-only), but we need encoder for I2V
+    p.vae_decode_only = false;
     if (jLoraModelDir) {
         const char* loraPath = env->GetStringUTFChars(jLoraModelDir, nullptr);
         if (loraPath) {
@@ -279,10 +303,6 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
 
     sd_ctx_t* ctx = new_sd_ctx(&p);
-
-    if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
-    if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
-    if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
 
     if (!ctx) {
         // Fallback: Check if we can load as T5-only context
@@ -314,20 +334,28 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
                  
                  if (!backend) {
                      ALOGE("Vulkan backend not available and CPU backend init failed/missing");
+                     if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
+                     if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+                     if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
                      return 0;
                  }
+                 ALOGI("Backend initialized for T5");
                  
                  // T5CLIPEmbedder(backend, offload, storage, use_mask, mask_pad, is_umt5)
                  bool is_umt5 = std::string(modelPath).find("umt5") != std::string::npos;
+                 ALOGI("Creating T5CLIPEmbedder (is_umt5=%d)", is_umt5);
                  
                  auto* t5 = new T5CLIPEmbedder(backend, offloadToCpu, model_loader.get_tensor_storage_map(), false, 0, is_umt5);
+                 ALOGI("Allocating params buffer for T5");
                  t5->alloc_params_buffer();
                  
                  // Load weights
                  std::map<std::string, struct ggml_tensor*> tensors;
                  t5->get_param_tensors(tensors);
+                 ALOGI("Got param tensors for T5: %zu tensors", tensors.size());
                  
                  std::set<std::string> ignore_tensors;
+                 ALOGI("Loading tensors for T5");
                  model_loader.load_tensors(tensors, ignore_tensors, get_num_physical_cores());
                  
                  auto* handle = new SdHandle();
@@ -337,6 +365,11 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
                      env->GetJavaVM(&handle->jvm);
                  }
                  ALOGI("T5-only context created successfully");
+                 
+                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
+                 if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+                 if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
+                 
                  return reinterpret_cast<jlong>(handle);
              } else {
                  ALOGE("Failed to init ModelLoader for T5");
@@ -344,8 +377,15 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         }
         
         ALOGE("Failed to create sd_ctx");
+        if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
+        if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+        if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
         return 0;
     }
+
+    if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
+    if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+    if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
 
     auto* handle = new SdHandle();
     handle->ctx = ctx;
@@ -449,7 +489,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     jstring jPrompt, jstring jNegative,
     jint width, jint height,
     jint videoFrames, jint steps, jfloat cfg, jlong seed,
-    jint jScheduler, jfloat jStrength,
+    jint jSampleMethod, jint jScheduler, jfloat jStrength,
     jbyteArray jInitImage, jint initWidth, jint initHeight,
     jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
     (void)thiz;
@@ -489,11 +529,21 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     gen.video_frames = videoFrames;
     gen.sample_params = sample;
     gen.seed = seed;
-    // Map scheduler enum if provided
-    if (jScheduler >= 0) {
-        enum scheduler_t s = static_cast<enum scheduler_t>(jScheduler);
-        gen.sample_params.scheduler = s;
+    
+    // Map sample method enum if provided (0 = DEFAULT lets native decide)
+    if (jSampleMethod >= 0) {
+        gen.sample_params.sample_method = static_cast<enum sample_method_t>(jSampleMethod);
     }
+    // Resolve default sample method if still DEFAULT
+    if (gen.sample_params.sample_method == SAMPLE_METHOD_DEFAULT) {
+        gen.sample_params.sample_method = sd_get_default_sample_method(handle->ctx);
+    }
+    
+    // Map scheduler enum if provided (0 = DEFAULT lets native decide)
+    if (jScheduler >= 0) {
+        gen.sample_params.scheduler = static_cast<enum scheduler_t>(jScheduler);
+    }
+    
     gen.strength = jStrength;
 
     std::vector<uint8_t> initImageData;
@@ -512,12 +562,13 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
             gen.init_image.channel = 3;
             gen.init_image.data = initImageData.data();
         }
-
-            gen.easycache.enabled = jEasyCacheEnabled ? true : false;
-            gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
-            gen.easycache.start_percent = (float)jEasyCacheStartPercent;
-            gen.easycache.end_percent = (float)jEasyCacheEndPercent;
     }
+
+    // Set easycache parameters for both T2V and I2V modes
+    gen.easycache.enabled = jEasyCacheEnabled ? true : false;
+    gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
+    gen.easycache.start_percent = (float)jEasyCacheStartPercent;
+    gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
     handle->stepsPerFrame = sample.sample_steps > 0 ? sample.sample_steps : 0;
     handle->totalSteps = handle->stepsPerFrame * handle->totalFrames;
@@ -747,9 +798,6 @@ Java_io_aatricks_llmedge_StableDiffusion_nativePrecomputeCondition(
         return nullptr;
     }
     
-    // ... rest of function ...
-
-
     // We'll return an Object[] = {float[] cross, int[] cross_dims, float[] vec, int[] vec_dims, float[] concat, int[] concat_dims}
     jclass objClass = env->FindClass("java/lang/Object");
     if (!objClass) {
@@ -922,9 +970,10 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
         jstring jPrompt, jstring jNegative,
         jint width, jint height,
         jint videoFrames, jint steps, jfloat cfg, jlong seed,
-        jint jScheduler, jfloat jStrength,
+        jint jSampleMethod, jint jScheduler, jfloat jStrength,
         jbyteArray jInitImage, jint initWidth, jint initHeight,
-        jobjectArray condArr, jobjectArray uncondArr) {
+        jobjectArray condArr, jobjectArray uncondArr,
+        jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
     (void)thiz;
     if (handlePtr == 0) {
         throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion not initialized");
@@ -962,15 +1011,19 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
     gen.video_frames = videoFrames;
     gen.sample_params = sample;
     gen.seed = seed;
-    // Map scheduler enum if provided
-    if (jScheduler >= 0) {
-        enum scheduler_t s = static_cast<enum scheduler_t>(jScheduler);
-        gen.sample_params.scheduler = s;
-    }
     
-    // Resolve default sample method, as sd_generate_video_with_precomputed_condition doesn't do it
+    // Map sample method enum if provided (0 = DEFAULT lets native decide)
+    if (jSampleMethod >= 0) {
+        gen.sample_params.sample_method = static_cast<enum sample_method_t>(jSampleMethod);
+    }
+    // Resolve default sample method if still DEFAULT
     if (gen.sample_params.sample_method == SAMPLE_METHOD_DEFAULT) {
         gen.sample_params.sample_method = sd_get_default_sample_method(handle->ctx);
+    }
+    
+    // Map scheduler enum if provided (0 = DEFAULT lets native decide)
+    if (jScheduler >= 0) {
+        gen.sample_params.scheduler = static_cast<enum scheduler_t>(jScheduler);
     }
 
     gen.strength = jStrength;
@@ -992,6 +1045,12 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
             gen.init_image.data = initImageData.data();
         }
     }
+
+    // Set easycache parameters for both T2V and I2V modes
+    gen.easycache.enabled = jEasyCacheEnabled ? true : false;
+    gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
+    gen.easycache.start_percent = (float)jEasyCacheStartPercent;
+    gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
     // Convert condArr/uncondArr to sd_condition_raw_t structures
     auto build_condition_from_objarr = [&](jobjectArray arr) -> sd_condition_raw_t* {

@@ -53,11 +53,16 @@ class MockStableDiffusionBridgeTest {
             steps = 20,
             cfg = 7.5f,
             seed = 123L,
-            scheduler = StableDiffusion.Scheduler.EULER_A,
+            sampleMethod = StableDiffusion.SampleMethod.DEFAULT,
+            scheduler = StableDiffusion.Scheduler.DEFAULT,
             strength = 0.8f,
             initImage = byteArrayOf(1, 2, 3),
             initWidth = 256,
-            initHeight = 256
+            initHeight = 256,
+            easyCacheEnabled = false,
+            easyCacheReuseThreshold = 0.2f,
+            easyCacheStartPercent = 0.15f,
+            easyCacheEndPercent = 0.95f
         )
 
         assertEquals(1L, call.handle)
@@ -69,7 +74,7 @@ class MockStableDiffusionBridgeTest {
         assertEquals(20, call.steps)
         assertEquals(7.5f, call.cfg)
         assertEquals(123L, call.seed)
-        assertEquals(StableDiffusion.Scheduler.EULER_A, call.scheduler)
+        assertEquals(StableDiffusion.Scheduler.DEFAULT, call.scheduler)
         assertEquals(0.8f, call.strength)
         assertNotNull(call.initImage)
         assertEquals(256, call.initWidth)
@@ -91,11 +96,16 @@ class MockStableDiffusionBridgeTest {
             steps = 10,
             cfg = 7.0f,
             seed = 42L,
-            scheduler = StableDiffusion.Scheduler.EULER_A,
+            sampleMethod = StableDiffusion.SampleMethod.DEFAULT,
+            scheduler = StableDiffusion.Scheduler.DEFAULT,
             strength = 0.8f,
             initImage = null,
             initWidth = 0,
             initHeight = 0
+            , easyCacheEnabled = false
+            , easyCacheReuseThreshold = 0.2f
+            , easyCacheStartPercent = 0.15f
+            , easyCacheEndPercent = 0.95f
         )
 
         assertNotNull("Should return frame array", result)
@@ -124,11 +134,16 @@ class MockStableDiffusionBridgeTest {
             steps = 10,
             cfg = 7.0f,
             seed = 42L,
-            scheduler = StableDiffusion.Scheduler.EULER_A,
+            sampleMethod = StableDiffusion.SampleMethod.DEFAULT,
+            scheduler = StableDiffusion.Scheduler.DEFAULT,
             strength = 0.8f,
             initImage = null,
             initWidth = 0,
             initHeight = 0
+            , easyCacheEnabled = false
+            , easyCacheReuseThreshold = 0.2f
+            , easyCacheStartPercent = 0.15f
+            , easyCacheEndPercent = 0.95f
         )
 
         assertNull("Should return null when configured for failure", result)
