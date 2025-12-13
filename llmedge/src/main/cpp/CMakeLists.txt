@@ -440,7 +440,7 @@ add_library(whisper_jni SHARED ${WHISPER_JNI_ALL_SOURCES})
 # CRITICAL: Add GGML_USE_CPU for proper CPU backend initialization on Android
 # Define WHISPER_VERSION, GGML_VERSION and GGML_COMMIT which are required
 target_compile_definitions(whisper_jni PUBLIC GGML_USE_CPU)
-target_compile_definitions(whisper_jni PRIVATE 
+target_compile_definitions(whisper_jni PRIVATE
         WHISPER_VERSION="1.0.0"
         GGML_VERSION="0.9.4"
         GGML_COMMIT="unknown"
@@ -504,7 +504,7 @@ set(BARK_GGML_SOURCES
         ${BARK_GGML_DIR}/src/ggml-backend.cpp
         ${BARK_GGML_DIR}/src/ggml-quants.c
         # ggml-aarch64.c is required for all ARM builds as it contains
-        # implementations for quantize_mat_q8_0, ggml_gemv_*, ggml_gemm_* 
+        # implementations for quantize_mat_q8_0, ggml_gemv_*, ggml_gemm_*
         # that are referenced from ggml.c type_traits table
         ${BARK_GGML_DIR}/src/ggml-aarch64.c
 )
@@ -549,10 +549,10 @@ target_compile_definitions(bark_jni
 
 target_compile_features(bark_jni PUBLIC c_std_11 cxx_std_17)
 
-target_compile_options(bark_jni PUBLIC 
-        -fvisibility=hidden 
-        -fvisibility-inlines-hidden 
-        -ffunction-sections 
+target_compile_options(bark_jni PUBLIC
+        -fvisibility=hidden
+        -fvisibility-inlines-hidden
+        -ffunction-sections
         -fdata-sections
         -O3
 )

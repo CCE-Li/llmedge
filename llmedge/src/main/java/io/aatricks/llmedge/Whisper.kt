@@ -22,17 +22,20 @@ import android.util.Log
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import java.io.File
 import java.io.FileNotFoundException
+import kotlin.math.min
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
  * Kotlin wrapper for whisper.cpp providing Speech-to-Text (STT) functionality.
  *
- * Whisper is an automatic speech recognition (ASR) model that can transcribe
- * and translate audio in multiple languages. This wrapper enables:
+ * Whisper is an automatic speech recognition (ASR) model that can transcribe and translate audio in
+ * multiple languages. This wrapper enables:
  * - Real-time transcription
  * - Translation between languages
  * - Subtitle generation with timestamps
@@ -53,23 +56,24 @@ import kotlinx.coroutines.withContext
  */
 class Whisper private constructor(private val handle: Long) : AutoCloseable {
 
-    /**
-     * Represents a transcribed segment with timing information.
-     */
+    /** Represents a transcribed segment with timing information. */
     data class TranscriptionSegment(
-        val index: Int,
-        val startTime: Long,  // Start time in whisper time units (centiseconds)
-        val endTime: Long,    // End time in whisper time units (centiseconds)
-        val text: String
+            val index: Int,
+            val startTime: Long, // Start time in whisper time units (centiseconds)
+            val endTime: Long, // End time in whisper time units (centiseconds)
+            val text: String
     ) {
         /** Start time in milliseconds */
-        val startTimeMs: Long get() = startTime * 10
+        val startTimeMs: Long
+            get() = startTime * 10
 
         /** End time in milliseconds */
-        val endTimeMs: Long get() = endTime * 10
+        val endTimeMs: Long
+            get() = endTime * 10
 
         /** Duration in milliseconds */
-        val durationMs: Long get() = endTimeMs - startTimeMs
+        val durationMs: Long
+            get() = endTimeMs - startTimeMs
 
         /** Format as SRT subtitle entry */
         fun toSrtEntry(): String {
@@ -102,44 +106,38 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         }
     }
 
-    /**
-     * Configuration for transcription.
-     */
+    /** Configuration for transcription. */
     data class TranscribeParams(
-        /** Number of threads to use. 0 = auto */
-        val nThreads: Int = 0,
-        /** Translate to English instead of transcribing */
-        val translate: Boolean = false,
-        /** Target language code (e.g., "en", "es", "fr"). null = auto-detect */
-        val language: String? = null,
-        /** Force language detection even if language is specified */
-        val detectLanguage: Boolean = false,
-        /** Enable token-level timestamps for more precise timing */
-        val tokenTimestamps: Boolean = false,
-        /** Maximum segment length in characters. 0 = no limit */
-        val maxLen: Int = 0,
-        /** Split on word boundaries when using maxLen */
-        val splitOnWord: Boolean = false,
-        /** Sampling temperature (0.0 = greedy, higher = more random) */
-        val temperature: Float = 0.0f,
-        /** Beam size for beam search (1 = greedy decoding) */
-        val beamSize: Int = 1,
-        /** Suppress blank tokens at the beginning of segments */
-        val suppressBlank: Boolean = true,
-        /** Print progress to console */
-        val printProgress: Boolean = false
+            /** Number of threads to use. 0 = auto */
+            val nThreads: Int = 0,
+            /** Translate to English instead of transcribing */
+            val translate: Boolean = false,
+            /** Target language code (e.g., "en", "es", "fr"). null = auto-detect */
+            val language: String? = null,
+            /** Force language detection even if language is specified */
+            val detectLanguage: Boolean = false,
+            /** Enable token-level timestamps for more precise timing */
+            val tokenTimestamps: Boolean = false,
+            /** Maximum segment length in characters. 0 = no limit */
+            val maxLen: Int = 0,
+            /** Split on word boundaries when using maxLen */
+            val splitOnWord: Boolean = false,
+            /** Sampling temperature (0.0 = greedy, higher = more random) */
+            val temperature: Float = 0.0f,
+            /** Beam size for beam search (1 = greedy decoding) */
+            val beamSize: Int = 1,
+            /** Suppress blank tokens at the beginning of segments */
+            val suppressBlank: Boolean = true,
+            /** Print progress to console */
+            val printProgress: Boolean = false
     )
 
-    /**
-     * Callback for transcription progress updates.
-     */
+    /** Callback for transcription progress updates. */
     fun interface ProgressCallback {
         fun onProgress(progress: Int)
     }
 
-    /**
-     * Callback for new transcription segments (for real-time streaming).
-     */
+    /** Callback for new transcription segments (for real-time streaming). */
     fun interface SegmentCallback {
         fun onNewSegment(index: Int, startTime: Long, endTime: Long, text: String)
     }
@@ -150,11 +148,11 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
     // Internal bridge interface for testing
     internal interface NativeBridge {
         fun transcribe(
-            handle: Long,
-            samples: FloatArray,
-            params: TranscribeParams,
-            progressCallback: ProgressCallback?,
-            segmentCallback: SegmentCallback?
+                handle: Long,
+                samples: FloatArray,
+                params: TranscribeParams,
+                progressCallback: ProgressCallback?,
+                segmentCallback: SegmentCallback?
         ): Array<TranscriptionSegment>?
 
         fun detectLanguage(handle: Long, samples: FloatArray, nThreads: Int): Int
@@ -162,36 +160,40 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         fun close(handle: Long)
     }
 
-    /**
-     * Set a callback to receive progress updates during transcription.
-     */
+    /** Set a callback to receive progress updates during transcription. */
     fun setProgressCallback(callback: ProgressCallback?) {
         this.progressCallback = callback
         if (callback != null) {
-            nativeSetProgressCallback(handle, object : Any() {
-                @Suppress("unused")
-                fun onProgress(progress: Int) {
-                    callback.onProgress(progress)
-                }
-            })
+            nativeSetProgressCallback(
+                    handle,
+                    object : Any() {
+                        @Suppress("unused")
+                        fun onProgress(progress: Int) {
+                            callback.onProgress(progress)
+                        }
+                    }
+            )
         } else {
             nativeSetProgressCallback(handle, null)
         }
     }
 
     /**
-     * Set a callback to receive new segments in real-time during transcription.
-     * This is useful for streaming transcription results.
+     * Set a callback to receive new segments in real-time during transcription. This is useful for
+     * streaming transcription results.
      */
     fun setSegmentCallback(callback: SegmentCallback?) {
         this.segmentCallback = callback
         if (callback != null) {
-            nativeSetSegmentCallback(handle, object : Any() {
-                @Suppress("unused")
-                fun onNewSegment(index: Int, startTime: Long, endTime: Long, text: String) {
-                    callback.onNewSegment(index, startTime, endTime, text)
-                }
-            })
+            nativeSetSegmentCallback(
+                    handle,
+                    object : Any() {
+                        @Suppress("unused")
+                        fun onNewSegment(index: Int, startTime: Long, endTime: Long, text: String) {
+                            callback.onNewSegment(index, startTime, endTime, text)
+                        }
+                    }
+            )
         } else {
             nativeSetSegmentCallback(handle, null)
         }
@@ -205,46 +207,49 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
      * @return List of transcription segments with timing information
      */
     fun transcribe(
-        samples: FloatArray,
-        params: TranscribeParams = TranscribeParams()
+            samples: FloatArray,
+            params: TranscribeParams = TranscribeParams()
     ): List<TranscriptionSegment> {
         require(samples.isNotEmpty()) { "Audio samples cannot be empty" }
 
-        val effectiveThreads = if (params.nThreads <= 0) {
-            Runtime.getRuntime().availableProcessors().coerceAtMost(8)
-        } else {
-            params.nThreads
-        }
+        val effectiveThreads =
+                if (params.nThreads <= 0) {
+                    Runtime.getRuntime().availableProcessors().coerceAtMost(8)
+                } else {
+                    params.nThreads
+                }
 
-        val segments = nativeTranscribe(
-            handle,
-            samples,
-            effectiveThreads,
-            params.translate,
-            params.language,
-            params.detectLanguage,
-            params.tokenTimestamps,
-            params.maxLen,
-            params.splitOnWord,
-            params.temperature,
-            params.beamSize,
-            params.suppressBlank,
-            params.printProgress
-        ) ?: return emptyList()
+        val segments =
+                nativeTranscribe(
+                        handle,
+                        samples,
+                        effectiveThreads,
+                        params.translate,
+                        params.language,
+                        params.detectLanguage,
+                        params.tokenTimestamps,
+                        params.maxLen,
+                        params.splitOnWord,
+                        params.temperature,
+                        params.beamSize,
+                        params.suppressBlank,
+                        params.printProgress
+                )
+                        ?: return emptyList()
 
         return segments.toList()
     }
 
-    /**
-     * Transcribe audio and return results as a Flow for streaming use cases.
-     */
+    /** Transcribe audio and return results as a Flow for streaming use cases. */
     fun transcribeFlow(
-        samples: FloatArray,
-        params: TranscribeParams = TranscribeParams()
-    ): Flow<TranscriptionSegment> = flow {
-        val segments = transcribe(samples, params)
-        segments.forEach { emit(it) }
-    }.flowOn(Dispatchers.IO)
+            samples: FloatArray,
+            params: TranscribeParams = TranscribeParams()
+    ): Flow<TranscriptionSegment> =
+            flow {
+                        val segments = transcribe(samples, params)
+                        segments.forEach { emit(it) }
+                    }
+                    .flowOn(Dispatchers.IO)
 
     /**
      * Detect the language of the audio.
@@ -256,54 +261,318 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
     fun detectLanguage(samples: FloatArray, nThreads: Int = 0): String? {
         require(samples.isNotEmpty()) { "Audio samples cannot be empty" }
 
-        val effectiveThreads = if (nThreads <= 0) {
-            Runtime.getRuntime().availableProcessors().coerceAtMost(8)
-        } else {
-            nThreads
-        }
+        val effectiveThreads =
+                if (nThreads <= 0) {
+                    Runtime.getRuntime().availableProcessors().coerceAtMost(8)
+                } else {
+                    nThreads
+                }
 
         val langId = nativeDetectLanguage(handle, samples, effectiveThreads, 0)
         return if (langId >= 0) getLanguageString(langId) else null
     }
 
-    /**
-     * Get the full transcribed text from the last transcription.
-     */
+    /** Get the full transcribed text from the last transcription. */
     fun getFullText(): String = nativeGetFullText(handle)
 
-    /**
-     * Check if the loaded model supports multiple languages.
-     */
+    /** Check if the loaded model supports multiple languages. */
     fun isMultilingual(): Boolean = nativeIsMultilingual(handle)
 
-    /**
-     * Get the model type (e.g., "tiny", "base", "small", "medium", "large").
-     */
+    /** Get the model type (e.g., "tiny", "base", "small", "medium", "large"). */
     fun getModelType(): String = nativeGetModelType(handle)
 
-    /**
-     * Reset internal timing statistics.
-     */
+    /** Reset internal timing statistics. */
     fun resetTimings() = nativeResetTimings(handle)
 
-    /**
-     * Print timing statistics to the log.
-     */
+    /** Print timing statistics to the log. */
     fun printTimings() = nativePrintTimings(handle)
 
-    /**
-     * Generate SRT subtitle content from transcription segments.
-     */
+    /** Generate SRT subtitle content from transcription segments. */
     fun generateSrt(segments: List<TranscriptionSegment>): String {
         return segments.joinToString("\n") { it.toSrtEntry() }
     }
 
-    /**
-     * Generate WebVTT subtitle content from transcription segments.
-     */
+    /** Generate WebVTT subtitle content from transcription segments. */
     fun generateVtt(segments: List<TranscriptionSegment>): String {
         val header = "WEBVTT\n\n"
         return header + segments.joinToString("\n") { it.toVttEntry() }
+    }
+
+    /**
+     * Create a streaming transcriber for real-time audio transcription.
+     *
+     * The streaming transcriber uses a sliding window approach:
+     * - Collects audio in chunks of `stepMs` milliseconds
+     * - Transcribes a window of `lengthMs` milliseconds at a time
+     * - Keeps `keepMs` of audio from the previous window for context
+     *
+     * This enables real-time transcription as audio is being recorded.
+     *
+     * @param params Streaming transcription parameters
+     * @return StreamingTranscriber instance
+     */
+    fun createStreamingTranscriber(
+            params: StreamingParams = StreamingParams()
+    ): StreamingTranscriber {
+        return StreamingTranscriber(this, params)
+    }
+
+    /** Parameters for streaming transcription. */
+    data class StreamingParams(
+            /**
+             * Duration in milliseconds of each step (how often transcription runs). Default: 3000ms
+             */
+            val stepMs: Int = 3000,
+            /** Length of the transcription window in milliseconds. Default: 10000ms */
+            val lengthMs: Int = 10000,
+            /** Audio from previous window to keep for context. Default: 200ms */
+            val keepMs: Int = 200,
+            /** Translate to English instead of transcribing */
+            val translate: Boolean = false,
+            /** Target language code. null = auto-detect */
+            val language: String? = null,
+            /** Number of threads. 0 = auto */
+            val nThreads: Int = 0,
+            /**
+             * Voice Activity Detection threshold (0.0-1.0). Higher = more aggressive silence
+             * detection
+             */
+            val vadThreshold: Float = 0.6f,
+            /** High-pass frequency cutoff for VAD in Hz */
+            val vadFreqThreshold: Float = 100.0f,
+            /** Enable VAD to only transcribe when speech is detected */
+            val useVad: Boolean = true
+    )
+
+    /**
+     * Real-time streaming transcriber using a sliding window approach.
+     *
+     * Inspired by whisper.cpp's stream example, this class buffers incoming audio and processes it
+     * in overlapping windows to provide near real-time transcription.
+     *
+     * Usage:
+     * ```kotlin
+     * val transcriber = whisper.createStreamingTranscriber()
+     * transcriber.start().collect { segment ->
+     *     println("Transcribed: ${segment.text}")
+     * }
+     *
+     * // Feed audio samples as they become available (from microphone, etc.)
+     * transcriber.feedAudio(audioChunk)
+     *
+     * // When done
+     * transcriber.stop()
+     * ```
+     */
+    class StreamingTranscriber
+    internal constructor(private val whisper: Whisper, private val params: StreamingParams) {
+        private val mutex = Mutex()
+        private val audioBuffer = mutableListOf<Float>()
+        private val previousAudio = mutableListOf<Float>()
+
+        @Volatile private var isRunning = false
+
+        @Volatile private var isPaused = false
+
+        private var segmentIndex = 0
+        private var totalProcessedMs: Long = 0
+
+        // Samples per millisecond at 16kHz
+        private val samplesPerMs = SAMPLE_RATE / 1000
+
+        // Calculate sample counts from milliseconds
+        private val samplesStep = params.stepMs * samplesPerMs
+        private val samplesLength = params.lengthMs * samplesPerMs
+        private val samplesKeep = min(params.keepMs, params.stepMs) * samplesPerMs
+
+        /**
+         * Feed audio samples to the streaming transcriber.
+         *
+         * Audio should be:
+         * - 16kHz sample rate
+         * - Mono channel
+         * - 32-bit float PCM (-1.0 to 1.0)
+         *
+         * @param samples Audio samples to add to the buffer
+         */
+        suspend fun feedAudio(samples: FloatArray) =
+                mutex.withLock {
+                    if (isRunning && !isPaused) {
+                        for (sample in samples) {
+                            audioBuffer.add(sample)
+                        }
+                    }
+                }
+
+        /** Get the current audio buffer size in milliseconds. */
+        fun getBufferedAudioMs(): Int {
+            return audioBuffer.size / samplesPerMs
+        }
+
+        /** Check if enough audio is buffered for processing. */
+        fun hasEnoughAudio(): Boolean {
+            return audioBuffer.size >= samplesStep
+        }
+
+        /** Clear the audio buffer. */
+        suspend fun clearBuffer() =
+                mutex.withLock {
+                    audioBuffer.clear()
+                    previousAudio.clear()
+                    segmentIndex = 0
+                    totalProcessedMs = 0
+                }
+
+        /** Pause audio collection (transcription continues with buffered audio). */
+        fun pause() {
+            isPaused = true
+        }
+
+        /** Resume audio collection. */
+        fun resume() {
+            isPaused = false
+        }
+
+        /** Stop the streaming transcription. */
+        fun stop() {
+            isRunning = false
+        }
+
+        /**
+         * Start streaming transcription, returning a Flow of transcription segments.
+         *
+         * This is a cold flow - transcription starts when collection begins and stops when
+         * collection is cancelled or stop() is called.
+         *
+         * @return Flow emitting TranscriptionSegment as they are transcribed
+         */
+        fun start(): Flow<TranscriptionSegment> =
+                flow {
+                            isRunning = true
+                            isPaused = false
+
+                            while (isRunning) {
+                                // Wait until we have enough audio
+                                var currentBufferSize: Int
+                                mutex.withLock { currentBufferSize = audioBuffer.size }
+
+                                if (currentBufferSize < samplesStep) {
+                                    // Sleep briefly and check again
+                                    kotlinx.coroutines.delay(50)
+                                    continue
+                                }
+
+                                // Process the audio chunk
+                                val segments = processNextChunk()
+                                for (segment in segments) {
+                                    emit(segment)
+                                }
+                            }
+                        }
+                        .flowOn(Dispatchers.IO)
+
+        /**
+         * Process a single chunk of audio immediately.
+         *
+         * This is useful when you want more control over when transcription happens, rather than
+         * using the continuous start() flow.
+         *
+         * @return List of transcription segments from this chunk
+         */
+        suspend fun processNextChunk(): List<TranscriptionSegment> =
+                mutex.withLock {
+                    if (audioBuffer.size < samplesStep) {
+                        return@withLock emptyList()
+                    }
+
+                    // Extract the new samples for this step
+                    val newSamples = audioBuffer.take(samplesStep)
+
+                    // Remove processed samples from buffer
+                    repeat(samplesStep) {
+                        if (audioBuffer.isNotEmpty()) {
+                            audioBuffer.removeAt(0)
+                        }
+                    }
+
+                    // Calculate how many samples to take from previous audio for context
+                    val takeFromPrevious = min(previousAudio.size, samplesLength - newSamples.size)
+
+                    // Build the full audio window: [previous context] + [new samples]
+                    val windowSamples = FloatArray(takeFromPrevious + newSamples.size)
+
+                    // Copy previous context
+                    for (i in 0 until takeFromPrevious) {
+                        windowSamples[i] = previousAudio[previousAudio.size - takeFromPrevious + i]
+                    }
+
+                    // Copy new samples
+                    for (i in newSamples.indices) {
+                        windowSamples[takeFromPrevious + i] = newSamples[i]
+                    }
+
+                    // Update previous audio buffer for next iteration
+                    // Keep only the most recent samples for context
+                    previousAudio.clear()
+                    val keepSamples = min(windowSamples.size, samplesKeep + samplesLength)
+                    for (i in (windowSamples.size - keepSamples) until windowSamples.size) {
+                        previousAudio.add(windowSamples[i])
+                    }
+
+                    // Apply VAD if enabled
+                    if (params.useVad && !hasVoiceActivity(windowSamples)) {
+                        return@withLock emptyList()
+                    }
+
+                    // Transcribe the window
+                    val transcribeParams =
+                            TranscribeParams(
+                                    nThreads = params.nThreads,
+                                    translate = params.translate,
+                                    language = params.language,
+                                    temperature = 0.0f, // Greedy decoding for streaming
+                                    beamSize = 1
+                            )
+
+                    val segments = whisper.transcribe(windowSamples, transcribeParams)
+
+                    // Adjust timestamps to reflect actual position in the stream
+                    val timeOffsetCentiseconds = (totalProcessedMs / 10).toInt()
+                    val adjustedSegments =
+                            segments.map { segment ->
+                                TranscriptionSegment(
+                                        index = segmentIndex++,
+                                        startTime = segment.startTime + timeOffsetCentiseconds,
+                                        endTime = segment.endTime + timeOffsetCentiseconds,
+                                        text = segment.text
+                                )
+                            }
+
+                    totalProcessedMs += params.stepMs
+
+                    return@withLock adjustedSegments
+                }
+
+        /**
+         * Simple Voice Activity Detection. Returns true if voice activity is detected in the
+         * samples.
+         */
+        private fun hasVoiceActivity(samples: FloatArray): Boolean {
+            if (samples.isEmpty()) return false
+
+            // Calculate RMS energy
+            var sumSquares = 0.0
+            for (sample in samples) {
+                sumSquares += sample * sample
+            }
+            val rms = kotlin.math.sqrt(sumSquares / samples.size)
+
+            // Simple threshold-based VAD
+            // The threshold is normalized to typical speech levels
+            val energyThreshold = params.vadThreshold * 0.02f // Adjusted for float PCM
+
+            return rms > energyThreshold
+        }
     }
 
     override fun close() {
@@ -319,12 +588,13 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         /** Whisper processes audio in 30-second chunks */
         const val CHUNK_SIZE_SECONDS = 30
 
-        private val isAndroidLogAvailable: Boolean = try {
-            Class.forName("android.util.Log")
-            true
-        } catch (_: Throwable) {
-            false
-        }
+        private val isAndroidLogAvailable: Boolean =
+                try {
+                    Class.forName("android.util.Log")
+                    true
+                } catch (_: Throwable) {
+                    false
+                }
 
         private fun logD(tag: String, message: String) {
             if (isAndroidLogAvailable) {
@@ -371,7 +641,9 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                         System.loadLibrary("whisper_jni")
                     } else {
                         // Android environment
-                        val isEmulated = Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu")
+                        val isEmulated =
+                                Build.HARDWARE.contains("goldfish") ||
+                                        Build.HARDWARE.contains("ranchu")
 
                         if (!isEmulated && supportsArm64V8a()) {
                             logD(LOG_TAG, "Loading libwhisper_arm64.so")
@@ -391,9 +663,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             return Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }
         }
 
-        /**
-         * Check if native bindings are available.
-         */
+        /** Check if native bindings are available. */
         @JvmStatic
         fun checkBindings(): Boolean {
             return try {
@@ -403,23 +673,14 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             }
         }
 
-        /**
-         * Get the whisper.cpp version string.
-         */
-        @JvmStatic
-        fun getVersion(): String = nativeGetVersion()
+        /** Get the whisper.cpp version string. */
+        @JvmStatic fun getVersion(): String = nativeGetVersion()
 
-        /**
-         * Get system information string.
-         */
-        @JvmStatic
-        fun getSystemInfo(): String = nativeGetSystemInfo()
+        /** Get system information string. */
+        @JvmStatic fun getSystemInfo(): String = nativeGetSystemInfo()
 
-        /**
-         * Get the maximum language ID supported.
-         */
-        @JvmStatic
-        fun getMaxLanguageId(): Int = nativeGetMaxLanguageId()
+        /** Get the maximum language ID supported. */
+        @JvmStatic fun getMaxLanguageId(): Int = nativeGetMaxLanguageId()
 
         /**
          * Get the language ID for a language code or name.
@@ -427,8 +688,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
          * @param lang Language code (e.g., "en") or name (e.g., "english")
          * @return Language ID or -1 if not found
          */
-        @JvmStatic
-        fun getLanguageId(lang: String): Int = nativeGetLanguageId(lang)
+        @JvmStatic fun getLanguageId(lang: String): Int = nativeGetLanguageId(lang)
 
         /**
          * Get the language code for a language ID.
@@ -436,8 +696,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
          * @param langId Language ID
          * @return Language code (e.g., "en") or empty string if not found
          */
-        @JvmStatic
-        fun getLanguageString(langId: Int): String = nativeGetLanguageString(langId)
+        @JvmStatic fun getLanguageString(langId: Int): String = nativeGetLanguageString(langId)
 
         /**
          * Load a Whisper model from a file path.
@@ -450,10 +709,10 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
          */
         @JvmStatic
         fun load(
-            modelPath: String,
-            useGpu: Boolean = false,
-            flashAttn: Boolean = true,
-            gpuDevice: Int = 0
+                modelPath: String,
+                useGpu: Boolean = false,
+                flashAttn: Boolean = true,
+                gpuDevice: Int = 0
         ): Whisper {
             val file = File(modelPath)
             if (!file.exists()) {
@@ -469,8 +728,8 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         }
 
         /**
-         * Load a Whisper model with Android Context support.
-         * This allows loading models from app assets or cache directories.
+         * Load a Whisper model with Android Context support. This allows loading models from app
+         * assets or cache directories.
          *
          * @param context Android context
          * @param modelPath Path to the model file (can be relative to cache dir)
@@ -481,33 +740,37 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
          */
         @JvmStatic
         suspend fun load(
-            context: Context,
-            modelPath: String,
-            useGpu: Boolean = false,
-            flashAttn: Boolean = true,
-            gpuDevice: Int = 0
-        ): Whisper = withContext(Dispatchers.IO) {
-            val file = File(modelPath)
-            val actualPath = if (file.exists()) {
-                modelPath
-            } else {
-                // Try to find in cache directory
-                val cacheFile = File(context.cacheDir, modelPath)
-                if (cacheFile.exists()) {
-                    cacheFile.absolutePath
-                } else {
-                    // Try to find in files directory
-                    val filesFile = File(context.filesDir, modelPath)
-                    if (filesFile.exists()) {
-                        filesFile.absolutePath
-                    } else {
-                        throw FileNotFoundException("Model file not found: $modelPath")
-                    }
-                }
-            }
+                context: Context,
+                modelPath: String,
+                useGpu: Boolean = false,
+                flashAttn: Boolean = true,
+                gpuDevice: Int = 0
+        ): Whisper =
+                withContext(Dispatchers.IO) {
+                    val file = File(modelPath)
+                    val actualPath =
+                            if (file.exists()) {
+                                modelPath
+                            } else {
+                                // Try to find in cache directory
+                                val cacheFile = File(context.cacheDir, modelPath)
+                                if (cacheFile.exists()) {
+                                    cacheFile.absolutePath
+                                } else {
+                                    // Try to find in files directory
+                                    val filesFile = File(context.filesDir, modelPath)
+                                    if (filesFile.exists()) {
+                                        filesFile.absolutePath
+                                    } else {
+                                        throw FileNotFoundException(
+                                                "Model file not found: $modelPath"
+                                        )
+                                    }
+                                }
+                            }
 
-            load(actualPath, useGpu, flashAttn, gpuDevice)
-        }
+                    load(actualPath, useGpu, flashAttn, gpuDevice)
+                }
 
         /**
          * Download and load a Whisper model from Hugging Face Hub.
@@ -523,22 +786,24 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
          */
         @JvmStatic
         suspend fun loadFromHuggingFace(
-            context: Context,
-            modelId: String = "ggerganov/whisper.cpp",
-            modelFile: String = "ggml-base.bin",
-            useGpu: Boolean = false,
-            flashAttn: Boolean = true,
-            gpuDevice: Int = 0,
-            token: String? = null
-        ): Whisper = withContext(Dispatchers.IO) {
-            val result = HuggingFaceHub.ensureModelOnDisk(
-                context = context,
-                modelId = modelId,
-                filename = modelFile,
-                token = token
-            )
-            load(result.file.absolutePath, useGpu, flashAttn, gpuDevice)
-        }
+                context: Context,
+                modelId: String = "ggerganov/whisper.cpp",
+                modelFile: String = "ggml-base.bin",
+                useGpu: Boolean = false,
+                flashAttn: Boolean = true,
+                gpuDevice: Int = 0,
+                token: String? = null
+        ): Whisper =
+                withContext(Dispatchers.IO) {
+                    val result =
+                            HuggingFaceHub.ensureModelOnDisk(
+                                    context = context,
+                                    modelId = modelId,
+                                    filename = modelFile,
+                                    token = token
+                            )
+                    load(result.file.absolutePath, useGpu, flashAttn, gpuDevice)
+                }
 
         // Native method declarations
         @JvmStatic private external fun nativeCheckBindings(): Boolean
@@ -547,37 +812,40 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         @JvmStatic private external fun nativeGetMaxLanguageId(): Int
         @JvmStatic private external fun nativeGetLanguageId(lang: String): Int
         @JvmStatic private external fun nativeGetLanguageString(langId: Int): String
-        @JvmStatic private external fun nativeCreate(
-            modelPath: String,
-            useGpu: Boolean,
-            flashAttn: Boolean,
-            gpuDevice: Int
+        @JvmStatic
+        private external fun nativeCreate(
+                modelPath: String,
+                useGpu: Boolean,
+                flashAttn: Boolean,
+                gpuDevice: Int
         ): Long
         @JvmStatic private external fun nativeDestroy(handle: Long)
         @JvmStatic private external fun nativeIsMultilingual(handle: Long): Boolean
         @JvmStatic private external fun nativeGetModelType(handle: Long): String
         @JvmStatic private external fun nativeSetProgressCallback(handle: Long, callback: Any?)
         @JvmStatic private external fun nativeSetSegmentCallback(handle: Long, callback: Any?)
-        @JvmStatic private external fun nativeTranscribe(
-            handle: Long,
-            samples: FloatArray,
-            nThreads: Int,
-            translate: Boolean,
-            language: String?,
-            detectLanguage: Boolean,
-            tokenTimestamps: Boolean,
-            maxLen: Int,
-            splitOnWord: Boolean,
-            temperature: Float,
-            beamSize: Int,
-            suppressBlank: Boolean,
-            printProgress: Boolean
+        @JvmStatic
+        private external fun nativeTranscribe(
+                handle: Long,
+                samples: FloatArray,
+                nThreads: Int,
+                translate: Boolean,
+                language: String?,
+                detectLanguage: Boolean,
+                tokenTimestamps: Boolean,
+                maxLen: Int,
+                splitOnWord: Boolean,
+                temperature: Float,
+                beamSize: Int,
+                suppressBlank: Boolean,
+                printProgress: Boolean
         ): Array<TranscriptionSegment>?
-        @JvmStatic private external fun nativeDetectLanguage(
-            handle: Long,
-            samples: FloatArray,
-            nThreads: Int,
-            offsetMs: Int
+        @JvmStatic
+        private external fun nativeDetectLanguage(
+                handle: Long,
+                samples: FloatArray,
+                nThreads: Int,
+                offsetMs: Int
         ): Int
         @JvmStatic private external fun nativeGetFullText(handle: Long): String
         @JvmStatic private external fun nativeResetTimings(handle: Long)

@@ -20,6 +20,8 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 - Image Generation: Stable Diffusion integration with:
 - EasyCache: Accelerates generation for supported models (DiT architecture) by reusing diffusion steps.
 - LoRA Support: Apply Low-Rank Adaptation models (e.g., for style transfer) with automatic downloading.
+- Speech-to-Text (STT): Whisper.cpp integration for audio transcription with timestamp support, language detection, and SRT subtitle generation.
+- Text-to-Speech (TTS): Bark.cpp integration for neural text-to-speech synthesis (experimental; see [limitations](#speech-limitations)).
 - Minimal on-device RAG (retrieval-augmented generation) pipeline
 - OCR Support: Extract text from images using Google ML Kit
 - Vision Model Ready: Architecture prepared for vision-capable LLMs (LLaVA)
@@ -30,19 +32,21 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 
 ## Table of Contents
 
-1. [Installation](#installation)  
-2. [Usage](#usage)  
-   - [Downloading Models](#downloading-models)  
-   - [Reasoning Controls](#reasoning-controls)  
+1. [Installation](#installation)
+2. [Usage](#usage)
+   - [Downloading Models](#downloading-models)
+   - [Reasoning Controls](#reasoning-controls)
    - [Image Text Extraction (OCR)](#image-text-extraction-ocr)
    - [Vision Models](#vision-models)
+   - [Speech-to-Text (Whisper)](#speech-to-text-whisper)
+   - [Text-to-Speech (Bark)](#text-to-speech-bark)
    - [Stable Diffusion (image generation)](#stable-diffusion-image-generation)
    - [Video Generation](#video-generation)
-   - [On-device RAG](#on-device-rag)  
-3. [Building](#building)  
-4. [Architecture](#architecture)  
-5. [Technologies](#technologies)  
-6. [Memory Metrics](#memory-metrics)  
+   - [On-device RAG](#on-device-rag)
+3. [Building](#building)
+4. [Architecture](#architecture)
+5. [Technologies](#technologies)
+6. [Memory Metrics](#memory-metrics)
 7. [Notes](#notes)
 8. [Testing](#testing)
 
@@ -79,7 +83,7 @@ CoroutineScope(Dispatchers.IO).launch {
             prompt = "Summarize on-device LLMs in one sentence."
         )
     )
-    
+
     withContext(Dispatchers.Main) {
         outputView.text = reply
     }
@@ -203,6 +207,129 @@ The manager handles the complex pipeline of:
 
 Vision model support is currently experimental and requires specific model architectures (like LLaVA-Phi-3).
 
+### Speech-to-Text (Whisper)
+
+Transcribe audio using the high-level `LLMEdgeManager` API:
+
+```kotlin
+import io.aatricks.llmedge.LLMEdgeManager
+
+// Simple transcription
+val text = LLMEdgeManager.transcribeAudioToText(
+    context = context,
+    audioSamples = audioSamples  // 16kHz mono PCM float32
+)
+
+// Full transcription with timing
+val segments = LLMEdgeManager.transcribeAudio(
+    context = context,
+    params = LLMEdgeManager.TranscriptionParams(
+        audioSamples = audioSamples,
+        language = "en"  // null for auto-detect
+    )
+) { progress ->
+    Log.d("Whisper", "Progress: $progress%")
+}
+segments.forEach { segment ->
+    println("[${segment.startTimeMs}ms] ${segment.text}")
+}
+
+// Language detection
+val lang = LLMEdgeManager.detectLanguage(context, audioSamples)
+
+// Generate SRT subtitles
+val srt = LLMEdgeManager.transcribeToSrt(context, audioSamples)
+```
+
+#### Real-time Streaming Transcription
+
+For live captioning, use the streaming transcription API with a sliding window approach:
+
+```kotlin
+import io.aatricks.llmedge.LLMEdgeManager
+import kotlinx.coroutines.launch
+
+// Create a streaming transcriber
+val transcriber = LLMEdgeManager.createStreamingTranscriber(
+    context = context,
+    params = LLMEdgeManager.StreamingTranscriptionParams(
+        stepMs = 3000,      // Process every 3 seconds
+        lengthMs = 10000,   // Use 10-second windows
+        keepMs = 200,       // Keep 200ms overlap for context
+        language = "en",    // null for auto-detect
+        useVad = true       // Skip silent segments
+    )
+)
+
+// Start collecting transcription results
+launch {
+    transcriber.start().collect { segment ->
+        // Update UI with real-time captions
+        updateCaptions(segment.text)
+    }
+}
+
+// Feed audio samples from microphone as they become available
+audioRecorder.onAudioChunk { samples ->
+    transcriber.feedAudio(samples)  // 16kHz mono PCM float32
+}
+
+// When done recording
+transcriber.stop()
+LLMEdgeManager.stopStreamingTranscription()
+```
+
+**Streaming parameters:**
+- `stepMs`: How often transcription runs (default: 3000ms). Lower = faster updates, higher CPU usage.
+- `lengthMs`: Audio window size (default: 10000ms). Longer windows improve accuracy.
+- `keepMs`: Overlap with previous window (default: 200ms). Helps maintain context.
+- `useVad`: Voice Activity Detection - skips silent audio (default: true).
+
+For low-level control, see [Whisper Low-Level API](docs/usage.md#speech-to-text-whisper-low-level).
+
+**Recommended models:**
+- `ggml-tiny.bin` (~75MB) - Fast, lower accuracy
+- `ggml-base.bin` (~142MB) - Good balance
+- `ggml-small.bin` (~466MB) - Higher accuracy
+
+### Text-to-Speech (Bark)
+
+Generate speech using the high-level `LLMEdgeManager` API:
+
+```kotlin
+import io.aatricks.llmedge.LLMEdgeManager
+
+// Generate speech
+val audio = LLMEdgeManager.synthesizeSpeech(
+    context = context,
+    params = LLMEdgeManager.SpeechSynthesisParams(
+        text = "Hello, world!"
+    )
+) { step, progress ->
+    Log.d("Bark", "${step.name}: $progress%")
+}
+
+// Save directly to file
+LLMEdgeManager.synthesizeSpeechToFile(
+    context = context,
+    text = "Hello, world!",
+    outputFile = File(cacheDir, "output.wav")
+)
+```
+
+For low-level control, see [Bark Low-Level API](docs/usage.md#text-to-speech-bark-low-level).
+
+#### Speech Limitations
+
+> [!WARNING]
+> **Bark TTS on Android has significant performance limitations:**
+> - The f16 model (`bark-small_weights-f16.bin`, 843MB) takes **10+ minutes** to generate short phrases on mobile devices, compared to ~5 seconds on desktop Linux.
+> - No quantized Bark models in combined ggml format are currently available on HuggingFace.
+> - Bark TTS is suitable for **desktop/server use** or **batch processing**, but not real-time mobile applications.
+>
+> **Whisper STT works well on mobile** with the tiny/base models, providing reasonable transcription speeds.
+
+**Future improvements:** Quantized Bark models (Q4/Q8) in combined format would significantly improve mobile performance when they become available.
 
 ### Stable Diffusion (image generation)
 
@@ -389,14 +516,19 @@ Troubleshooting
 
 1. llama.cpp (C/C++) provides the core inference engine, built via the Android NDK.
 2. Stable Diffusion (C/C++) provides the image generation backend, built via the Android NDK.
-3. `LLMInference.cpp` wraps the llama.cpp C API.
-4. `smollm.cpp` exposes JNI bindings for Kotlin.
-5. The `SmolLM` Kotlin class provides a high-level API for model loading and inference.
+3. whisper.cpp (C/C++) provides speech-to-text transcription, built via the Android NDK.
+4. bark.cpp (C/C++) provides text-to-speech synthesis, built via the Android NDK.
+5. `LLMInference.cpp` wraps the llama.cpp C API.
+6. `smollm.cpp`, `whisper_jni.cpp`, `bark_jni.cpp` expose JNI bindings for Kotlin.
+7. The `SmolLM`, `Whisper`, and `BarkTTS` Kotlin classes provide high-level APIs.
 
 ## Technologies
 
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) — Core LLM backend
-- GGUF — Model format
+- [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) — Image/video generation backend
+- [whisper.cpp](https://github.com/ggerganov/whisper.cpp) — Speech-to-text backend
+- [bark.cpp](https://github.com/PABannier/bark.cpp) — Text-to-speech backend
+- GGUF / GGML — Model formats
 - Android NDK / JNI — Native bindings
 - ONNX Runtime — Sentence embeddings
 - Android DownloadManager — Large file downloads
@@ -451,13 +583,15 @@ The library includes consumer ProGuard rules. If you need to add custom rules:
 - **llmedge**: Apache 2.0
 - **llama.cpp**: MIT
 - **stable-diffusion.cpp**: MIT
+- **whisper.cpp**: MIT
+- **bark.cpp**: MIT
 - **Leptonica**: Custom (BSD-like)
 - **Google ML Kit**: Proprietary (see ML Kit terms)
 - **JavaCPP**: Apache 2.0
 
 ## License and Credits
 
-This project builds upon work by [Shubham Panchal](https://github.com/shubham0204) and [ggerganov](https://github.com/ggerganov).
+This project builds upon work by [Shubham Panchal](https://github.com/shubham0204), [ggerganov](https://github.com/ggerganov), and [PABannier](https://github.com/PABannier).
 See [CREDITS.md](CREDITS.md) for full details.
 
 ## Testing

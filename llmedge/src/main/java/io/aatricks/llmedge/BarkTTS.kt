@@ -403,11 +403,11 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
          * Download and load a Bark model from Hugging Face Hub.
          *
          * Note: Bark models require conversion to GGML format before use. The model file should be
-         * a pre-converted ggml_weights.bin file.
+         * a pre-converted ggml weights file (e.g., bark-small_weights-f16.bin).
          *
          * @param context Android context for caching
-         * @param modelId Hugging Face model ID containing ggml_weights.bin
-         * @param filename The model filename (default: "ggml_weights.bin")
+         * @param modelId Hugging Face model ID (default: "Green-Sky/bark-ggml")
+         * @param filename The model filename (default: "bark-small_weights-f16.bin")
          * @param seed Random seed for reproducibility
          * @param temperature Sampling temperature for text/coarse encoders
          * @param fineTemperature Sampling temperature for fine encoder
@@ -418,8 +418,8 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
         @JvmStatic
         suspend fun loadFromHuggingFace(
                 context: Context,
-                modelId: String = "PABannier/bark.cpp",
-                filename: String = "ggml_weights.bin",
+                modelId: String = "Green-Sky/bark-ggml",
+                filename: String = "bark-small_weights-f16.bin",
                 seed: Int = 0,
                 temperature: Float = 0.7f,
                 fineTemperature: Float = 0.5f,
