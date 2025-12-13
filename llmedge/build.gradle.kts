@@ -75,17 +75,22 @@ android {
             unitTests.all {
                 // Check if we're running the E2E test with native library path specified
                 val nativeLibPath = System.getenv("LLMEDGE_BUILD_NATIVE_LIB_PATH")
-                if (nativeLibPath.isNullOrBlank()) {
+                val whisperLibPath = System.getenv("LLMEDGE_BUILD_WHISPER_LIB_PATH")
+                val hasNativeLib = !nativeLibPath.isNullOrBlank() || !whisperLibPath.isNullOrBlank()
+                if (!hasNativeLib) {
                     // Disable native load for regular unit tests (no native library available)
                     it.systemProperty("llmedge.disableNativeLoad", "true")
                 } else {
                     // For E2E tests with native library, enable native loading and set library path
                     it.systemProperty("llmedge.disableNativeLoad", "false")
-                    // Get the directory containing the native library
-                    val nativeLibDir = File(nativeLibPath).parent
+                    // Build library path from available native libraries
+                    val libraryPaths = mutableListOf<String>()
+                    nativeLibPath?.let { libraryPaths.add(File(it).parent) }
+                    whisperLibPath?.let { libraryPaths.add(File(it).parent) }
                     // Also include the jni-desktop build directory for dependencies
                     val jniDesktopDir = "${rootProject.projectDir}/scripts/jni-desktop/build/bin"
-                    val libraryPath = "$nativeLibDir:$jniDesktopDir"
+                    libraryPaths.add(jniDesktopDir)
+                    val libraryPath = libraryPaths.joinToString(":")
                     it.jvmArgs("-Djava.library.path=$libraryPath")
                     // Increase memory for video generation tests (needs lots of RAM for model + video frames)
                     it.maxHeapSize = "12g"
@@ -98,6 +103,16 @@ android {
                     }
                     System.getenv("LLMEDGE_TEST_VAE_PATH")?.let { path ->
                         it.systemProperty("LLMEDGE_TEST_VAE_PATH", path)
+                    }
+                    // Whisper test environment variables
+                    System.getenv("LLMEDGE_TEST_WHISPER_MODEL_PATH")?.let { path ->
+                        it.systemProperty("LLMEDGE_TEST_WHISPER_MODEL_PATH", path)
+                    }
+                    System.getenv("LLMEDGE_BUILD_WHISPER_LIB_PATH")?.let { path ->
+                        it.systemProperty("LLMEDGE_BUILD_WHISPER_LIB_PATH", path)
+                    }
+                    System.getenv("LLMEDGE_TEST_AUDIO_PATH")?.let { path ->
+                        it.systemProperty("LLMEDGE_TEST_AUDIO_PATH", path)
                     }
                 }
             }
@@ -145,9 +160,9 @@ dependencies {
 
     // JSON serialization (for simple local embedding index persistence)
     implementation("com.google.code.gson:gson:2.11.0")
-    
+
     // OCR support - Google ML Kit Text Recognition (Tesseract removed)
-    
+
     // OCR support - Google ML Kit Text Recognition
     implementation("com.google.mlkit:text-recognition:16.0.0")
     // Image labeling for fast local description
@@ -156,7 +171,7 @@ dependencies {
     // implementation("com.google.mlkit:text-recognition-chinese:16.0.0")
     // implementation("com.google.mlkit:text-recognition-japanese:16.0.0")
     // implementation("com.google.mlkit:text-recognition-korean:16.0.0")
-    
+
     // Coroutines support for ML Kit
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.1")
 

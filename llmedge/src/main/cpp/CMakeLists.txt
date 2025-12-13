@@ -381,3 +381,54 @@ if (WAN_SUPPORT)
 endif()
 
 target_link_options(sdcpp PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
+
+# ------------------------------------------------------------
+# Whisper.cpp JNI wrapper build (Speech-to-Text)
+# ------------------------------------------------------------
+
+# Resolve WHISPER_DIR to an absolute path
+set(WHISPER_DIR_RELATIVE "../../../../whisper.cpp")
+get_filename_component(WHISPER_DIR ${WHISPER_DIR_RELATIVE} ABSOLUTE)
+
+if (NOT EXISTS "${WHISPER_DIR}/include/whisper.h")
+        message(FATAL_ERROR "whisper.cpp headers not found at ${WHISPER_DIR}. Please ensure whisper.cpp is cloned.")
+endif()
+
+# Configure whisper.cpp build options
+set(WHISPER_BUILD_TESTS OFF CACHE BOOL "whisper: build tests" FORCE)
+set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "whisper: build examples" FORCE)
+set(WHISPER_BUILD_SERVER OFF CACHE BOOL "whisper: build server example" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "whisper: build shared libs" FORCE)
+set(WHISPER_SDL2 OFF CACHE BOOL "whisper: support for libSDL2" FORCE)
+set(WHISPER_CURL OFF CACHE BOOL "whisper: use libcurl to download model from an URL" FORCE)
+set(WHISPER_COREML OFF CACHE BOOL "whisper: enable Core ML framework" FORCE)
+set(WHISPER_OPENVINO OFF CACHE BOOL "whisper: support for OpenVINO" FORCE)
+# Disable system GGML - whisper.cpp will use its bundled ggml
+set(WHISPER_USE_SYSTEM_GGML OFF CACHE BOOL "whisper: use system-installed GGML library" FORCE)
+
+# Add whisper.cpp subdirectory
+add_subdirectory(${WHISPER_DIR} ${CMAKE_CURRENT_BINARY_DIR}/whisper.cpp)
+
+# JNI glue for whisper
+add_library(whisper_jni SHARED
+        whisper_jni.cpp
+)
+
+target_include_directories(whisper_jni
+        PRIVATE
+        ${WHISPER_DIR}/include
+        ${WHISPER_DIR}/ggml/include
+)
+
+target_compile_features(whisper_jni PUBLIC c_std_11 cxx_std_17)
+
+target_compile_options(whisper_jni PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections)
+
+target_link_libraries(whisper_jni
+        android log
+        whisper
+)
+
+target_link_options(whisper_jni PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
+
+message(STATUS "Whisper.cpp JNI wrapper configured")

@@ -67,3 +67,14 @@ dist/
 *.mp4
 *.gif
 *.png
+
+# Whisper build outputs
+scripts/jni-desktop/build-whisper/
+scripts/jni-desktop/build-whisper-jni/
+llmedge/build/native/
+
+# Converted audio test files
+models/*.raw
+
+# Model files
+models/*.bin
