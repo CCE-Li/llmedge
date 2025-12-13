@@ -22,7 +22,7 @@ class WhisperTest {
             endTime = 200L,    // 200 centiseconds = 2000ms
             text = "Test"
         )
-        
+
         assertEquals(1000L, segment.startTimeMs)
         assertEquals(2000L, segment.endTimeMs)
         assertEquals(1000L, segment.durationMs)
@@ -36,7 +36,7 @@ class WhisperTest {
             endTime = 150L,  // 1500ms
             text = "Hello, world!"
         )
-        
+
         val srt = segment.toSrtEntry()
         assertTrue(srt.contains("1"))  // Index + 1
         assertTrue(srt.contains("-->"))
@@ -52,7 +52,7 @@ class WhisperTest {
             endTime = 150L,
             text = "Hello, world!"
         )
-        
+
         val vtt = segment.toVttEntry()
         assertTrue(vtt.contains("-->"))
         assertTrue(vtt.contains("Hello, world!"))
@@ -62,7 +62,7 @@ class WhisperTest {
     @Test
     fun `TranscribeParams default values are correct`() {
         val params = Whisper.TranscribeParams()
-        
+
         assertEquals(0, params.nThreads)
         assertFalse(params.translate)
         assertNull(params.language)
@@ -91,7 +91,7 @@ class WhisperTest {
             suppressBlank = false,
             printProgress = true
         )
-        
+
         assertEquals(4, params.nThreads)
         assertTrue(params.translate)
         assertEquals("en", params.language)
@@ -123,7 +123,7 @@ class WhisperTest {
             endTime = 0L,
             text = ""
         )
-        
+
         assertEquals(0L, segment.startTimeMs)
         assertEquals(0L, segment.endTimeMs)
         assertEquals(0L, segment.durationMs)
@@ -138,7 +138,7 @@ class WhisperTest {
             endTime = 360100L,
             text = "After one hour"
         )
-        
+
         assertEquals(3600000L, segment.startTimeMs)  // 1 hour in ms
         assertEquals(3601000L, segment.endTimeMs)
         assertEquals(1000L, segment.durationMs)
@@ -155,7 +155,7 @@ class WhisperTest {
             endTime = 904650L,
             text = "Test"
         )
-        
+
         val srt = segment.toSrtEntry()
         assertTrue("SRT should contain hour value", srt.contains("02:30:45"))
     }

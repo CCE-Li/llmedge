@@ -76,7 +76,8 @@ android {
                 // Check if we're running the E2E test with native library path specified
                 val nativeLibPath = System.getenv("LLMEDGE_BUILD_NATIVE_LIB_PATH")
                 val whisperLibPath = System.getenv("LLMEDGE_BUILD_WHISPER_LIB_PATH")
-                val hasNativeLib = !nativeLibPath.isNullOrBlank() || !whisperLibPath.isNullOrBlank()
+                val barkLibPath = System.getenv("LLMEDGE_BUILD_BARK_LIB_PATH")
+                val hasNativeLib = !nativeLibPath.isNullOrBlank() || !whisperLibPath.isNullOrBlank() || !barkLibPath.isNullOrBlank()
                 if (!hasNativeLib) {
                     // Disable native load for regular unit tests (no native library available)
                     it.systemProperty("llmedge.disableNativeLoad", "true")
@@ -87,6 +88,7 @@ android {
                     val libraryPaths = mutableListOf<String>()
                     nativeLibPath?.let { libraryPaths.add(File(it).parent) }
                     whisperLibPath?.let { libraryPaths.add(File(it).parent) }
+                    barkLibPath?.let { libraryPaths.add(File(it).parent) }
                     // Also include the jni-desktop build directory for dependencies
                     val jniDesktopDir = "${rootProject.projectDir}/scripts/jni-desktop/build/bin"
                     libraryPaths.add(jniDesktopDir)
@@ -113,6 +115,13 @@ android {
                     }
                     System.getenv("LLMEDGE_TEST_AUDIO_PATH")?.let { path ->
                         it.systemProperty("LLMEDGE_TEST_AUDIO_PATH", path)
+                    }
+                    // Bark TTS test environment variables
+                    System.getenv("LLMEDGE_TEST_BARK_MODEL_PATH")?.let { path ->
+                        it.systemProperty("LLMEDGE_TEST_BARK_MODEL_PATH", path)
+                    }
+                    System.getenv("LLMEDGE_BUILD_BARK_LIB_PATH")?.let { path ->
+                        it.systemProperty("LLMEDGE_BUILD_BARK_LIB_PATH", path)
                     }
                 }
             }

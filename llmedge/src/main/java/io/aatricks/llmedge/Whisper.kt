@@ -30,29 +30,29 @@ import kotlinx.coroutines.withContext
 
 /**
  * Kotlin wrapper for whisper.cpp providing Speech-to-Text (STT) functionality.
- * 
+ *
  * Whisper is an automatic speech recognition (ASR) model that can transcribe
  * and translate audio in multiple languages. This wrapper enables:
  * - Real-time transcription
- * - Translation between languages  
+ * - Translation between languages
  * - Subtitle generation with timestamps
  * - Language detection
- * 
+ *
  * Example usage:
  * ```kotlin
  * val whisper = Whisper.load(context, "path/to/ggml-base.bin")
- * 
+ *
  * // Transcribe audio samples (16kHz mono PCM float32)
  * val segments = whisper.transcribe(audioSamples)
  * segments.forEach { segment ->
  *     println("[${segment.startTimeMs}ms - ${segment.endTimeMs}ms] ${segment.text}")
  * }
- * 
+ *
  * whisper.close()
  * ```
  */
 class Whisper private constructor(private val handle: Long) : AutoCloseable {
-    
+
     /**
      * Represents a transcribed segment with timing information.
      */
@@ -64,27 +64,27 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
     ) {
         /** Start time in milliseconds */
         val startTimeMs: Long get() = startTime * 10
-        
+
         /** End time in milliseconds */
         val endTimeMs: Long get() = endTime * 10
-        
+
         /** Duration in milliseconds */
         val durationMs: Long get() = endTimeMs - startTimeMs
-        
+
         /** Format as SRT subtitle entry */
         fun toSrtEntry(): String {
             val startFormatted = formatTimeSrt(startTimeMs)
             val endFormatted = formatTimeSrt(endTimeMs)
             return "${index + 1}\n$startFormatted --> $endFormatted\n$text\n"
         }
-        
+
         /** Format as VTT subtitle entry */
         fun toVttEntry(): String {
             val startFormatted = formatTimeVtt(startTimeMs)
             val endFormatted = formatTimeVtt(endTimeMs)
             return "$startFormatted --> $endFormatted\n$text\n"
         }
-        
+
         private fun formatTimeSrt(ms: Long): String {
             val hours = ms / 3600000
             val minutes = (ms % 3600000) / 60000
@@ -92,7 +92,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             val millis = ms % 1000
             return String.format("%02d:%02d:%02d,%03d", hours, minutes, seconds, millis)
         }
-        
+
         private fun formatTimeVtt(ms: Long): String {
             val hours = ms / 3600000
             val minutes = (ms % 3600000) / 60000
@@ -101,7 +101,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             return String.format("%02d:%02d:%02d.%03d", hours, minutes, seconds, millis)
         }
     }
-    
+
     /**
      * Configuration for transcription.
      */
@@ -129,24 +129,24 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         /** Print progress to console */
         val printProgress: Boolean = false
     )
-    
+
     /**
      * Callback for transcription progress updates.
      */
     fun interface ProgressCallback {
         fun onProgress(progress: Int)
     }
-    
+
     /**
      * Callback for new transcription segments (for real-time streaming).
      */
     fun interface SegmentCallback {
         fun onNewSegment(index: Int, startTime: Long, endTime: Long, text: String)
     }
-    
+
     private var progressCallback: ProgressCallback? = null
     private var segmentCallback: SegmentCallback? = null
-    
+
     // Internal bridge interface for testing
     internal interface NativeBridge {
         fun transcribe(
@@ -156,12 +156,12 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             progressCallback: ProgressCallback?,
             segmentCallback: SegmentCallback?
         ): Array<TranscriptionSegment>?
-        
+
         fun detectLanguage(handle: Long, samples: FloatArray, nThreads: Int): Int
         fun getFullText(handle: Long): String
         fun close(handle: Long)
     }
-    
+
     /**
      * Set a callback to receive progress updates during transcription.
      */
@@ -178,7 +178,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             nativeSetProgressCallback(handle, null)
         }
     }
-    
+
     /**
      * Set a callback to receive new segments in real-time during transcription.
      * This is useful for streaming transcription results.
@@ -196,10 +196,10 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             nativeSetSegmentCallback(handle, null)
         }
     }
-    
+
     /**
      * Transcribe audio samples to text.
-     * 
+     *
      * @param samples Audio samples as 32-bit float PCM at 16kHz mono
      * @param params Transcription parameters
      * @return List of transcription segments with timing information
@@ -209,13 +209,13 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         params: TranscribeParams = TranscribeParams()
     ): List<TranscriptionSegment> {
         require(samples.isNotEmpty()) { "Audio samples cannot be empty" }
-        
+
         val effectiveThreads = if (params.nThreads <= 0) {
             Runtime.getRuntime().availableProcessors().coerceAtMost(8)
         } else {
             params.nThreads
         }
-        
+
         val segments = nativeTranscribe(
             handle,
             samples,
@@ -231,10 +231,10 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             params.suppressBlank,
             params.printProgress
         ) ?: return emptyList()
-        
+
         return segments.toList()
     }
-    
+
     /**
      * Transcribe audio and return results as a Flow for streaming use cases.
      */
@@ -245,59 +245,59 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         val segments = transcribe(samples, params)
         segments.forEach { emit(it) }
     }.flowOn(Dispatchers.IO)
-    
+
     /**
      * Detect the language of the audio.
-     * 
+     *
      * @param samples Audio samples as 32-bit float PCM at 16kHz mono
      * @param nThreads Number of threads to use. 0 = auto
      * @return Language code (e.g., "en", "es", "fr") or null if detection fails
      */
     fun detectLanguage(samples: FloatArray, nThreads: Int = 0): String? {
         require(samples.isNotEmpty()) { "Audio samples cannot be empty" }
-        
+
         val effectiveThreads = if (nThreads <= 0) {
             Runtime.getRuntime().availableProcessors().coerceAtMost(8)
         } else {
             nThreads
         }
-        
+
         val langId = nativeDetectLanguage(handle, samples, effectiveThreads, 0)
         return if (langId >= 0) getLanguageString(langId) else null
     }
-    
+
     /**
      * Get the full transcribed text from the last transcription.
      */
     fun getFullText(): String = nativeGetFullText(handle)
-    
+
     /**
      * Check if the loaded model supports multiple languages.
      */
     fun isMultilingual(): Boolean = nativeIsMultilingual(handle)
-    
+
     /**
      * Get the model type (e.g., "tiny", "base", "small", "medium", "large").
      */
     fun getModelType(): String = nativeGetModelType(handle)
-    
+
     /**
      * Reset internal timing statistics.
      */
     fun resetTimings() = nativeResetTimings(handle)
-    
+
     /**
      * Print timing statistics to the log.
      */
     fun printTimings() = nativePrintTimings(handle)
-    
+
     /**
      * Generate SRT subtitle content from transcription segments.
      */
     fun generateSrt(segments: List<TranscriptionSegment>): String {
         return segments.joinToString("\n") { it.toSrtEntry() }
     }
-    
+
     /**
      * Generate WebVTT subtitle content from transcription segments.
      */
@@ -305,27 +305,27 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         val header = "WEBVTT\n\n"
         return header + segments.joinToString("\n") { it.toVttEntry() }
     }
-    
+
     override fun close() {
         nativeDestroy(handle)
     }
-    
+
     companion object {
         private const val LOG_TAG = "Whisper"
-        
+
         /** Whisper expects audio at 16kHz sample rate */
         const val SAMPLE_RATE = 16000
-        
+
         /** Whisper processes audio in 30-second chunks */
         const val CHUNK_SIZE_SECONDS = 30
-        
+
         private val isAndroidLogAvailable: Boolean = try {
             Class.forName("android.util.Log")
             true
         } catch (_: Throwable) {
             false
         }
-        
+
         private fun logD(tag: String, message: String) {
             if (isAndroidLogAvailable) {
                 try {
@@ -337,7 +337,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                 println("D/$tag: $message")
             }
         }
-        
+
         private fun logE(tag: String, message: String) {
             if (isAndroidLogAvailable) {
                 try {
@@ -349,7 +349,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                 println("E/$tag: $message")
             }
         }
-        
+
         // Native library loading - similar to SmolLM
         init {
             val disableNativeLoad = java.lang.Boolean.getBoolean("llmedge.disableNativeLoad")
@@ -360,11 +360,11 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                     // Try to load the whisper native library
                     // On Android, we have architecture-specific variants
                     // On desktop/JVM testing, we use whisper_jni
-                    
+
                     // First, check if this is a desktop JVM environment (for testing)
                     val osName = System.getProperty("os.name", "").lowercase()
                     val isDesktopJvm = osName.contains("linux") && !osName.contains("android")
-                    
+
                     if (isDesktopJvm) {
                         // Desktop JVM testing - load whisper_jni directly
                         logD(LOG_TAG, "Loading libwhisper_jni.so for desktop testing")
@@ -372,7 +372,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                     } else {
                         // Android environment
                         val isEmulated = Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu")
-                        
+
                         if (!isEmulated && supportsArm64V8a()) {
                             logD(LOG_TAG, "Loading libwhisper_arm64.so")
                             System.loadLibrary("whisper_arm64")
@@ -386,11 +386,11 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                 }
             }
         }
-        
+
         private fun supportsArm64V8a(): Boolean {
             return Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }
         }
-        
+
         /**
          * Check if native bindings are available.
          */
@@ -402,46 +402,46 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                 false
             }
         }
-        
+
         /**
          * Get the whisper.cpp version string.
          */
         @JvmStatic
         fun getVersion(): String = nativeGetVersion()
-        
+
         /**
          * Get system information string.
          */
         @JvmStatic
         fun getSystemInfo(): String = nativeGetSystemInfo()
-        
+
         /**
          * Get the maximum language ID supported.
          */
         @JvmStatic
         fun getMaxLanguageId(): Int = nativeGetMaxLanguageId()
-        
+
         /**
          * Get the language ID for a language code or name.
-         * 
+         *
          * @param lang Language code (e.g., "en") or name (e.g., "english")
          * @return Language ID or -1 if not found
          */
         @JvmStatic
         fun getLanguageId(lang: String): Int = nativeGetLanguageId(lang)
-        
+
         /**
          * Get the language code for a language ID.
-         * 
+         *
          * @param langId Language ID
          * @return Language code (e.g., "en") or empty string if not found
          */
         @JvmStatic
         fun getLanguageString(langId: Int): String = nativeGetLanguageString(langId)
-        
+
         /**
          * Load a Whisper model from a file path.
-         * 
+         *
          * @param modelPath Path to the GGML Whisper model file
          * @param useGpu Enable GPU acceleration (if available)
          * @param flashAttn Enable flash attention optimization
@@ -459,19 +459,19 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             if (!file.exists()) {
                 throw FileNotFoundException("Model file not found: $modelPath")
             }
-            
+
             val handle = nativeCreate(modelPath, useGpu, flashAttn, gpuDevice)
             if (handle == 0L) {
                 throw RuntimeException("Failed to load Whisper model from: $modelPath")
             }
-            
+
             return Whisper(handle)
         }
-        
+
         /**
          * Load a Whisper model with Android Context support.
          * This allows loading models from app assets or cache directories.
-         * 
+         *
          * @param context Android context
          * @param modelPath Path to the model file (can be relative to cache dir)
          * @param useGpu Enable GPU acceleration
@@ -505,13 +505,13 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                     }
                 }
             }
-            
+
             load(actualPath, useGpu, flashAttn, gpuDevice)
         }
-        
+
         /**
          * Download and load a Whisper model from Hugging Face Hub.
-         * 
+         *
          * @param context Android context for caching
          * @param modelId Hugging Face model ID (e.g., "ggerganov/whisper.cpp")
          * @param modelFile Specific model file name (e.g., "ggml-base.bin")
@@ -539,7 +539,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             )
             load(result.file.absolutePath, useGpu, flashAttn, gpuDevice)
         }
-        
+
         // Native method declarations
         @JvmStatic private external fun nativeCheckBindings(): Boolean
         @JvmStatic private external fun nativeGetVersion(): String

@@ -432,3 +432,46 @@ target_link_libraries(whisper_jni
 target_link_options(whisper_jni PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
 
 message(STATUS "Whisper.cpp JNI wrapper configured")
+
+# ------------------------------------------------------------
+# Bark.cpp JNI wrapper build (Text-to-Speech)
+# ------------------------------------------------------------
+
+# Resolve BARK_DIR to an absolute path
+set(BARK_DIR_RELATIVE "../../../../bark.cpp")
+get_filename_component(BARK_DIR ${BARK_DIR_RELATIVE} ABSOLUTE)
+
+if (NOT EXISTS "${BARK_DIR}/bark.h")
+        message(FATAL_ERROR "bark.cpp headers not found at ${BARK_DIR}. Please ensure bark.cpp is cloned.")
+endif()
+
+# Configure bark.cpp build options
+set(BARK_BUILD_EXAMPLES OFF CACHE BOOL "bark: build examples" FORCE)
+
+# Add bark.cpp subdirectory
+add_subdirectory(${BARK_DIR} ${CMAKE_CURRENT_BINARY_DIR}/bark.cpp)
+
+# JNI glue for bark
+add_library(bark_jni SHARED
+        bark_jni.cpp
+)
+
+target_include_directories(bark_jni
+        PRIVATE
+        ${BARK_DIR}
+        ${BARK_DIR}/encodec.cpp
+        ${BARK_DIR}/encodec.cpp/ggml/include
+)
+
+target_compile_features(bark_jni PUBLIC c_std_11 cxx_std_17)
+
+target_compile_options(bark_jni PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections)
+
+target_link_libraries(bark_jni
+        android log
+        bark
+)
+
+target_link_options(bark_jni PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
+
+message(STATUS "Bark.cpp JNI wrapper configured")

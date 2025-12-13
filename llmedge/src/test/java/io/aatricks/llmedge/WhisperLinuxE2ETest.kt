@@ -38,14 +38,14 @@ class WhisperLinuxE2ETest {
         val sampleRate = Whisper.SAMPLE_RATE
         val numSamples = (sampleRate * durationSeconds).toInt()
         val samples = FloatArray(numSamples)
-        
+
         // Generate a simple sine wave (not real speech, but tests the pipeline)
         val frequency = 440.0f  // A4 note
         for (i in 0 until numSamples) {
             val t = i.toFloat() / sampleRate
             samples[i] = (sin(2.0 * Math.PI * frequency * t) * 0.5f).toFloat()
         }
-        
+
         return samples
     }
 
@@ -123,7 +123,7 @@ class WhisperLinuxE2ETest {
         // The test audio is just a sine wave, so we don't expect meaningful text
         // But the pipeline should complete without errors
         // Real tests with actual speech audio would verify the transcription content
-        
+
         segments.forEachIndexed { index, segment ->
             println("[WhisperLinuxE2ETest] Segment $index: [${segment.startTimeMs}ms - ${segment.endTimeMs}ms] ${segment.text}")
         }
@@ -180,10 +180,10 @@ class WhisperLinuxE2ETest {
     fun `transcribe with real audio file`() = runBlocking {
         val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
         Assume.assumeTrue("No test model specified", !modelPath.isNullOrBlank())
-        
+
         val audioPath = System.getenv("LLMEDGE_TEST_AUDIO_PATH") ?: System.getProperty("LLMEDGE_TEST_AUDIO_PATH")
         Assume.assumeTrue("No test audio file specified", !audioPath.isNullOrBlank())
-        
+
         val audioFile = File(audioPath)
         Assume.assumeTrue("Audio file not found", audioFile.exists())
 
@@ -191,10 +191,10 @@ class WhisperLinuxE2ETest {
         Assume.assumeTrue("Native loading is disabled", disableNativeLoad != "true")
 
         println("[WhisperLinuxE2ETest] Testing with real audio file: $audioPath")
-        
+
         // Load model
         val whisper = Whisper.load(modelPath, useGpu = false)
-        
+
         // Read audio file - for this test, we expect a raw PCM float32 file
         // Real implementation should use proper audio decoding
         val audioBytes = audioFile.readBytes()
@@ -203,30 +203,30 @@ class WhisperLinuxE2ETest {
         for (i in samples.indices) {
             samples[i] = buffer.float
         }
-        
+
         println("[WhisperLinuxE2ETest] Loaded ${samples.size} samples from audio file")
-        
+
         // Transcribe with progress callback
         var progressReported = false
         whisper.setProgressCallback { progress ->
             println("[WhisperLinuxE2ETest] Progress: $progress%")
             progressReported = true
         }
-        
+
         val segments = mutableListOf<Whisper.TranscriptionSegment>()
         whisper.setSegmentCallback { index, startTime, endTime, text ->
             println("[WhisperLinuxE2ETest] New segment: [$startTime - $endTime] $text")
             segments.add(Whisper.TranscriptionSegment(index, startTime, endTime, text))
         }
-        
+
         val result = whisper.transcribe(samples)
         whisper.close()
-        
+
         println("[WhisperLinuxE2ETest] Transcription complete: ${result.size} segments")
         result.forEach { segment ->
             println("[WhisperLinuxE2ETest] ${segment.toSrtEntry()}")
         }
-        
+
         assertTrue("Expected at least one segment", result.isNotEmpty())
     }
 }
