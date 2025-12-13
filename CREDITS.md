@@ -11,10 +11,11 @@ We gratefully acknowledge the upstream projects we rely on:
 - ggml — tensor library underpinning GGUF (MIT)
 - io.gitlab.shubham0204/sentence-embeddings — ONNX embeddings (Apache-2.0)
 - com.tom-roush/pdfbox-android — PDF parsing (Apache-2.0)
-- stable-diffusion.cpp by leejet and contributors
+- ggml-org/whisper.cpp — Whisper STT (MIT)
+  - Repository: https://github.com/ggml-org/whisper.cpp
+- PABannier/bark.cpp — Bark TTS (MIT)
+  - Repository: https://github.com/PABannier/bark.cpp
+- stable-diffusion.cpp — Stable Diffusion integration (MIT)
   - Repository: https://github.com/leejet/stable-diffusion.cpp
-  - License: MIT
-  - Used for: On-device video and image generation via GGUF models
-  - Integration: Submodule at `stable-diffusion.cpp/`
 
 If you find this useful, please consider starring both this repository and the original upstream repositories to give credit to the authors.

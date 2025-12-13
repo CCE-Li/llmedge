@@ -13,20 +13,18 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 
 ## Features
 
-- Run GGUF models directly on Android using llama.cpp (JNI)
-- Download and cache models from Hugging Face
-- Optimized Inference: KV Cache reuse for multi-turn conversations, reducing latency for subsequent prompts.
-- Video Generation: Generate short video clips (4-64 frames) from text using Wan models with sequential loading for lower RAM usage.
-- Image Generation: Stable Diffusion integration with:
-- EasyCache: Accelerates generation for supported models (DiT architecture) by reusing diffusion steps.
-- LoRA Support: Apply Low-Rank Adaptation models (e.g., for style transfer) with automatic downloading.
-- Speech-to-Text (STT): Whisper.cpp integration for audio transcription with timestamp support, language detection, and SRT subtitle generation.
-- Text-to-Speech (TTS): Bark.cpp integration for neural text-to-speech synthesis (experimental; see [limitations](#speech-limitations)).
-- Minimal on-device RAG (retrieval-augmented generation) pipeline
-- OCR Support: Extract text from images using Google ML Kit
-- Vision Model Ready: Architecture prepared for vision-capable LLMs (LLaVA)
-- Built-in memory usage metrics
-- Optional Vulkan acceleration
+- **LLM Inference**: Run GGUF models directly on Android using llama.cpp (JNI)
+- **Model Downloads**: Download and cache models from Hugging Face Hub
+- **Optimized Inference**: KV Cache reuse for multi-turn conversations
+- **Speech-to-Text (STT)**: Whisper.cpp integration with timestamp support, language detection, streaming transcription, and SRT generation
+- **Text-to-Speech (TTS)**: Bark.cpp integration with ARM optimizations
+- **Image Generation**: Stable Diffusion with EasyCache and LoRA support
+- **Video Generation**: Wan 2.1 models (4-64 frames) with sequential loading
+- **On-device RAG**: PDF indexing, embeddings, vector search, Q&A
+- **OCR**: Google ML Kit text extraction
+- **Memory Metrics**: Built-in RAM usage monitoring
+- **Vision Models**: Architecture prepared for LLaVA-style models (requires specific model formats)
+- **Vulkan Acceleration**: Optional GPU acceleration (Android 11+ with Vulkan 1.2)
 
 ---
 
@@ -40,6 +38,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
    - [Vision Models](#vision-models)
    - [Speech-to-Text (Whisper)](#speech-to-text-whisper)
    - [Text-to-Speech (Bark)](#text-to-speech-bark)
+   - [Speech Performance Status](#speech-performance-status)
    - [Stable Diffusion (image generation)](#stable-diffusion-image-generation)
    - [Video Generation](#video-generation)
    - [On-device RAG](#on-device-rag)
@@ -171,7 +170,6 @@ println("Extracted text: $text")
 - Good for Latin scripts
 - Add dependency: `implementation("com.google.mlkit:text-recognition:16.0.0")`
 
-#### Processing Modes
 #### Processing Modes
 
 ```kotlin
@@ -318,18 +316,6 @@ LLMEdgeManager.synthesizeSpeechToFile(
 ```
 
 For low-level control, see [Bark Low-Level API](docs/usage.md#text-to-speech-bark-low-level).
-
-#### Speech Limitations
-
-> [!WARNING]
-> **Bark TTS on Android has significant performance limitations:**
-> - The f16 model (`bark-small_weights-f16.bin`, 843MB) takes **10+ minutes** to generate short phrases on mobile devices, compared to ~5 seconds on desktop Linux.
-> - No quantized Bark models in combined ggml format are currently available on HuggingFace.
-> - Bark TTS is suitable for **desktop/server use** or **batch processing**, but not real-time mobile applications.
->
-> **Whisper STT works well on mobile** with the tiny/base models, providing reasonable transcription speeds.
-
-**Future improvements:** Quantized Bark models (Q4/Q8) in combined format would significantly improve mobile performance when they become available.
 
 ### Stable Diffusion (image generation)
 

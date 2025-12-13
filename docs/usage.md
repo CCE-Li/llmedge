@@ -184,6 +184,7 @@ fun stopTranscription() {
 | `useVad` | true | Skip transcription during silence |
 
 **Preset Configurations:**
+
 - **Fast captioning:** `stepMs=1000, lengthMs=5000` - Quick updates, lower accuracy
 - **Balanced (default):** `stepMs=3000, lengthMs=10000` - Good tradeoff
 - **High accuracy:** `stepMs=5000, lengthMs=15000` - Better accuracy, more delay
@@ -195,11 +196,12 @@ Generate speech using the high-level API:
 ```kotlin
 import io.aatricks.llmedge.LLMEdgeManager
 
-// Generate speech
+// Generate speech (model auto-downloads on first use)
 val audio = LLMEdgeManager.synthesizeSpeech(
     context = context,
     params = LLMEdgeManager.SpeechSynthesisParams(
-        text = "Hello, world!"
+        text = "Hello, world!",
+        nThreads = 8  // Use more threads for faster generation
     )
 ) { step, progress ->
     Log.d("Bark", "${step.name}: $progress%")
@@ -215,8 +217,6 @@ LLMEdgeManager.synthesizeSpeechToFile(
 // Unload when done to free memory
 LLMEdgeManager.unloadSpeechModels()
 ```
-
-> **⚠️ Performance Warning:** Bark TTS with f16 models takes 10+ minutes on mobile devices. Use for desktop/batch processing only.
 
 ---
 
@@ -376,6 +376,7 @@ whisper.close()
 ```
 
 **Model sources:**
+
 - HuggingFace: `ggerganov/whisper.cpp` (ggml-tiny.bin, ggml-base.bin, ggml-small.bin)
 - Sizes: tiny (~75MB), base (~142MB), small (~466MB)
 
@@ -413,12 +414,8 @@ tts.saveAsWav(audio, File("/path/to/output.wav"))
 tts.close()
 ```
 
-**⚠️ Performance limitations:**
-- f16 models take **10+ minutes** on mobile devices (vs ~5 seconds on desktop)
-- No quantized Bark models in combined ggml format are currently available
-- Best suited for desktop/server or batch processing
-
 **Model sources:**
+
 - HuggingFace: `Green-Sky/bark-ggml` (bark-small_weights-f16.bin, bark_weights-f16.bin)
 - Sizes: small (~843MB), full (~2.2GB)
 
