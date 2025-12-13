@@ -9,3 +9,9 @@
 [submodule "llmedge-examples"]
     path = llmedge-examples
     url = https://github.com/Aatricks/llmedge-examples.git
+[submodule "whisper.cpp"]
+	path = whisper.cpp
+	url = https://github.com/ggerganov/whisper.cpp.git
+[submodule "bark.cpp"]
+	path = bark.cpp
+	url = https://github.com/PABannier/bark.cpp.git

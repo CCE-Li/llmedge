@@ -21,18 +21,18 @@ class ImageGenerationTest {
         StableDiffusion.overrideNativeBridgeForTests { _ ->
             object : StableDiffusion.NativeBridge {
                 override fun txt2img(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    steps: Int,
-                    cfg: Float,
-                    seed: Long,
-                    easyCacheEnabled: Boolean,
-                    easyCacheReuseThreshold: Float,
-                    easyCacheStartPercent: Float,
-                    easyCacheEndPercent: Float,
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        steps: Int,
+                        cfg: Float,
+                        seed: Long,
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float,
                 ): ByteArray {
                     // Solid gradient pattern independent of prompt
                     val bytes = ByteArray(width * height * 3)
@@ -53,38 +53,42 @@ class ImageGenerationTest {
                 }
 
                 override fun txt2vid(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    videoFrames: Int,
-                    steps: Int,
-                    cfg: Float,
-                    seed: Long,
-                    scheduler: StableDiffusion.Scheduler,
-                    strength: Float,
-                    initImage: ByteArray?,
-                    initWidth: Int,
-                    initHeight: Int,
-                    easyCacheEnabled: Boolean,
-                    easyCacheReuseThreshold: Float,
-                    easyCacheStartPercent: Float,
-                    easyCacheEndPercent: Float,
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        videoFrames: Int,
+                        steps: Int,
+                        cfg: Float,
+                        seed: Long,
+                        sampleMethod: StableDiffusion.SampleMethod,
+                        scheduler: StableDiffusion.Scheduler,
+                        strength: Float,
+                        initImage: ByteArray?,
+                        initWidth: Int,
+                        initHeight: Int,
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float,
                 ): Array<ByteArray>? {
                     // Not used in this test
                     return null
                 }
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
+                override fun setProgressCallback(
+                        handle: Long,
+                        callback: StableDiffusion.VideoProgressCallback?
+                ) {}
                 override fun cancelGeneration(handle: Long) {}
                 override fun precomputeCondition(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    clipSkip: Int,
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        clipSkip: Int,
                 ): StableDiffusion.PrecomputedCondition? = null
             }
         }
@@ -102,14 +106,15 @@ class ImageGenerationTest {
         ctor.isAccessible = true
         val sd = ctor.newInstance(1L)
 
-        val params = StableDiffusion.GenerateParams(
-            prompt = "test",
-            width = 8,
-            height = 4,
-            steps = 5,
-            cfgScale = 7.0f,
-            seed = 42L,
-        )
+        val params =
+                StableDiffusion.GenerateParams(
+                        prompt = "test",
+                        width = 8,
+                        height = 4,
+                        steps = 5,
+                        cfgScale = 7.0f,
+                        seed = 42L,
+                )
 
         val bmp: Bitmap = sd.txt2img(params)
         assertNotNull(bmp)

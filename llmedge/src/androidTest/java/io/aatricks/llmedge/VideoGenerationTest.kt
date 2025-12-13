@@ -17,62 +17,67 @@ class VideoGenerationTest : BaseVideoIntegrationTest() {
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
                 override fun txt2img(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    steps: Int,
-                    cfg: Float,
-                    seed: Long,
-                    easyCacheEnabled: Boolean,
-                    easyCacheReuseThreshold: Float,
-                    easyCacheStartPercent: Float,
-                    easyCacheEndPercent: Float,
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        steps: Int,
+                        cfg: Float,
+                        seed: Long,
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float,
                 ): ByteArray? = null
                 override fun txt2vid(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    videoFrames: Int,
-                    steps: Int,
-                    cfg: Float,
-                    seed: Long,
-                    scheduler: StableDiffusion.Scheduler,
-                    strength: Float,
-                    initImage: ByteArray?,
-                    initWidth: Int,
-                    initHeight: Int,
-                    easyCacheEnabled: Boolean,
-                    easyCacheReuseThreshold: Float,
-                    easyCacheStartPercent: Float,
-                    easyCacheEndPercent: Float,
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        videoFrames: Int,
+                        steps: Int,
+                        cfg: Float,
+                        seed: Long,
+                        sampleMethod: StableDiffusion.SampleMethod,
+                        scheduler: StableDiffusion.Scheduler,
+                        strength: Float,
+                        initImage: ByteArray?,
+                        initWidth: Int,
+                        initHeight: Int,
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float,
                 ): Array<ByteArray>? = frames.map { it.copyOf() }.toTypedArray()
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
+                override fun setProgressCallback(
+                        handle: Long,
+                        callback: StableDiffusion.VideoProgressCallback?
+                ) = Unit
 
                 override fun cancelGeneration(handle: Long) = Unit
                 override fun precomputeCondition(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    clipSkip: Int,
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        clipSkip: Int,
                 ): StableDiffusion.PrecomputedCondition? = null
             }
         }
         val sd = createStableDiffusion()
-        val params = StableDiffusion.VideoGenerateParams(
-            prompt = "wan cat walking",
-            width = 256,
-            height = 256,
-            videoFrames = 4,
-            steps = 12,
-            cfgScale = 7.5f,
-        )
+        val params =
+                StableDiffusion.VideoGenerateParams(
+                        prompt = "wan cat walking",
+                        width = 256,
+                        height = 256,
+                        videoFrames = 4,
+                        steps = 12,
+                        cfgScale = 7.5f,
+                )
 
         val result = sd.txt2vid(params)
 

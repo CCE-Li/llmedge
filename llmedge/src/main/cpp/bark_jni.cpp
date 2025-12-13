@@ -1,0 +1,293 @@
+/**
+ * JNI bindings for bark.cpp - Text-to-Speech synthesis
+ *
+ * This provides the native interface for the Bark text-to-speech model,
+ * enabling high-quality voice synthesis from text input.
+ */
+
+#include <jni.h>
+#include <string>
+#include <vector>
+#include <memory>
+#include <mutex>
+#include <stdexcept>
+#include <algorithm>
+#include <cstring>
+#include <cmath>
+
+#if __has_include(<android/log.h>)
+#include <android/log.h>
+#else
+#include <cstdio>
+#include <cstdarg>
+#define ANDROID_LOG_DEBUG 3
+#define ANDROID_LOG_INFO 4
+#define ANDROID_LOG_WARN 5
+#define ANDROID_LOG_ERROR 6
+inline int __android_log_print(int level, const char* tag, const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    fprintf(stderr, "[%s] ", tag);
+    vfprintf(stderr, format, args);
+    fprintf(stderr, "\n");
+    fflush(stderr);
+    va_end(args);
+    return 0;
+}
+#endif
+
+#include "bark.h"
+
+#define LOG_TAG "BarkJNI"
+#define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define ALOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
+#define ALOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+
+// Handle structure to hold bark context and JVM references
+struct BarkHandle {
+    bark_context* ctx = nullptr;
+    JavaVM* jvm = nullptr;
+    jobject progressCallbackGlobalRef = nullptr;
+    jmethodID progressMethodID = nullptr;
+    std::mutex mutex;
+    int sampleRate = 24000; // Bark default sample rate
+};
+
+static void throwJavaException(JNIEnv* env, const char* className, const char* message) {
+    if (!env) return;
+    jclass exClass = env->FindClass(className);
+    if (!exClass) return;
+    env->ThrowNew(exClass, message);
+}
+
+// Progress callback wrapper
+static void bark_progress_callback_wrapper(struct bark_context* bctx,
+                                           enum bark_encoding_step step,
+                                           int progress,
+                                           void* user_data) {
+    (void)bctx;
+
+    auto* handle = static_cast<BarkHandle*>(user_data);
+    if (!handle || !handle->progressCallbackGlobalRef || !handle->jvm || !handle->progressMethodID) {
+        return;
+    }
+
+    JNIEnv* env = nullptr;
+    bool detach = false;
+    jint envStatus = handle->jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    if (envStatus == JNI_EDETACHED) {
+#if defined(__ANDROID__)
+        if (handle->jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+#else
+        if (handle->jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr) != JNI_OK) {
+#endif
+            return;
+        }
+        detach = true;
+    } else if (envStatus != JNI_OK) {
+        return;
+    }
+
+    // Map encoding step to integer: 0=semantic, 1=coarse, 2=fine
+    jint stepInt = static_cast<jint>(step);
+
+    env->CallVoidMethod(handle->progressCallbackGlobalRef, handle->progressMethodID,
+                        stepInt, static_cast<jint>(progress));
+
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+    }
+
+    if (detach) {
+        handle->jvm->DetachCurrentThread();
+    }
+}
+
+extern "C" {
+
+JNIEXPORT jboolean JNICALL
+Java_io_aatricks_llmedge_BarkTTS_nativeCheckBindings(JNIEnv*, jclass) {
+    return JNI_TRUE;
+}
+
+JNIEXPORT jlong JNICALL
+Java_io_aatricks_llmedge_BarkTTS_nativeCreate(JNIEnv* env, jclass,
+                                               jstring jModelPath,
+                                               jint seed,
+                                               jfloat temp,
+                                               jfloat fineTemp,
+                                               jint verbosity) {
+    if (!jModelPath) {
+        throwJavaException(env, "java/lang/IllegalArgumentException", "Model path cannot be null");
+        return 0;
+    }
+
+    const char* modelPath = env->GetStringUTFChars(jModelPath, nullptr);
+    if (!modelPath) {
+        throwJavaException(env, "java/lang/RuntimeException", "Failed to get model path string");
+        return 0;
+    }
+
+    ALOGI("Initializing Bark with model: %s, seed=%d, temp=%.2f, fineTemp=%.2f",
+          modelPath, seed, temp, fineTemp);
+
+    bark_context_params cparams = bark_context_default_params();
+    cparams.verbosity = static_cast<bark_verbosity_level>(verbosity);
+    cparams.temp = temp;
+    cparams.fine_temp = fineTemp;
+
+    // Create handle first to set up callback
+    auto* handle = new BarkHandle();
+    env->GetJavaVM(&handle->jvm);
+
+    // Set callback in params
+    cparams.progress_callback = bark_progress_callback_wrapper;
+    cparams.progress_callback_user_data = handle;
+
+    bark_context* ctx = bark_load_model(modelPath, cparams, static_cast<uint32_t>(seed));
+    env->ReleaseStringUTFChars(jModelPath, modelPath);
+
+    if (!ctx) {
+        delete handle;
+        throwJavaException(env, "java/lang/RuntimeException", "Failed to initialize bark context");
+        return 0;
+    }
+
+    handle->ctx = ctx;
+    handle->sampleRate = cparams.sample_rate;
+
+    ALOGI("Bark context created successfully, handle=%p, sampleRate=%d", handle, handle->sampleRate);
+    return reinterpret_cast<jlong>(handle);
+}
+
+JNIEXPORT void JNICALL
+Java_io_aatricks_llmedge_BarkTTS_nativeDestroy(JNIEnv* env, jclass, jlong handlePtr) {
+    auto* handle = reinterpret_cast<BarkHandle*>(handlePtr);
+    if (!handle) return;
+
+    std::lock_guard<std::mutex> lock(handle->mutex);
+
+    if (handle->progressCallbackGlobalRef && env) {
+        env->DeleteGlobalRef(handle->progressCallbackGlobalRef);
+    }
+
+    if (handle->ctx) {
+        bark_free(handle->ctx);
+    }
+
+    delete handle;
+    ALOGI("Bark context destroyed");
+}
+
+JNIEXPORT void JNICALL
+Java_io_aatricks_llmedge_BarkTTS_nativeSetProgressCallback(JNIEnv* env, jclass,
+                                                            jlong handlePtr,
+                                                            jobject callback) {
+    auto* handle = reinterpret_cast<BarkHandle*>(handlePtr);
+    if (!handle) return;
+
+    std::lock_guard<std::mutex> lock(handle->mutex);
+
+    // Clear existing callback
+    if (handle->progressCallbackGlobalRef) {
+        env->DeleteGlobalRef(handle->progressCallbackGlobalRef);
+        handle->progressCallbackGlobalRef = nullptr;
+        handle->progressMethodID = nullptr;
+    }
+
+    if (callback) {
+        handle->progressCallbackGlobalRef = env->NewGlobalRef(callback);
+        jclass callbackClass = env->GetObjectClass(callback);
+        handle->progressMethodID = env->GetMethodID(callbackClass, "onProgress", "(II)V");
+        env->DeleteLocalRef(callbackClass);
+    }
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_io_aatricks_llmedge_BarkTTS_nativeGenerate(JNIEnv* env, jclass,
+                                                 jlong handlePtr,
+                                                 jstring jText,
+                                                 jint nThreads) {
+    auto* handle = reinterpret_cast<BarkHandle*>(handlePtr);
+    if (!handle || !handle->ctx) {
+        throwJavaException(env, "java/lang/IllegalStateException", "Bark context not initialized");
+        return nullptr;
+    }
+
+    if (!jText) {
+        throwJavaException(env, "java/lang/IllegalArgumentException", "Text cannot be null");
+        return nullptr;
+    }
+
+    const char* text = env->GetStringUTFChars(jText, nullptr);
+    if (!text) {
+        throwJavaException(env, "java/lang/RuntimeException", "Failed to get text string");
+        return nullptr;
+    }
+
+    ALOGI("Generating audio for text: \"%s\", threads=%d", text, nThreads);
+
+    // Generate audio
+    bool success = bark_generate_audio(handle->ctx, text, nThreads);
+    env->ReleaseStringUTFChars(jText, text);
+
+    if (!success) {
+        ALOGE("Failed to generate audio");
+        throwJavaException(env, "java/lang/RuntimeException", "Failed to generate audio");
+        return nullptr;
+    }
+
+    // Get audio data
+    float* audioData = bark_get_audio_data(handle->ctx);
+    int audioSize = bark_get_audio_data_size(handle->ctx);
+
+    if (!audioData || audioSize <= 0) {
+        ALOGE("No audio data generated");
+        throwJavaException(env, "java/lang/RuntimeException", "No audio data generated");
+        return nullptr;
+    }
+
+    ALOGI("Generated %d audio samples", audioSize);
+
+    // Create Java float array and copy data
+    jfloatArray result = env->NewFloatArray(audioSize);
+    if (!result) {
+        throwJavaException(env, "java/lang/OutOfMemoryError", "Failed to allocate audio array");
+        return nullptr;
+    }
+
+    env->SetFloatArrayRegion(result, 0, audioSize, audioData);
+
+    return result;
+}
+
+JNIEXPORT jint JNICALL
+Java_io_aatricks_llmedge_BarkTTS_nativeGetSampleRate(JNIEnv*, jclass, jlong handlePtr) {
+    auto* handle = reinterpret_cast<BarkHandle*>(handlePtr);
+    if (!handle) return 24000; // Default sample rate
+    return handle->sampleRate;
+}
+
+JNIEXPORT jlong JNICALL
+Java_io_aatricks_llmedge_BarkTTS_nativeGetLoadTime(JNIEnv*, jclass, jlong handlePtr) {
+    auto* handle = reinterpret_cast<BarkHandle*>(handlePtr);
+    if (!handle || !handle->ctx) return 0;
+    return bark_get_load_time(handle->ctx);
+}
+
+JNIEXPORT jlong JNICALL
+Java_io_aatricks_llmedge_BarkTTS_nativeGetEvalTime(JNIEnv*, jclass, jlong handlePtr) {
+    auto* handle = reinterpret_cast<BarkHandle*>(handlePtr);
+    if (!handle || !handle->ctx) return 0;
+    return bark_get_eval_time(handle->ctx);
+}
+
+JNIEXPORT void JNICALL
+Java_io_aatricks_llmedge_BarkTTS_nativeResetStatistics(JNIEnv*, jclass, jlong handlePtr) {
+    auto* handle = reinterpret_cast<BarkHandle*>(handlePtr);
+    if (!handle || !handle->ctx) return;
+    bark_reset_statistics(handle->ctx);
+}
+
+} // extern "C"

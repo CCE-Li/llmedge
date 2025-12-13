@@ -22,73 +22,78 @@ abstract class BaseVideoIntegrationTest {
             object : StableDiffusion.NativeBridge {
                 private var cb: StableDiffusion.VideoProgressCallback? = null
                 override fun txt2img(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    steps: Int,
-                    cfg: Float,
-                    seed: Long,
-                    easyCacheEnabled: Boolean,
-                    easyCacheReuseThreshold: Float,
-                    easyCacheStartPercent: Float,
-                    easyCacheEndPercent: Float,
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        steps: Int,
+                        cfg: Float,
+                        seed: Long,
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float,
                 ): ByteArray? {
                     // Simple black image stub
                     return ByteArray((width * height * 3).coerceAtLeast(0)) { 0 }
                 }
 
                 override fun txt2vid(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    videoFrames: Int,
-                    steps: Int,
-                    cfg: Float,
-                    seed: Long,
-                    scheduler: StableDiffusion.Scheduler,
-                    strength: Float,
-                    initImage: ByteArray?,
-                    initWidth: Int,
-                    initHeight: Int,
-                    easyCacheEnabled: Boolean,
-                    easyCacheReuseThreshold: Float,
-                    easyCacheStartPercent: Float,
-                    easyCacheEndPercent: Float,
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        videoFrames: Int,
+                        steps: Int,
+                        cfg: Float,
+                        seed: Long,
+                        sampleMethod: StableDiffusion.SampleMethod,
+                        scheduler: StableDiffusion.Scheduler,
+                        strength: Float,
+                        initImage: ByteArray?,
+                        initWidth: Int,
+                        initHeight: Int,
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float,
                 ): Array<ByteArray>? {
                     // Deterministic grayscale frames
-                    val frames = Array(videoFrames.coerceAtLeast(0)) { index ->
-                        val bytes = ByteArray((width * height * 3).coerceAtLeast(0))
-                        var i = 0
-                        val v = (index * 0x10) and 0xFF
-                        val b = v.toByte()
-                        while (i < bytes.size) {
-                            bytes[i++] = b
-                            bytes[i++] = b
-                            bytes[i++] = b
-                        }
-                        bytes
-                    }
+                    val frames =
+                            Array(videoFrames.coerceAtLeast(0)) { index ->
+                                val bytes = ByteArray((width * height * 3).coerceAtLeast(0))
+                                var i = 0
+                                val v = (index * 0x10) and 0xFF
+                                val b = v.toByte()
+                                while (i < bytes.size) {
+                                    bytes[i++] = b
+                                    bytes[i++] = b
+                                    bytes[i++] = b
+                                }
+                                bytes
+                            }
                     // Emit basic progress per frame
                     for (i in 0 until videoFrames) {
                         cb?.onProgress(i + 1, steps, i + 1, videoFrames, 0.01f)
                     }
                     return frames
                 }
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {
+                override fun setProgressCallback(
+                        handle: Long,
+                        callback: StableDiffusion.VideoProgressCallback?
+                ) {
                     cb = callback
                 }
                 override fun cancelGeneration(handle: Long) = Unit
                 override fun precomputeCondition(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    clipSkip: Int,
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        clipSkip: Int,
                 ): StableDiffusion.PrecomputedCondition? = null
             }
         }
@@ -100,18 +105,19 @@ abstract class BaseVideoIntegrationTest {
     }
 
     protected fun createStableDiffusion(): StableDiffusion {
-        val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+        val constructor =
+                StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
         constructor.isAccessible = true
         return constructor.newInstance(1L).apply {
             updateModelMetadata(
-                StableDiffusion.VideoModelMetadata(
-                    architecture = "wan",
-                    modelType = "t2v",
-                    parameterCount = "1.3B",
-                    mobileSupported = true,
-                    filename = "wan-test.gguf",
-                    tags = setOf("wan", "video"),
-                ),
+                    StableDiffusion.VideoModelMetadata(
+                            architecture = "wan",
+                            modelType = "t2v",
+                            parameterCount = "1.3B",
+                            mobileSupported = true,
+                            filename = "wan-test.gguf",
+                            tags = setOf("wan", "video"),
+                    ),
             )
         }
     }

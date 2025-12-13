@@ -41,8 +41,19 @@ object LLMEdgeManager {
         private const val DEFAULT_VISION_MODEL_FILENAME = "llava-phi-3-mini-int4.gguf"
         private const val DEFAULT_VISION_PROJ_FILENAME = "llava-phi-3-mini-mmproj-f16.gguf"
 
+        // Default Whisper Model (Speech-to-Text)
+        private const val DEFAULT_WHISPER_MODEL_ID = "ggerganov/whisper.cpp"
+        private const val DEFAULT_WHISPER_MODEL_FILENAME = "ggml-tiny.bin"
+
+        // Default Bark Model (Text-to-Speech)
+        // Note: f16 models are slow on mobile (~10+ minutes). Quantized models not yet available.
+        private const val DEFAULT_BARK_MODEL_ID = "Green-Sky/bark-ggml"
+        private const val DEFAULT_BARK_MODEL_FILENAME = "bark-small_weights-f16.bin"
+
         private val textModelMutex = Mutex() // For SmolLM text generation
         private val diffusionModelMutex = Mutex() // For Stable Diffusion image/video generation
+        private val whisperMutex = Mutex() // For Whisper speech-to-text
+        private val barkMutex = Mutex() // For Bark text-to-speech
 
         // Phase 3: Model caching with LRU eviction
         private val textModelCache =
@@ -58,11 +69,12 @@ object LLMEdgeManager {
 
         @Volatile private var cachedModel: StableDiffusion? = null
         @Volatile private var cachedSmolLM: io.aatricks.llmedge.SmolLM? = null
+        @Volatile private var cachedWhisper: io.aatricks.llmedge.Whisper? = null
+        @Volatile private var cachedBark: io.aatricks.llmedge.BarkTTS? = null
         @Volatile private var isLoading = false
         private var contextRef: WeakReference<Context>? = null
         /** When true, prefer higher throughput and lower memory-safety heuristics. */
-        @Volatile
-        var preferPerformanceMode: Boolean = false
+        @Volatile var preferPerformanceMode: Boolean = false
 
         // `preferPerformanceMode` property provides a runtime setter (no need for explicit wrapper)
 
@@ -86,9 +98,26 @@ object LLMEdgeManager {
                 val t5xxlPath: String?,
                 val flowShift: Float = Float.POSITIVE_INFINITY,
                 val loraModelDir: String? = null,
-                val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
+                val loraApplyMode: StableDiffusion.LoraApplyMode =
+                        StableDiffusion.LoraApplyMode.AUTO
         )
         private var currentDiffusionModelSpec: LoadedDiffusionModelSpec? = null
+
+        // Track loaded Whisper model
+        private data class LoadedWhisperModelSpec(
+                val modelId: String,
+                val filename: String,
+                val path: String?
+        )
+        private var currentWhisperModelSpec: LoadedWhisperModelSpec? = null
+
+        // Track loaded Bark model
+        private data class LoadedBarkModelSpec(
+                val modelId: String,
+                val filename: String,
+                val path: String?
+        )
+        private var currentBarkModelSpec: LoadedBarkModelSpec? = null
 
         data class ImageGenerationParams(
                 val prompt: String,
@@ -99,11 +128,11 @@ object LLMEdgeManager {
                 val cfgScale: Float = 7.0f,
                 val seed: Long = -1L,
                 val flashAttn: Boolean = true,
-                val forceSequentialLoad: Boolean = false
-                ,
+                val forceSequentialLoad: Boolean = false,
                 val easyCache: StableDiffusion.EasyCacheParams = StableDiffusion.EasyCacheParams(),
                 val loraModelDir: String? = null,
-                val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
+                val loraApplyMode: StableDiffusion.LoraApplyMode =
+                        StableDiffusion.LoraApplyMode.AUTO
         )
 
         data class VideoGenerationParams(
@@ -124,16 +153,18 @@ object LLMEdgeManager {
                 val initHeight: Int = 0,
                 val strength: Float = 1.0f, // 1.0 = full T2V, 0.0 = init image dominates
                 // Sampling configuration
-                val sampleMethod: StableDiffusion.SampleMethod = StableDiffusion.SampleMethod.DEFAULT,
+                val sampleMethod: StableDiffusion.SampleMethod =
+                        StableDiffusion.SampleMethod.DEFAULT,
                 val scheduler: StableDiffusion.Scheduler = StableDiffusion.Scheduler.DEFAULT,
                 // Easy cache & LoRA
                 val easyCache: StableDiffusion.EasyCacheParams = StableDiffusion.EasyCacheParams(),
                 val loraModelDir: String? = null,
-                val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
+                val loraApplyMode: StableDiffusion.LoraApplyMode =
+                        StableDiffusion.LoraApplyMode.AUTO
         ) {
                 /**
-                 * Calculate the actual number of frames that will be generated.
-                 * Wan model uses formula: actual_frames = (videoFrames-1)/4*4+1
+                 * Calculate the actual number of frames that will be generated. Wan model uses
+                 * formula: actual_frames = (videoFrames-1)/4*4+1
                  */
                 fun actualFrameCount(): Int = (videoFrames - 1) / 4 * 4 + 1
         }
@@ -158,6 +189,114 @@ object LLMEdgeManager {
                 val modelId: String = DEFAULT_VISION_MODEL_ID,
                 val modelFilename: String = DEFAULT_VISION_MODEL_FILENAME,
                 val projFilename: String = DEFAULT_VISION_PROJ_FILENAME
+        )
+
+        /** Parameters for speech-to-text transcription. */
+        data class TranscriptionParams(
+                /** Audio samples as 32-bit float PCM at 16kHz mono */
+                val audioSamples: FloatArray,
+                /** Hugging Face model ID */
+                val modelId: String = DEFAULT_WHISPER_MODEL_ID,
+                /** Model filename */
+                val modelFilename: String = DEFAULT_WHISPER_MODEL_FILENAME,
+                /** Translate to English instead of transcribing */
+                val translate: Boolean = false,
+                /** Target language code (e.g., "en", "es"). null = auto-detect */
+                val language: String? = null,
+                /** Enable token-level timestamps for more precise timing */
+                val tokenTimestamps: Boolean = false,
+                /** Number of threads. 0 = auto */
+                val nThreads: Int = 0
+        ) {
+                override fun equals(other: Any?): Boolean {
+                        if (this === other) return true
+                        if (javaClass != other?.javaClass) return false
+                        other as TranscriptionParams
+                        if (!audioSamples.contentEquals(other.audioSamples)) return false
+                        if (modelId != other.modelId) return false
+                        if (modelFilename != other.modelFilename) return false
+                        if (translate != other.translate) return false
+                        if (language != other.language) return false
+                        if (tokenTimestamps != other.tokenTimestamps) return false
+                        if (nThreads != other.nThreads) return false
+                        return true
+                }
+
+                override fun hashCode(): Int {
+                        var result = audioSamples.contentHashCode()
+                        result = 31 * result + modelId.hashCode()
+                        result = 31 * result + modelFilename.hashCode()
+                        result = 31 * result + translate.hashCode()
+                        result = 31 * result + (language?.hashCode() ?: 0)
+                        result = 31 * result + tokenTimestamps.hashCode()
+                        result = 31 * result + nThreads
+                        return result
+                }
+        }
+
+        /**
+         * Parameters for streaming (real-time) speech-to-text transcription.
+         *
+         * This enables real-time captioning by processing audio in a sliding window:
+         * - Audio is collected in chunks of `stepMs` milliseconds
+         * - A window of `lengthMs` milliseconds is transcribed at each step
+         * - `keepMs` of audio is retained from the previous window for context
+         *
+         * Recommended settings:
+         * - Fast captioning: stepMs=1000, lengthMs=5000, keepMs=200
+         * - Balanced: stepMs=3000, lengthMs=10000, keepMs=200 (default)
+         * - High accuracy: stepMs=5000, lengthMs=15000, keepMs=500
+         */
+        data class StreamingTranscriptionParams(
+                /** Hugging Face model ID */
+                val modelId: String = DEFAULT_WHISPER_MODEL_ID,
+                /** Model filename */
+                val modelFilename: String = DEFAULT_WHISPER_MODEL_FILENAME,
+                /**
+                 * Duration in milliseconds of each step (how often transcription runs). Default:
+                 * 3000ms
+                 */
+                val stepMs: Int = 3000,
+                /** Length of the transcription window in milliseconds. Default: 10000ms */
+                val lengthMs: Int = 10000,
+                /** Audio from previous window to keep for context. Default: 200ms */
+                val keepMs: Int = 200,
+                /** Translate to English instead of transcribing */
+                val translate: Boolean = false,
+                /** Target language code (e.g., "en", "es"). null = auto-detect */
+                val language: String? = null,
+                /** Number of threads. 0 = auto */
+                val nThreads: Int = 0,
+                /**
+                 * Voice Activity Detection threshold (0.0-1.0). Higher = more aggressive silence
+                 * detection
+                 */
+                val vadThreshold: Float = 0.6f,
+                /** Enable VAD to only transcribe when speech is detected */
+                val useVad: Boolean = true
+        )
+
+        /**
+         * Parameters for text-to-speech synthesis.
+         *
+         * **Warning:** Bark TTS with f16 models is very slow on mobile (~10+ minutes). Consider
+         * using this for batch processing or on desktop/server environments only.
+         */
+        data class SpeechSynthesisParams(
+                /** Text to synthesize */
+                val text: String,
+                /** Hugging Face model ID */
+                val modelId: String = DEFAULT_BARK_MODEL_ID,
+                /** Model filename */
+                val modelFilename: String = DEFAULT_BARK_MODEL_FILENAME,
+                /** Random seed for reproducibility (0 = random) */
+                val seed: Int = 0,
+                /** Sampling temperature for text/coarse encoders */
+                val temperature: Float = 0.7f,
+                /** Sampling temperature for fine encoder */
+                val fineTemperature: Float = 0.5f,
+                /** Number of threads. 0 = auto */
+                val nThreads: Int = 0
         )
 
         /** Information about Vulkan GPU device capabilities */
@@ -293,7 +432,8 @@ object LLMEdgeManager {
                                 return@withLock sb.toString()
                         } else {
                                 // Use Dispatchers.IO for blocking native JNI operations
-                                // Dispatchers.Default has limited parallelism and is meant for CPU-bound work
+                                // Dispatchers.Default has limited parallelism and is meant for
+                                // CPU-bound work
                                 return@withLock kotlinx.coroutines.withContext(
                                         kotlinx.coroutines.Dispatchers.IO
                                 ) { smol.getResponse(params.prompt) }
@@ -320,12 +460,17 @@ object LLMEdgeManager {
                 }
         }
 
-        /** Returns the shared SmolLM instance WITHOUT loading a model. Useful for activities that want to manage the loading process themselves (e.g. HuggingFaceDemoActivity). */
+        /**
+         * Returns the shared SmolLM instance WITHOUT loading a model. Useful for activities that
+         * want to manage the loading process themselves (e.g. HuggingFaceDemoActivity).
+         */
         suspend fun getSmolLMInstance(context: Context): io.aatricks.llmedge.SmolLM {
                 return textModelMutex.withLock {
                         contextRef = WeakReference(context.applicationContext)
                         unloadDiffusionModel()
-                        val smol = cachedSmolLM ?: io.aatricks.llmedge.SmolLM().also { cachedSmolLM = it }
+                        val smol =
+                                cachedSmolLM
+                                        ?: io.aatricks.llmedge.SmolLM().also { cachedSmolLM = it }
                         return@withLock smol
                 }
         }
@@ -333,7 +478,8 @@ object LLMEdgeManager {
         /** Extracts text from an image using OCR. */
         suspend fun extractText(context: Context, image: Bitmap): String =
                 textModelMutex.withLock {
-                        // Create a fresh engine instance and close it immediately after use to free resources
+                        // Create a fresh engine instance and close it immediately after use to free
+                        // resources
                         val engine = io.aatricks.llmedge.vision.ocr.MlKitOcrEngine(context)
                         try {
                                 val result =
@@ -348,152 +494,637 @@ object LLMEdgeManager {
                         }
                 }
 
-                /** Analyzes an image using a Vision Language Model (VLM). */
-                suspend fun analyzeImage(
-                        context: Context,
-                        params: VisionAnalysisParams,
-                        onProgress: ((String) -> Unit)? = null
-                ): String =
-                        textModelMutex.withLock {
-                                contextRef = WeakReference(context.applicationContext)
-        
-                                // Unload heavy diffusion models
-                                unloadDiffusionModel()
-                                // Also unload cached SmolLM to free up memory for this heavy operation
-                                unloadSmolLM()
-        
-                                // Ensure files
-                                val modelFile = getFile(context, params.modelId, params.modelFilename)
-                                val projFile = getFile(context, params.modelId, params.projFilename)
-        
-                                // Instantiate a fresh SmolLM for this specific vision task
-                                // Use explicit Vulkan setting based on preference
-                                // Backup logs show useVulkan=0 (false) was the working configuration.
-                                // We force false here to strictly match the working backup state.
-                                val smol = io.aatricks.llmedge.SmolLM(useVulkan = false)
-                                
-                                try {
-                                        prepareMemoryForLoading()
-                                        
-                                        // Prepare Vision Adapter
-                                        val adapter = io.aatricks.llmedge.vision.SmolLMVisionAdapter(context, smol)
+        // ============================================================
+        // Speech-to-Text (Whisper)
+        // ============================================================
 
-                                        try {
-                                                // 1. Prepare temp files (matching backup behavior)
-                                                onProgress?.invoke("Preparing image")
-                                                val imageFile = File.createTempFile("vision_input", ".jpg", context.cacheDir)
-                                                val embedFile = File.createTempFile("vision_prepared", ".bin", context.cacheDir)
-                                                
-                                                // Clean up any stale metadata for the new temp file (unlikely but safe)
-                                                val metaFile = File(embedFile.absolutePath + ".meta.json")
-                                                if (metaFile.exists()) metaFile.delete()
+        /**
+         * Transcribe audio to text using Whisper.
+         *
+         * @param context Android context
+         * @param params Transcription parameters including audio samples
+         * @param onProgress Optional callback for transcription progress (0-100)
+         * @return List of transcription segments with timing information
+         */
+        suspend fun transcribeAudio(
+                context: Context,
+                params: TranscriptionParams,
+                onProgress: ((Int) -> Unit)? = null
+        ): List<Whisper.TranscriptionSegment> =
+                whisperMutex.withLock {
+                        contextRef = WeakReference(context.applicationContext)
 
-                                                try {
-                                                        Log.d(TAG, "Vision: Preprocessing image...")
-                                                        // Preprocess and save image
-                                                        val scaled =
-                                                                io.aatricks.llmedge.vision.ImageUtils
-                                                                        .preprocessImage(
-                                                                                params.image,
-                                                                                correctOrientation = true,
-                                                                                maxDimension = 672, // Aligned to 2x 336px (Phi-3 native tile size)
-                                                                                enhance = false
-                                                                        )
-                                                        imageFile.outputStream().use { out ->
-                                                                scaled.compress(Bitmap.CompressFormat.JPEG, 90, out)
-                                                        }
+                        val whisper =
+                                getOrLoadWhisper(context, params.modelId, params.modelFilename)
 
-                                                        // 2. Load Model FIRST (Lightweight load for Projection validation)
-                                                        onProgress?.invoke("Loading vision model (init)")
-                                                        Log.d(TAG, "Vision: Loading vision model (stage 1) ${modelFile.absolutePath}")
-                                                        
-                                                        // Load directly into smol for the projection phase
-                                                        smol.load(
-                                                            modelPath = modelFile.absolutePath,
-                                                            params = io.aatricks.llmedge.SmolLM.InferenceParams(
-                                                                numThreads = 2,
-                                                                contextSize = null, // Auto context for projection is fine
-                                                                storeChats = false, // Minimal memory
-                                                                temperature = 0.0f,
-                                                                thinkingMode = io.aatricks.llmedge.SmolLM.ThinkingMode.DISABLED
-                                                            )
-                                                        )
+                        // Set progress callback if provided
+                        if (onProgress != null) {
+                                whisper.setProgressCallback { progress -> onProgress(progress) }
+                        }
 
-                                                        // 3. Run Projector (With loaded model pointer)
-                                                        onProgress?.invoke("Encoding image")
-                                                        Log.d(TAG, "Vision: Initializing projector with mmproj=${projFile.absolutePath}")
-                                                        val projector = io.aatricks.llmedge.vision.Projector()
-                                                        
-                                                        // Retrieve ptr from the NOW LOADED model
-                                                        val modelPtr = smol.getNativeModelPointer()
-                                                        Log.d(TAG, "Vision: Text model ptr=0x${java.lang.Long.toHexString(modelPtr)}")
+                        try {
+                                val whisperParams =
+                                        Whisper.TranscribeParams(
+                                                nThreads = params.nThreads,
+                                                translate = params.translate,
+                                                language = params.language,
+                                                tokenTimestamps = params.tokenTimestamps
+                                        )
+                                return@withLock whisper.transcribe(
+                                        params.audioSamples,
+                                        whisperParams
+                                )
+                        } finally {
+                                // Clear callback after use
+                                whisper.setProgressCallback(null)
+                        }
+                }
 
-                                                        projector.init(
-                                                                projFile.absolutePath,
-                                                                modelPtr
-                                                        )
-                                                        
-                                                        Log.d(TAG, "Vision: Encoding image to ${embedFile.absolutePath}")
-                                                        val ok =
-                                                                projector.encodeImageToFile(
-                                                                        imageFile.absolutePath,
-                                                                        embedFile.absolutePath
-                                                                )
-                                                        projector.close()
-                                                        
-                                                        Log.d(TAG, "Vision: Projector returned $ok")
-                                                        
-                                                        if (!ok || !File(embedFile.absolutePath + ".meta.json").exists()) {
-                                                            Log.w(TAG, "Vision: Projection failed or metadata missing. Fallback to using raw image file.")
-                                                            imageFile.copyTo(embedFile, overwrite = true)
-                                                        }
+        /**
+         * Transcribe audio and return as a simple string (concatenated segments).
+         *
+         * @param context Android context
+         * @param audioSamples Audio samples as 32-bit float PCM at 16kHz mono
+         * @param language Target language code (null = auto-detect)
+         * @return Transcribed text
+         */
+        suspend fun transcribeAudioToText(
+                context: Context,
+                audioSamples: FloatArray,
+                language: String? = null
+        ): String {
+                val params = TranscriptionParams(audioSamples = audioSamples, language = language)
+                val segments = transcribeAudio(context, params)
+                return segments.joinToString(" ") { it.text.trim() }
+        }
 
-                                                        // 4. Reload Model for Analysis (Inference Configuration)
-                                                        // We reload with storeChats=true and larger context, matching the working backup state
-                                                        onProgress?.invoke("Loading vision model (inference)")
-                                                        Log.d(TAG, "Vision: Reloading vision model (stage 2) for inference")
-                                                        
-                                                        adapter.loadVisionModel(
-                                                            modelFile.absolutePath, 
-                                                            null,
-                                                            io.aatricks.llmedge.SmolLM.InferenceParams(
-                                                                numThreads = 2, 
-                                                                contextSize = 4096L, // Required for vision tokens
-                                                                storeChats = true,   // Backup used default (true) for inference
-                                                                temperature = 0.6f,  // Increase temp to 0.6f to break repetition loops
-                                                                thinkingMode = io.aatricks.llmedge.SmolLM.ThinkingMode.DISABLED
-                                                            )
-                                                        )
+        /**
+         * Detect the language of audio.
+         *
+         * @param context Android context
+         * @param audioSamples Audio samples as 32-bit float PCM at 16kHz mono
+         * @return Language code (e.g., "en", "es") or null if detection fails
+         */
+        suspend fun detectLanguage(context: Context, audioSamples: FloatArray): String? =
+                whisperMutex.withLock {
+                        contextRef = WeakReference(context.applicationContext)
+                        val whisper =
+                                getOrLoadWhisper(
+                                        context,
+                                        DEFAULT_WHISPER_MODEL_ID,
+                                        DEFAULT_WHISPER_MODEL_FILENAME
+                                )
+                        return@withLock whisper.detectLanguage(audioSamples)
+                }
 
-                                                        // 5. Run Analysis
-                                                        onProgress?.invoke("Running vision analysis")
-                                                        
-                                                        // Pass the EMBEDDING/BIN file as source
-                                                        val imageSource = io.aatricks.llmedge.vision.ImageSource.FileSource(embedFile)
-                                                        
-                                                        val result =
-                                                                adapter.analyze(
-                                                                        imageSource,
-                                                                        params.prompt,
-                                                                        io.aatricks.llmedge.vision.VisionParams()
-                                                                )
-                                                        Log.d(TAG, "Vision: Analysis complete. Response length=${result.text.length}")
-                                                        return@withLock result.text
-                                                } finally {
-                                                        // Cleanup
-                                                        if (imageFile.exists()) imageFile.delete()
-                                                        if (embedFile.exists()) embedFile.delete()
-                                                        if (metaFile.exists()) metaFile.delete()
-                                                        adapter.close() 
-                                                }
-                                        } catch (e: Exception) {
-                                                Log.e(TAG, "Vision analysis failed", e)
-                                                throw e
-                                        }
-                                } finally {
-                                        smol.close()
+        /**
+         * Transcribe audio and generate SRT subtitle content.
+         *
+         * @param context Android context
+         * @param audioSamples Audio samples as 32-bit float PCM at 16kHz mono
+         * @param language Target language code (null = auto-detect)
+         * @return SRT subtitle content
+         */
+        suspend fun transcribeToSrt(
+                context: Context,
+                audioSamples: FloatArray,
+                language: String? = null
+        ): String {
+                val params =
+                        TranscriptionParams(
+                                audioSamples = audioSamples,
+                                language = language,
+                                tokenTimestamps = true
+                        )
+                val segments = transcribeAudio(context, params)
+                return segments.joinToString("\n") { it.toSrtEntry() }
+        }
+
+        // ============================================================
+        // Streaming Transcription (Real-time Speech-to-Text)
+        // ============================================================
+
+        // Cached streaming transcriber for the current session
+        @Volatile private var cachedStreamingTranscriber: Whisper.StreamingTranscriber? = null
+
+        /**
+         * Create a streaming transcriber for real-time audio transcription.
+         *
+         * The streaming transcriber uses a sliding window approach to provide near real-time
+         * transcription as audio becomes available.
+         *
+         * Usage:
+         * ```kotlin
+         * val transcriber = LLMEdgeManager.createStreamingTranscriber(context)
+         *
+         * // Start collecting transcription results
+         * launch {
+         *     transcriber.start().collect { segment ->
+         *         println("Transcribed: ${segment.text}")
+         *     }
+         * }
+         *
+         * // Feed audio from microphone or other source
+         * audioRecorder.onAudioChunk { samples ->
+         *     transcriber.feedAudio(samples)
+         * }
+         *
+         * // When done
+         * transcriber.stop()
+         * LLMEdgeManager.stopStreamingTranscription()
+         * ```
+         *
+         * @param context Android context
+         * @param params Streaming transcription parameters
+         * @return StreamingTranscriber instance
+         */
+        suspend fun createStreamingTranscriber(
+                context: Context,
+                params: StreamingTranscriptionParams = StreamingTranscriptionParams()
+        ): Whisper.StreamingTranscriber =
+                whisperMutex.withLock {
+                        contextRef = WeakReference(context.applicationContext)
+
+                        val whisper =
+                                getOrLoadWhisper(context, params.modelId, params.modelFilename)
+
+                        val streamingParams =
+                                Whisper.StreamingParams(
+                                        stepMs = params.stepMs,
+                                        lengthMs = params.lengthMs,
+                                        keepMs = params.keepMs,
+                                        translate = params.translate,
+                                        language = params.language,
+                                        nThreads = params.nThreads,
+                                        vadThreshold = params.vadThreshold,
+                                        useVad = params.useVad
+                                )
+
+                        val transcriber = whisper.createStreamingTranscriber(streamingParams)
+                        cachedStreamingTranscriber = transcriber
+                        return@withLock transcriber
+                }
+
+        /**
+         * Start streaming transcription and return a Flow of segments.
+         *
+         * This is a convenience method that creates a streaming transcriber and starts it
+         * immediately. For more control, use createStreamingTranscriber().
+         *
+         * @param context Android context
+         * @param params Streaming transcription parameters
+         * @return Flow of TranscriptionSegment as they are transcribed
+         */
+        suspend fun startStreamingTranscription(
+                context: Context,
+                params: StreamingTranscriptionParams = StreamingTranscriptionParams()
+        ): kotlinx.coroutines.flow.Flow<Whisper.TranscriptionSegment> {
+                val transcriber = createStreamingTranscriber(context, params)
+                return transcriber.start()
+        }
+
+        /**
+         * Feed audio samples to the active streaming transcriber.
+         *
+         * Audio should be:
+         * - 16kHz sample rate
+         * - Mono channel
+         * - 32-bit float PCM (-1.0 to 1.0)
+         *
+         * @param samples Audio samples to process
+         */
+        suspend fun feedStreamingAudio(samples: FloatArray) {
+                cachedStreamingTranscriber?.feedAudio(samples)
+        }
+
+        /** Get the current streaming transcriber, if one is active. */
+        fun getStreamingTranscriber(): Whisper.StreamingTranscriber? {
+                return cachedStreamingTranscriber
+        }
+
+        /** Stop and cleanup the streaming transcriber. */
+        fun stopStreamingTranscription() {
+                cachedStreamingTranscriber?.stop()
+                cachedStreamingTranscriber = null
+        }
+
+        // ============================================================
+        // Text-to-Speech (Bark)
+        // ============================================================
+
+        /**
+         * Synthesize speech from text using Bark.
+         *
+         * **Warning:** Bark TTS with f16 models is very slow on mobile (~10+ minutes). This method
+         * is best suited for batch processing or desktop/server environments.
+         *
+         * @param context Android context
+         * @param params Speech synthesis parameters
+         * @param onProgress Optional callback for generation progress (step, percentage)
+         * @return AudioResult containing the generated audio samples
+         */
+        suspend fun synthesizeSpeech(
+                context: Context,
+                params: SpeechSynthesisParams,
+                onProgress: ((BarkTTS.EncodingStep, Int) -> Unit)? = null
+        ): BarkTTS.AudioResult =
+                barkMutex.withLock {
+                        contextRef = WeakReference(context.applicationContext)
+
+                        // Unload heavy models to free memory for Bark
+                        unloadSmolLM()
+                        unloadDiffusionModel()
+
+                        val bark =
+                                getOrLoadBark(
+                                        context,
+                                        params.modelId,
+                                        params.modelFilename,
+                                        params.seed,
+                                        params.temperature,
+                                        params.fineTemperature
+                                )
+
+                        // Set progress callback if provided
+                        if (onProgress != null) {
+                                bark.setProgressCallback { step, progress ->
+                                        onProgress(step, progress)
                                 }
                         }
+
+                        try {
+                                val barkParams = BarkTTS.GenerateParams(nThreads = params.nThreads)
+                                return@withLock bark.generate(params.text, barkParams)
+                        } finally {
+                                // Clear callback after use
+                                bark.setProgressCallback(null)
+                        }
+                }
+
+        /**
+         * Synthesize speech and save directly to a WAV file.
+         *
+         * **Warning:** Bark TTS with f16 models is very slow on mobile (~10+ minutes).
+         *
+         * @param context Android context
+         * @param text Text to synthesize
+         * @param outputFile File to save WAV audio
+         * @param onProgress Optional callback for generation progress
+         */
+        suspend fun synthesizeSpeechToFile(
+                context: Context,
+                text: String,
+                outputFile: File,
+                onProgress: ((BarkTTS.EncodingStep, Int) -> Unit)? = null
+        ) {
+                val params = SpeechSynthesisParams(text = text)
+                val audio = synthesizeSpeech(context, params, onProgress)
+                barkMutex.withLock {
+                        cachedBark?.saveAsWav(audio, outputFile.absolutePath)
+                                ?: throw IllegalStateException("Bark model not loaded")
+                }
+        }
+
+        // ============================================================
+        // Speech Model Management
+        // ============================================================
+
+        private suspend fun getOrLoadWhisper(
+                context: Context,
+                modelId: String,
+                filename: String
+        ): Whisper {
+                val existingSpec = currentWhisperModelSpec
+                val cached = cachedWhisper
+
+                // Check if we already have the right model loaded
+                if (cached != null &&
+                                existingSpec != null &&
+                                existingSpec.modelId == modelId &&
+                                existingSpec.filename == filename
+                ) {
+                        return cached
+                }
+
+                // Need to load a new model
+                prepareMemoryForLoading()
+
+                // Close existing model if different
+                cached?.close()
+                cachedWhisper = null
+                currentWhisperModelSpec = null
+
+                Log.d(TAG, "Loading Whisper model: $modelId/$filename")
+                val modelFile = getFile(context, modelId, filename)
+
+                val whisper =
+                        Whisper.load(
+                                modelPath = modelFile.absolutePath,
+                                useGpu = false, // Whisper GPU not well supported on mobile
+                                flashAttn = true
+                        )
+
+                cachedWhisper = whisper
+                currentWhisperModelSpec =
+                        LoadedWhisperModelSpec(modelId, filename, modelFile.absolutePath)
+
+                Log.d(TAG, "Whisper model loaded: ${whisper.getModelType()}")
+                return whisper
+        }
+
+        private suspend fun getOrLoadBark(
+                context: Context,
+                modelId: String,
+                filename: String,
+                seed: Int,
+                temperature: Float,
+                fineTemperature: Float
+        ): BarkTTS {
+                val existingSpec = currentBarkModelSpec
+                val cached = cachedBark
+
+                // Check if we already have the right model loaded
+                if (cached != null &&
+                                existingSpec != null &&
+                                existingSpec.modelId == modelId &&
+                                existingSpec.filename == filename
+                ) {
+                        return cached
+                }
+
+                // Need to load a new model
+                prepareMemoryForLoading()
+
+                // Close existing model if different
+                cached?.close()
+                cachedBark = null
+                currentBarkModelSpec = null
+
+                Log.d(TAG, "Loading Bark model: $modelId/$filename")
+                val modelFile = getFile(context, modelId, filename)
+
+                val bark =
+                        BarkTTS.load(
+                                modelPath = modelFile.absolutePath,
+                                seed = seed,
+                                temperature = temperature,
+                                fineTemperature = fineTemperature
+                        )
+
+                cachedBark = bark
+                currentBarkModelSpec =
+                        LoadedBarkModelSpec(modelId, filename, modelFile.absolutePath)
+
+                Log.d(TAG, "Bark model loaded (sample rate: ${bark.getSampleRate()}Hz)")
+                return bark
+        }
+
+        /** Unload the cached Whisper model to free memory. */
+        fun unloadWhisper() {
+                cachedWhisper?.close()
+                cachedWhisper = null
+                currentWhisperModelSpec = null
+        }
+
+        /** Unload the cached Bark model to free memory. */
+        fun unloadBark() {
+                cachedBark?.close()
+                cachedBark = null
+                currentBarkModelSpec = null
+        }
+
+        /** Unload all speech models to free memory. */
+        fun unloadSpeechModels() {
+                unloadWhisper()
+                unloadBark()
+        }
+
+        /** Analyzes an image using a Vision Language Model (VLM). */
+        suspend fun analyzeImage(
+                context: Context,
+                params: VisionAnalysisParams,
+                onProgress: ((String) -> Unit)? = null
+        ): String =
+                textModelMutex.withLock {
+                        contextRef = WeakReference(context.applicationContext)
+
+                        // Unload heavy diffusion models
+                        unloadDiffusionModel()
+                        // Also unload cached SmolLM to free up memory for this heavy operation
+                        unloadSmolLM()
+
+                        // Ensure files
+                        val modelFile = getFile(context, params.modelId, params.modelFilename)
+                        val projFile = getFile(context, params.modelId, params.projFilename)
+
+                        // Instantiate a fresh SmolLM for this specific vision task
+                        // Use explicit Vulkan setting based on preference
+                        // Backup logs show useVulkan=0 (false) was the working configuration.
+                        // We force false here to strictly match the working backup state.
+                        val smol = io.aatricks.llmedge.SmolLM(useVulkan = false)
+
+                        try {
+                                prepareMemoryForLoading()
+
+                                // Prepare Vision Adapter
+                                val adapter =
+                                        io.aatricks.llmedge.vision.SmolLMVisionAdapter(
+                                                context,
+                                                smol
+                                        )
+
+                                try {
+                                        // 1. Prepare temp files (matching backup behavior)
+                                        onProgress?.invoke("Preparing image")
+                                        val imageFile =
+                                                File.createTempFile(
+                                                        "vision_input",
+                                                        ".jpg",
+                                                        context.cacheDir
+                                                )
+                                        val embedFile =
+                                                File.createTempFile(
+                                                        "vision_prepared",
+                                                        ".bin",
+                                                        context.cacheDir
+                                                )
+
+                                        // Clean up any stale metadata for the new temp file
+                                        // (unlikely but safe)
+                                        val metaFile = File(embedFile.absolutePath + ".meta.json")
+                                        if (metaFile.exists()) metaFile.delete()
+
+                                        try {
+                                                Log.d(TAG, "Vision: Preprocessing image...")
+                                                // Preprocess and save image
+                                                val scaled =
+                                                        io.aatricks.llmedge.vision.ImageUtils
+                                                                .preprocessImage(
+                                                                        params.image,
+                                                                        correctOrientation = true,
+                                                                        maxDimension =
+                                                                                672, // Aligned to
+                                                                        // 2x 336px
+                                                                        // (Phi-3
+                                                                        // native tile
+                                                                        // size)
+                                                                        enhance = false
+                                                                )
+                                                imageFile.outputStream().use { out ->
+                                                        scaled.compress(
+                                                                Bitmap.CompressFormat.JPEG,
+                                                                90,
+                                                                out
+                                                        )
+                                                }
+
+                                                // 2. Load Model FIRST (Lightweight load for
+                                                // Projection validation)
+                                                onProgress?.invoke("Loading vision model (init)")
+                                                Log.d(
+                                                        TAG,
+                                                        "Vision: Loading vision model (stage 1) ${modelFile.absolutePath}"
+                                                )
+
+                                                // Load directly into smol for the projection phase
+                                                smol.load(
+                                                        modelPath = modelFile.absolutePath,
+                                                        params =
+                                                                io.aatricks.llmedge.SmolLM
+                                                                        .InferenceParams(
+                                                                                numThreads = 2,
+                                                                                contextSize =
+                                                                                        null, // Auto context for projection is fine
+                                                                                storeChats =
+                                                                                        false, // Minimal memory
+                                                                                temperature = 0.0f,
+                                                                                thinkingMode =
+                                                                                        io.aatricks
+                                                                                                .llmedge
+                                                                                                .SmolLM
+                                                                                                .ThinkingMode
+                                                                                                .DISABLED
+                                                                        )
+                                                )
+
+                                                // 3. Run Projector (With loaded model pointer)
+                                                onProgress?.invoke("Encoding image")
+                                                Log.d(
+                                                        TAG,
+                                                        "Vision: Initializing projector with mmproj=${projFile.absolutePath}"
+                                                )
+                                                val projector =
+                                                        io.aatricks.llmedge.vision.Projector()
+
+                                                // Retrieve ptr from the NOW LOADED model
+                                                val modelPtr = smol.getNativeModelPointer()
+                                                Log.d(
+                                                        TAG,
+                                                        "Vision: Text model ptr=0x${java.lang.Long.toHexString(modelPtr)}"
+                                                )
+
+                                                projector.init(projFile.absolutePath, modelPtr)
+
+                                                Log.d(
+                                                        TAG,
+                                                        "Vision: Encoding image to ${embedFile.absolutePath}"
+                                                )
+                                                val ok =
+                                                        projector.encodeImageToFile(
+                                                                imageFile.absolutePath,
+                                                                embedFile.absolutePath
+                                                        )
+                                                projector.close()
+
+                                                Log.d(TAG, "Vision: Projector returned $ok")
+
+                                                if (!ok ||
+                                                                !File(
+                                                                                embedFile
+                                                                                        .absolutePath +
+                                                                                        ".meta.json"
+                                                                        )
+                                                                        .exists()
+                                                ) {
+                                                        Log.w(
+                                                                TAG,
+                                                                "Vision: Projection failed or metadata missing. Fallback to using raw image file."
+                                                        )
+                                                        imageFile.copyTo(
+                                                                embedFile,
+                                                                overwrite = true
+                                                        )
+                                                }
+
+                                                // 4. Reload Model for Analysis (Inference
+                                                // Configuration)
+                                                // We reload with storeChats=true and larger
+                                                // context, matching the working backup state
+                                                onProgress?.invoke(
+                                                        "Loading vision model (inference)"
+                                                )
+                                                Log.d(
+                                                        TAG,
+                                                        "Vision: Reloading vision model (stage 2) for inference"
+                                                )
+
+                                                adapter.loadVisionModel(
+                                                        modelFile.absolutePath,
+                                                        null,
+                                                        io.aatricks.llmedge.SmolLM.InferenceParams(
+                                                                numThreads = 2,
+                                                                contextSize = 4096L, // Required for
+                                                                // vision tokens
+                                                                storeChats =
+                                                                        true, // Backup used default
+                                                                // (true) for
+                                                                // inference
+                                                                temperature =
+                                                                        0.6f, // Increase temp to
+                                                                // 0.6f to break
+                                                                // repetition loops
+                                                                thinkingMode =
+                                                                        io.aatricks.llmedge.SmolLM
+                                                                                .ThinkingMode
+                                                                                .DISABLED
+                                                        )
+                                                )
+
+                                                // 5. Run Analysis
+                                                onProgress?.invoke("Running vision analysis")
+
+                                                // Pass the EMBEDDING/BIN file as source
+                                                val imageSource =
+                                                        io.aatricks.llmedge.vision.ImageSource
+                                                                .FileSource(embedFile)
+
+                                                val result =
+                                                        adapter.analyze(
+                                                                imageSource,
+                                                                params.prompt,
+                                                                io.aatricks.llmedge.vision
+                                                                        .VisionParams()
+                                                        )
+                                                Log.d(
+                                                        TAG,
+                                                        "Vision: Analysis complete. Response length=${result.text.length}"
+                                                )
+                                                return@withLock result.text
+                                        } finally {
+                                                // Cleanup
+                                                if (imageFile.exists()) imageFile.delete()
+                                                if (embedFile.exists()) embedFile.delete()
+                                                if (metaFile.exists()) metaFile.delete()
+                                                adapter.close()
+                                        }
+                                } catch (e: Exception) {
+                                        Log.e(TAG, "Vision analysis failed", e)
+                                        throw e
+                                }
+                        } finally {
+                                smol.close()
+                        }
+                }
         /**
          * Generates an image using the default or configured model. Automatically handles
          * sequential loading for low-memory devices.
@@ -508,8 +1139,10 @@ object LLMEdgeManager {
                         unloadSmolLM() // Free up memory from LLM
 
                         val isLowMem = isLowMemoryDevice(context)
-                        // Sequential load logic is handled inside getOrLoadImageModel via auto-detection if null,
-                        // or we can force it here if needed. Current implementation uses default (null).
+                        // Sequential load logic is handled inside getOrLoadImageModel via
+                        // auto-detection if null,
+                        // or we can force it here if needed. Current implementation uses default
+                        // (null).
 
                         val model =
                                 getOrLoadImageModel(
@@ -524,23 +1157,25 @@ object LLMEdgeManager {
 
                         // Auto-detect and enable EasyCache if supported
                         val easyCacheSupported = model.isEasyCacheSupported()
-                        val finalEasyCacheParams = if (easyCacheSupported) {
-                            params.easyCache.copy(enabled = true)
-                        } else {
-                            params.easyCache.copy(enabled = false)
-                        }
+                        val finalEasyCacheParams =
+                                if (easyCacheSupported) {
+                                        params.easyCache.copy(enabled = true)
+                                } else {
+                                        params.easyCache.copy(enabled = false)
+                                }
 
                         // Use txt2img(GenerateParams) which returns Bitmap directly
-                        val sdParams = StableDiffusion.GenerateParams(
-                                prompt = params.prompt,
-                                negative = params.negative,
-                                width = params.width,
-                                height = params.height,
-                                steps = params.steps,
-                                cfgScale = params.cfgScale,
-                                seed = params.seed,
-                                easyCacheParams = finalEasyCacheParams
-                        )
+                        val sdParams =
+                                StableDiffusion.GenerateParams(
+                                        prompt = params.prompt,
+                                        negative = params.negative,
+                                        width = params.width,
+                                        height = params.height,
+                                        steps = params.steps,
+                                        cfgScale = params.cfgScale,
+                                        seed = params.seed,
+                                        easyCacheParams = finalEasyCacheParams
+                                )
                         return model.txt2img(sdParams)
                 }
 
@@ -561,13 +1196,12 @@ object LLMEdgeManager {
                                 return generateVideoSequentially(context, params, onProgress)
                         } else {
                                 val model =
-                                getOrLoadVideoModel(
+                                        getOrLoadVideoModel(
                                                 context,
                                                 params.flashAttn,
                                                 params.flowShift,
                                                 onProgress,
-                                                sequentialLoad = useSequential
-                                                ,
+                                                sequentialLoad = useSequential,
                                                 loraModelDir = params.loraModelDir,
                                                 loraApplyMode = params.loraApplyMode
                                         )
@@ -581,21 +1215,68 @@ object LLMEdgeManager {
                                                 steps = params.steps,
                                                 cfgScale = params.cfgScale,
                                                 seed = params.seed,
-                                                initImage = params.initImage?.let { bytes ->
-                                                        // Convert RGB byte array to Bitmap
-                                                        if (params.initWidth > 0 && params.initHeight > 0) {
-                                                                val pixels = IntArray(params.initWidth * params.initHeight)
-                                                                for (i in pixels.indices) {
-                                                                        val r = bytes[i * 3].toInt() and 0xFF
-                                                                        val g = bytes[i * 3 + 1].toInt() and 0xFF
-                                                                        val b = bytes[i * 3 + 2].toInt() and 0xFF
-                                                                        pixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
-                                                                }
-                                                                android.graphics.Bitmap.createBitmap(params.initWidth, params.initHeight, android.graphics.Bitmap.Config.ARGB_8888).apply {
-                                                                        setPixels(pixels, 0, params.initWidth, 0, 0, params.initWidth, params.initHeight)
-                                                                }
-                                                        } else null
-                                                },
+                                                initImage =
+                                                        params.initImage?.let { bytes ->
+                                                                // Convert RGB byte array to Bitmap
+                                                                if (params.initWidth > 0 &&
+                                                                                params.initHeight >
+                                                                                        0
+                                                                ) {
+                                                                        val pixels =
+                                                                                IntArray(
+                                                                                        params.initWidth *
+                                                                                                params.initHeight
+                                                                                )
+                                                                        for (i in pixels.indices) {
+                                                                                val r =
+                                                                                        bytes[i * 3]
+                                                                                                .toInt() and
+                                                                                                0xFF
+                                                                                val g =
+                                                                                        bytes[
+                                                                                                        i *
+                                                                                                                3 +
+                                                                                                                1]
+                                                                                                .toInt() and
+                                                                                                0xFF
+                                                                                val b =
+                                                                                        bytes[
+                                                                                                        i *
+                                                                                                                3 +
+                                                                                                                2]
+                                                                                                .toInt() and
+                                                                                                0xFF
+                                                                                pixels[i] =
+                                                                                        (0xFF shl
+                                                                                                24) or
+                                                                                                (r shl
+                                                                                                        16) or
+                                                                                                (g shl
+                                                                                                        8) or
+                                                                                                b
+                                                                        }
+                                                                        android.graphics.Bitmap
+                                                                                .createBitmap(
+                                                                                        params.initWidth,
+                                                                                        params.initHeight,
+                                                                                        android.graphics
+                                                                                                .Bitmap
+                                                                                                .Config
+                                                                                                .ARGB_8888
+                                                                                )
+                                                                                .apply {
+                                                                                        setPixels(
+                                                                                                pixels,
+                                                                                                0,
+                                                                                                params.initWidth,
+                                                                                                0,
+                                                                                                0,
+                                                                                                params.initWidth,
+                                                                                                params.initHeight
+                                                                                        )
+                                                                                }
+                                                                } else null
+                                                        },
                                                 strength = params.strength,
                                                 sampleMethod = params.sampleMethod,
                                                 scheduler = params.scheduler,
@@ -637,13 +1318,16 @@ object LLMEdgeManager {
                 // Update memory provider for diffusion cache
                 if (!preferPerformanceMode) {
                         diffusionModelCache.systemMemoryProvider = {
-                                val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                                val am =
+                                        context.getSystemService(Context.ACTIVITY_SERVICE) as
+                                                ActivityManager
                                 val mi = ActivityManager.MemoryInfo()
                                 am.getMemoryInfo(mi)
                                 mi.availMem / (1024L * 1024L)
                         }
                 } else {
-                        // In performance mode, avoid using system memory to aggressively evict models so
+                        // In performance mode, avoid using system memory to aggressively evict
+                        // models so
                         // we can keep heavy models resident for throughput
                         diffusionModelCache.systemMemoryProvider = null
                 }
@@ -668,7 +1352,10 @@ object LLMEdgeManager {
                                         modelPath = t5File.absolutePath,
                                         vaePath = null,
                                         t5xxlPath = null,
-                                        nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
+                                        nThreads =
+                                                CpuTopology.getOptimalThreadCount(
+                                                        CpuTopology.TaskType.PROMPT_PROCESSING
+                                                ),
                                         offloadToCpu = true,
                                         keepClipOnCpu = true,
                                         keepVaeOnCpu = true,
@@ -698,7 +1385,7 @@ object LLMEdgeManager {
                                                 params.height
                                         )
                                 }
-                        } finally {
+                } finally {
                         t5Model?.close()
                 }
 
@@ -706,7 +1393,7 @@ object LLMEdgeManager {
                 prepareMemoryForLoading()
                 var diffusionModel: StableDiffusion? = null
                 try {
-                                // Model and VAE files are handled in getOrLoadImageModel
+                        // Model and VAE files are handled in getOrLoadImageModel
 
                         diffusionModel =
                                 getOrLoadImageModel(
@@ -753,16 +1440,22 @@ object LLMEdgeManager {
                 am.getMemoryInfo(memInfo)
                 val availMemMB = memInfo.availMem / (1024L * 1024L)
                 val requiredMemMB = 6000L // T5 Q3_K_S needs ~6GB
-                
+
                 if (availMemMB < requiredMemMB) {
-                        Log.e(TAG, "Insufficient memory for video generation: available=${availMemMB}MB, required=${requiredMemMB}MB")
+                        Log.e(
+                                TAG,
+                                "Insufficient memory for video generation: available=${availMemMB}MB, required=${requiredMemMB}MB"
+                        )
                         throw OutOfMemoryError(
                                 "Video generation requires ~${requiredMemMB}MB free RAM, but only ${availMemMB}MB is available. " +
-                                "Please close other apps and try again, or use a device with more RAM."
+                                        "Please close other apps and try again, or use a device with more RAM."
                         )
                 }
-                
-                Log.i(TAG, "Memory check passed: available=${availMemMB}MB, required=${requiredMemMB}MB")
+
+                Log.i(
+                        TAG,
+                        "Memory check passed: available=${availMemMB}MB, required=${requiredMemMB}MB"
+                )
 
                 prepareMemoryForLoading()
                 var t5Model: StableDiffusion? = null
@@ -782,7 +1475,10 @@ object LLMEdgeManager {
                                         modelPath = t5File.absolutePath,
                                         vaePath = null,
                                         t5xxlPath = null,
-                                        nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
+                                        nThreads =
+                                                CpuTopology.getOptimalThreadCount(
+                                                        CpuTopology.TaskType.PROMPT_PROCESSING
+                                                ),
                                         offloadToCpu = true,
                                         keepClipOnCpu = true,
                                         keepVaeOnCpu = true,
@@ -843,19 +1539,45 @@ object LLMEdgeManager {
                                         steps = params.steps,
                                         cfgScale = params.cfgScale,
                                         seed = params.seed,
-                                        initImage = params.initImage?.let { bytes ->
-                                                // Convert RGB byte array to Bitmap for I2V
-                                                if (params.initWidth > 0 && params.initHeight > 0) {
-                                                        val pixels = IntArray(params.initWidth * params.initHeight)
-                                                        for (i in pixels.indices) {
-                                                                val r = bytes[i * 3].toInt() and 0xFF
-                                                                val g = bytes[i * 3 + 1].toInt() and 0xFF
-                                                                val b = bytes[i * 3 + 2].toInt() and 0xFF
-                                                                pixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
-                                                        }
-                                                        Bitmap.createBitmap(pixels, params.initWidth, params.initHeight, Bitmap.Config.ARGB_8888)
-                                                } else null
-                                        },
+                                        initImage =
+                                                params.initImage?.let { bytes ->
+                                                        // Convert RGB byte array to Bitmap for I2V
+                                                        if (params.initWidth > 0 &&
+                                                                        params.initHeight > 0
+                                                        ) {
+                                                                val pixels =
+                                                                        IntArray(
+                                                                                params.initWidth *
+                                                                                        params.initHeight
+                                                                        )
+                                                                for (i in pixels.indices) {
+                                                                        val r =
+                                                                                bytes[i * 3]
+                                                                                        .toInt() and
+                                                                                        0xFF
+                                                                        val g =
+                                                                                bytes[i * 3 + 1]
+                                                                                        .toInt() and
+                                                                                        0xFF
+                                                                        val b =
+                                                                                bytes[i * 3 + 2]
+                                                                                        .toInt() and
+                                                                                        0xFF
+                                                                        pixels[i] =
+                                                                                (0xFF shl 24) or
+                                                                                        (r shl
+                                                                                                16) or
+                                                                                        (g shl 8) or
+                                                                                        b
+                                                                }
+                                                                Bitmap.createBitmap(
+                                                                        pixels,
+                                                                        params.initWidth,
+                                                                        params.initHeight,
+                                                                        Bitmap.Config.ARGB_8888
+                                                                )
+                                                        } else null
+                                                },
                                         strength = params.strength
                                 )
 
@@ -916,13 +1638,15 @@ object LLMEdgeManager {
                 val spec = currentDiffusionModelSpec
                 cachedModel?.let {
                         // Only return cached model if it's specifically an image model (not video)
-                        if (spec != null && 
-                            spec.filename == DEFAULT_IMAGE_MODEL_FILENAME &&
-                            spec.vaePath == null && // Image models don't use separate VAE
-                            spec.t5xxlPath == null && // Image models don't use T5
-                            spec.flowShift == Float.POSITIVE_INFINITY &&
-                            spec.loraModelDir == loraModelDir &&
-                            spec.loraApplyMode == loraApplyMode) {
+                        if (spec != null &&
+                                        spec.filename == DEFAULT_IMAGE_MODEL_FILENAME &&
+                                        spec.vaePath ==
+                                                null && // Image models don't use separate VAE
+                                        spec.t5xxlPath == null && // Image models don't use T5
+                                        spec.flowShift == Float.POSITIVE_INFINITY &&
+                                        spec.loraModelDir == loraModelDir &&
+                                        spec.loraApplyMode == loraApplyMode
+                        ) {
                                 return it
                         }
                         // Wrong model type loaded - unload it first
@@ -931,7 +1655,9 @@ object LLMEdgeManager {
 
                 if (!preferPerformanceMode) {
                         diffusionModelCache.systemMemoryProvider = {
-                                val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                                val am =
+                                        context.getSystemService(Context.ACTIVITY_SERVICE) as
+                                                ActivityManager
                                 val mi = ActivityManager.MemoryInfo()
                                 am.getMemoryInfo(mi)
                                 mi.availMem / (1024L * 1024L)
@@ -946,7 +1672,8 @@ object LLMEdgeManager {
                 // When flashAttn=true (default), let the helper decide based on dimensions.
                 // When flashAttn=false, force disable flash attention.
                 // This ensures small images (128x128) don't use flash attention which can be
-                // inefficient on mobile GPUs that may lack proper hardware support (coopmat2/subgroup_shuffle).
+                // inefficient on mobile GPUs that may lack proper hardware support
+                // (coopmat2/subgroup_shuffle).
                 val adaptiveFlashAttn =
                         FlashAttentionHelper.shouldUseFlashAttention(
                                 width = width,
@@ -960,24 +1687,34 @@ object LLMEdgeManager {
                                 "seqLen=${(width / 8) * (height / 8)}, sequentialLoad=${sequentialLoad})"
                 )
 
-                val modelFile = getFile(context, DEFAULT_IMAGE_MODEL_ID, DEFAULT_IMAGE_MODEL_FILENAME)
+                val modelFile =
+                        getFile(context, DEFAULT_IMAGE_MODEL_ID, DEFAULT_IMAGE_MODEL_FILENAME)
 
                 // Build cache key
-                val cacheKey = makeDiffusionCacheKey(modelFile.absolutePath, null, null, Float.POSITIVE_INFINITY, loraModelDir, loraApplyMode)
+                val cacheKey =
+                        makeDiffusionCacheKey(
+                                modelFile.absolutePath,
+                                null,
+                                null,
+                                Float.POSITIVE_INFINITY,
+                                loraModelDir,
+                                loraApplyMode
+                        )
 
                 // Check cache
                 diffusionModelCache.get(cacheKey)?.let { cached ->
                         Log.i(TAG, "Loaded Image model from cache: $cacheKey")
                         cachedModel = cached
-                        currentDiffusionModelSpec = LoadedDiffusionModelSpec(
-                                modelId = DEFAULT_IMAGE_MODEL_ID,
-                                filename = DEFAULT_IMAGE_MODEL_FILENAME,
-                                path = modelFile.absolutePath,
-                                vaePath = null,
-                                t5xxlPath = null,
-                                loraModelDir = loraModelDir,
-                                loraApplyMode = loraApplyMode
-                        )
+                        currentDiffusionModelSpec =
+                                LoadedDiffusionModelSpec(
+                                        modelId = DEFAULT_IMAGE_MODEL_ID,
+                                        filename = DEFAULT_IMAGE_MODEL_FILENAME,
+                                        path = modelFile.absolutePath,
+                                        vaePath = null,
+                                        t5xxlPath = null,
+                                        loraModelDir = loraModelDir,
+                                        loraApplyMode = loraApplyMode
+                                )
                         return cached
                 }
 
@@ -988,39 +1725,49 @@ object LLMEdgeManager {
                 // The auto-detection enables CPU backend on low-memory devices which is
                 // often the better choice for mobile diffusion workloads.
                 val finalSequentialLoad = if (preferPerformanceMode) null else sequentialLoad
-                Log.i(TAG, "StableDiffusion.load(image) called with finalSequentialLoad=${finalSequentialLoad}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, flashAttn=$adaptiveFlashAttn")
-                val model = StableDiffusion.load(
-                        context = context,
-                        modelPath = modelFile.absolutePath,
-                        nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                        offloadToCpu = false,
-                        sequentialLoad = finalSequentialLoad,
-                        forceVulkan = preferPerformanceMode,
-                        preferPerformanceMode = preferPerformanceMode,
-                        flashAttn = adaptiveFlashAttn
-                        ,
-                        loraModelDir = loraModelDir,
-                        loraApplyMode = loraApplyMode
-                        // sequentialLoad defaults to null, allowing auto-detection
+                Log.i(
+                        TAG,
+                        "StableDiffusion.load(image) called with finalSequentialLoad=${finalSequentialLoad}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, flashAttn=$adaptiveFlashAttn"
                 )
+                val model =
+                        StableDiffusion.load(
+                                context = context,
+                                modelPath = modelFile.absolutePath,
+                                nThreads =
+                                        CpuTopology.getOptimalThreadCount(
+                                                CpuTopology.TaskType.DIFFUSION
+                                        ),
+                                offloadToCpu = false,
+                                sequentialLoad = finalSequentialLoad,
+                                forceVulkan = preferPerformanceMode,
+                                preferPerformanceMode = preferPerformanceMode,
+                                flashAttn = adaptiveFlashAttn,
+                                loraModelDir = loraModelDir,
+                                loraApplyMode = loraApplyMode
+                                // sequentialLoad defaults to null, allowing auto-detection
+                                )
                 val loadTime = System.currentTimeMillis() - loadStart
                 // Use file size as cache size estimate to avoid re-parsing the model file.
                 val modelSize = modelFile.length()
-                Log.i(TAG, "Loaded image model in ${loadTime}ms (size=${modelSize / 1024 / 1024}MB)")
+                Log.i(
+                        TAG,
+                        "Loaded image model in ${loadTime}ms (size=${modelSize / 1024 / 1024}MB)"
+                )
                 // StableDiffusion.load() already performs estimation internally if needed for
                 // Vulkan VRAM heuristics, so we don't need to call it again here.
 
                 diffusionModelCache.put(cacheKey, model, modelSize, loadTime)
                 cachedModel = model
-                currentDiffusionModelSpec = LoadedDiffusionModelSpec(
-                        modelId = DEFAULT_IMAGE_MODEL_ID,
-                        filename = DEFAULT_IMAGE_MODEL_FILENAME,
-                        path = modelFile.absolutePath,
-                        vaePath = null,
-                        t5xxlPath = null,
-                        loraModelDir = loraModelDir,
-                        loraApplyMode = loraApplyMode
-                )
+                currentDiffusionModelSpec =
+                        LoadedDiffusionModelSpec(
+                                modelId = DEFAULT_IMAGE_MODEL_ID,
+                                filename = DEFAULT_IMAGE_MODEL_FILENAME,
+                                path = modelFile.absolutePath,
+                                vaePath = null,
+                                t5xxlPath = null,
+                                loraModelDir = loraModelDir,
+                                loraApplyMode = loraApplyMode
+                        )
                 return model
         }
 
@@ -1030,24 +1777,26 @@ object LLMEdgeManager {
                 flowShift: Float,
                 onProgress: ((String, Int, Int) -> Unit)?,
                 sequentialLoad: Boolean? = null,
-                loadT5: Boolean = true
-                ,
+                loadT5: Boolean = true,
                 loraModelDir: String? = null,
                 loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
         ): StableDiffusion {
                 // Check if we already have the correct VIDEO model loaded
                 val spec = currentDiffusionModelSpec
                 cachedModel?.let {
-                        // Only return cached model if it's specifically a video model with VAE and T5
+                        // Only return cached model if it's specifically a video model with VAE and
+                        // T5
                         // or if loaded without T5 when `loadT5=false`.
-                        val t5Match = if (loadT5) spec?.t5xxlPath != null else spec?.t5xxlPath == null
+                        val t5Match =
+                                if (loadT5) spec?.t5xxlPath != null else spec?.t5xxlPath == null
                         if (spec != null &&
-                            spec.filename == DEFAULT_VIDEO_MODEL_FILENAME &&
-                            spec.vaePath != null && // Video models require VAE
-                            t5Match &&
-                            spec.flowShift == flowShift &&
-                            spec.loraModelDir == loraModelDir &&
-                            spec.loraApplyMode == loraApplyMode) {
+                                        spec.filename == DEFAULT_VIDEO_MODEL_FILENAME &&
+                                        spec.vaePath != null && // Video models require VAE
+                                        t5Match &&
+                                        spec.flowShift == flowShift &&
+                                        spec.loraModelDir == loraModelDir &&
+                                        spec.loraApplyMode == loraApplyMode
+                        ) {
                                 return it
                         }
                         // Wrong model type loaded - unload it first
@@ -1056,7 +1805,9 @@ object LLMEdgeManager {
 
                 // Set memory provider for cache before loading
                 diffusionModelCache.systemMemoryProvider = {
-                        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                        val am =
+                                context.getSystemService(Context.ACTIVITY_SERVICE) as
+                                        ActivityManager
                         val mi = ActivityManager.MemoryInfo()
                         am.getMemoryInfo(mi)
                         mi.availMem / (1024L * 1024L)
@@ -1068,23 +1819,88 @@ object LLMEdgeManager {
                 val modelFile =
                         getFile(context, DEFAULT_VIDEO_MODEL_ID, DEFAULT_VIDEO_MODEL_FILENAME)
                 val vaeFile = getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME)
-                val t5File = if (loadT5) getFile(context, DEFAULT_VIDEO_T5XXL_ID, DEFAULT_VIDEO_T5XXL_FILENAME) else null
+                val t5File =
+                        if (loadT5)
+                                getFile(
+                                        context,
+                                        DEFAULT_VIDEO_T5XXL_ID,
+                                        DEFAULT_VIDEO_T5XXL_FILENAME
+                                )
+                        else null
                 if (!loadT5) {
-                        Log.i(TAG, "Not loading T5 encoder into video model (loadT5=false) to reduce peak memory during sequential load")
+                        Log.i(
+                                TAG,
+                                "Not loading T5 encoder into video model (loadT5=false) to reduce peak memory during sequential load"
+                        )
                 }
 
-                val cacheKey = makeDiffusionCacheKey(
-                        modelFile.absolutePath,
-                        vaeFile.absolutePath,
-                        t5File?.absolutePath,
-                        flowShift,
-                        loraModelDir,
-                        loraApplyMode
-                )
+                val cacheKey =
+                        makeDiffusionCacheKey(
+                                modelFile.absolutePath,
+                                vaeFile.absolutePath,
+                                t5File?.absolutePath,
+                                flowShift,
+                                loraModelDir,
+                                loraApplyMode
+                        )
                 diffusionModelCache.get(cacheKey)?.let { cached ->
                         Log.i(TAG, "Loaded Video model from cache: $cacheKey")
                         cachedModel = cached
-                        currentDiffusionModelSpec = LoadedDiffusionModelSpec(
+                        currentDiffusionModelSpec =
+                                LoadedDiffusionModelSpec(
+                                        modelId = DEFAULT_VIDEO_MODEL_ID,
+                                        filename = DEFAULT_VIDEO_MODEL_FILENAME,
+                                        path = modelFile.absolutePath,
+                                        vaePath = vaeFile.absolutePath,
+                                        t5xxlPath = t5File?.absolutePath,
+                                        flowShift = flowShift,
+                                        loraModelDir = loraModelDir,
+                                        loraApplyMode = loraApplyMode
+                                )
+                        return cached
+                }
+
+                val loadStart = System.currentTimeMillis()
+                val finalSequentialLoadV = if (preferPerformanceMode) null else sequentialLoad
+                val finalKeepClipOnCpu = if (preferPerformanceMode) false else true
+                val finalKeepVaeOnCpu = if (preferPerformanceMode) false else true
+                Log.i(
+                        TAG,
+                        "StableDiffusion.load(video) called with finalSequentialLoad=${finalSequentialLoadV}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, keepClipOnCpu=${finalKeepClipOnCpu}, keepVaeOnCpu=${finalKeepVaeOnCpu}, flashAttn=$flashAttn"
+                )
+                val model =
+                        StableDiffusion.load(
+                                context = context,
+                                modelPath = modelFile.absolutePath,
+                                vaePath = vaeFile.absolutePath,
+                                t5xxlPath = t5File?.absolutePath,
+                                nThreads =
+                                        CpuTopology.getOptimalThreadCount(
+                                                CpuTopology.TaskType.DIFFUSION
+                                        ),
+                                offloadToCpu = false,
+                                sequentialLoad = finalSequentialLoadV,
+                                forceVulkan = preferPerformanceMode,
+                                preferPerformanceMode = preferPerformanceMode,
+                                keepClipOnCpu = finalKeepClipOnCpu,
+                                keepVaeOnCpu = finalKeepVaeOnCpu,
+                                flashAttn = flashAttn,
+                                flowShift = flowShift,
+                                loraModelDir = loraModelDir,
+                                loraApplyMode = loraApplyMode
+                        )
+                val loadTime = System.currentTimeMillis() - loadStart
+                val modelSize = modelFile.length()
+                Log.i(
+                        TAG,
+                        "Loaded video model in ${loadTime}ms (size=${modelSize / 1024 / 1024}MB) sequentialLoad=${sequentialLoad}"
+                )
+                // Use file size as cache size estimate to avoid re-parsing the model file.
+
+                diffusionModelCache.put(cacheKey, model, modelSize, loadTime)
+                cachedModel = model
+                currentDiffusionModelSpec =
+                        LoadedDiffusionModelSpec(
                                 modelId = DEFAULT_VIDEO_MODEL_ID,
                                 filename = DEFAULT_VIDEO_MODEL_FILENAME,
                                 path = modelFile.absolutePath,
@@ -1094,50 +1910,10 @@ object LLMEdgeManager {
                                 loraModelDir = loraModelDir,
                                 loraApplyMode = loraApplyMode
                         )
-                        return cached
-                }
-
-                val loadStart = System.currentTimeMillis()
-                val finalSequentialLoadV = if (preferPerformanceMode) null else sequentialLoad
-                val finalKeepClipOnCpu = if (preferPerformanceMode) false else true
-                val finalKeepVaeOnCpu = if (preferPerformanceMode) false else true
-                Log.i(TAG, "StableDiffusion.load(video) called with finalSequentialLoad=${finalSequentialLoadV}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, keepClipOnCpu=${finalKeepClipOnCpu}, keepVaeOnCpu=${finalKeepVaeOnCpu}, flashAttn=$flashAttn")
-                val model = StableDiffusion.load(
-                        context = context,
-                        modelPath = modelFile.absolutePath,
-                        vaePath = vaeFile.absolutePath,
-                        t5xxlPath = t5File?.absolutePath,
-                        nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                        offloadToCpu = false,
-                        sequentialLoad = finalSequentialLoadV,
-                        forceVulkan = preferPerformanceMode,
-                        preferPerformanceMode = preferPerformanceMode,
-                        keepClipOnCpu = finalKeepClipOnCpu,
-                        keepVaeOnCpu = finalKeepVaeOnCpu,
-                        flashAttn = flashAttn,
-                        flowShift = flowShift
-                        ,
-                        loraModelDir = loraModelDir,
-                        loraApplyMode = loraApplyMode
+                Log.i(
+                        TAG,
+                        "Loaded Video model from cache: $cacheKey, sequentialLoad=${sequentialLoad}"
                 )
-                val loadTime = System.currentTimeMillis() - loadStart
-                val modelSize = modelFile.length()
-                Log.i(TAG, "Loaded video model in ${loadTime}ms (size=${modelSize / 1024 / 1024}MB) sequentialLoad=${sequentialLoad}")
-                // Use file size as cache size estimate to avoid re-parsing the model file.
-
-                diffusionModelCache.put(cacheKey, model, modelSize, loadTime)
-                cachedModel = model
-                currentDiffusionModelSpec = LoadedDiffusionModelSpec(
-                        modelId = DEFAULT_VIDEO_MODEL_ID,
-                        filename = DEFAULT_VIDEO_MODEL_FILENAME,
-                        path = modelFile.absolutePath,
-                        vaePath = vaeFile.absolutePath,
-                        t5xxlPath = t5File?.absolutePath,
-                        flowShift = flowShift,
-                        loraModelDir = loraModelDir,
-                        loraApplyMode = loraApplyMode
-                )
-                Log.i(TAG, "Loaded Video model from cache: $cacheKey, sequentialLoad=${sequentialLoad}")
                 return model
         }
 
@@ -1171,7 +1947,9 @@ object LLMEdgeManager {
 
                 // Update memory provider for the cache based on context
                 textModelCache.systemMemoryProvider = {
-                        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                        val am =
+                                context.getSystemService(Context.ACTIVITY_SERVICE) as
+                                        ActivityManager
                         val mi = ActivityManager.MemoryInfo()
                         am.getMemoryInfo(mi)
                         mi.availMem / (1024L * 1024L)
@@ -1187,27 +1965,37 @@ object LLMEdgeManager {
                 }
 
                 // Phase 3: Use core-aware threading
-                var optimalThreads = if (preferPerformanceMode) {
-                        CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING)
-                } else {
-                        // Conservative threading for stability/background use
-                        2
-                }
+                var optimalThreads =
+                        if (preferPerformanceMode) {
+                                CpuTopology.getOptimalThreadCount(
+                                        CpuTopology.TaskType.PROMPT_PROCESSING
+                                )
+                        } else {
+                                // Conservative threading for stability/background use
+                                2
+                        }
 
                 // If the model file is large, use more conservative settings to avoid high memory
                 // and concurrency which can cause native failures on some devices.
                 val modelSizeMB = finalPath.length() / (1024L * 1024L)
                 var overrideContextSize: Long? = null
                 if (modelSizeMB >= 250L) {
-                        Log.w(TAG, "Large model detected: ${modelSizeMB}MB. Forcing conservative settings: threads=1, context=2048")
+                        Log.w(
+                                TAG,
+                                "Large model detected: ${modelSizeMB}MB. Forcing conservative settings: threads=1, context=2048"
+                        )
                         optimalThreads = 1
                         overrideContextSize = 2048L
                 }
-                Log.i(TAG, "Loading SmolLM with $optimalThreads threads (${coreInfo}), vulkan=$preferPerformanceMode")
+                Log.i(
+                        TAG,
+                        "Loading SmolLM with $optimalThreads threads (${coreInfo}), vulkan=$preferPerformanceMode"
+                )
                 val loadStart = System.currentTimeMillis()
 
                 // Initialize SmolLM with Vulkan setting based on performance mode
-                // If preferPerformanceMode is false, useVulkan=false (CPU only) to avoid hangs on some devices
+                // If preferPerformanceMode is false, useVulkan=false (CPU only) to avoid hangs on
+                // some devices
                 val smol = io.aatricks.llmedge.SmolLM(useVulkan = preferPerformanceMode)
 
                 // Help clear heap before loading large model
@@ -1215,10 +2003,11 @@ object LLMEdgeManager {
 
                 smol.load(
                         modelPath = finalPath.absolutePath,
-                        params = io.aatricks.llmedge.SmolLM.InferenceParams(
-                                numThreads = optimalThreads,
-                                contextSize = overrideContextSize
-                        )
+                        params =
+                                io.aatricks.llmedge.SmolLM.InferenceParams(
+                                        numThreads = optimalThreads,
+                                        contextSize = overrideContextSize
+                                )
                 )
 
                 val loadTime = System.currentTimeMillis() - loadStart
@@ -1235,10 +2024,10 @@ object LLMEdgeManager {
         /**
          * Downloads a model from Hugging Face with progress updates. Useful for activities that
          * need to show download progress before generation.
-         * 
-         * Uses Android's system DownloadManager by default to avoid heap memory issues with
-         * large model files. The system downloader streams directly to disk without using
-         * the app's Java heap.
+         *
+         * Uses Android's system DownloadManager by default to avoid heap memory issues with large
+         * model files. The system downloader streams directly to disk without using the app's Java
+         * heap.
          */
         suspend fun downloadModel(
                 context: Context,
@@ -1264,7 +2053,15 @@ object LLMEdgeManager {
                 // key; otherwise, fall back to closing the cached instance.
                 val spec = currentDiffusionModelSpec
                 if (spec != null) {
-                        val key = makeDiffusionCacheKey(spec.path ?: "", spec.vaePath, spec.t5xxlPath, spec.flowShift, spec.loraModelDir, spec.loraApplyMode)
+                        val key =
+                                makeDiffusionCacheKey(
+                                        spec.path ?: "",
+                                        spec.vaePath,
+                                        spec.t5xxlPath,
+                                        spec.flowShift,
+                                        spec.loraModelDir,
+                                        spec.loraApplyMode
+                                )
                         diffusionModelCache.remove(key)
                         currentDiffusionModelSpec = null
                         cachedModel = null
@@ -1294,11 +2091,16 @@ object LLMEdgeManager {
                 context: Context,
                 onProgress: ((String, Int, Int) -> Unit)?
         ) {
-                val hfCallback: ((Long, Long?) -> Unit)? = onProgress?.let { genCb ->
-                        { downloaded: Long, total: Long? ->
-                                genCb("Downloading video asset: $downloaded/${total ?: "?"}", 0, 0)
+                val hfCallback: ((Long, Long?) -> Unit)? =
+                        onProgress?.let { genCb ->
+                                { downloaded: Long, total: Long? ->
+                                        genCb(
+                                                "Downloading video asset: $downloaded/${total ?: "?"}",
+                                                0,
+                                                0
+                                        )
+                                }
                         }
-                }
 
                 HuggingFaceHub.ensureRepoFileOnDisk(
                         context,
@@ -1339,9 +2141,16 @@ object LLMEdgeManager {
                 context: Context,
                 onProgress: ((String, Int, Int) -> Unit)?
         ) {
-                val hfCallback: ((Long, Long?) -> Unit)? = onProgress?.let { genCb ->
-                        { downloaded: Long, total: Long? -> genCb("Downloading image asset: $downloaded/${total ?: "?"}", 0, 0) }
-                }
+                val hfCallback: ((Long, Long?) -> Unit)? =
+                        onProgress?.let { genCb ->
+                                { downloaded: Long, total: Long? ->
+                                        genCb(
+                                                "Downloading image asset: $downloaded/${total ?: "?"}",
+                                                0,
+                                                0
+                                        )
+                                }
+                        }
 
                 HuggingFaceHub.ensureRepoFileOnDisk(
                         context,
@@ -1390,8 +2199,12 @@ object LLMEdgeManager {
                                 val rt = Runtime.getRuntime()
                                 val used = (rt.totalMemory() - rt.freeMemory()) / (1024L * 1024L)
                                 val max = rt.maxMemory() / (1024L * 1024L)
-                                Log.d(TAG, "Preparing memory: heap_used=${used}MB heap_max=${max}MB")
-                                // Ask for GC; this is a hint to ART and may help on memory-constrained devices
+                                Log.d(
+                                        TAG,
+                                        "Preparing memory: heap_used=${used}MB heap_max=${max}MB"
+                                )
+                                // Ask for GC; this is a hint to ART and may help on
+                                // memory-constrained devices
                                 System.gc()
                         } catch (e: Exception) {
                                 // no-op
@@ -1410,13 +2223,20 @@ object LLMEdgeManager {
                 loraModelDir: String? = null,
                 loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
         ): String {
-                return listOf(modelPath, vaePath ?: "", t5Path ?: "", flowShift.toString(), loraModelDir ?: "", loraApplyMode.name).joinToString("|")
+                return listOf(
+                                modelPath,
+                                vaePath ?: "",
+                                t5Path ?: "",
+                                flowShift.toString(),
+                                loraModelDir ?: "",
+                                loraApplyMode.name
+                        )
+                        .joinToString("|")
         }
 
         /**
-         * Convert raw RGB byte array to Bitmap.
-         * The native txt2img/txt2ImgWithPrecomputedCondition return raw RGB bytes (3 bytes per pixel),
-         * not encoded image formats like PNG/JPEG.
+         * Convert raw RGB byte array to Bitmap. The native txt2img/txt2ImgWithPrecomputedCondition
+         * return raw RGB bytes (3 bytes per pixel), not encoded image formats like PNG/JPEG.
          */
         // Reuse pixel buffers across conversions to reduce GC pressure
         private val pixelBufferThreadLocal = ThreadLocal<IntArray>()
@@ -1428,6 +2248,11 @@ object LLMEdgeManager {
                         pixels = IntArray(total)
                         pixelBufferThreadLocal.set(pixels)
                 }
-                return io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(rgb, width, height, pixels)
+                return io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(
+                        rgb,
+                        width,
+                        height,
+                        pixels
+                )
         }
 }

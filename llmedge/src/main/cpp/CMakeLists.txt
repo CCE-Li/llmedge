@@ -381,3 +381,213 @@ if (WAN_SUPPORT)
 endif()
 
 target_link_options(sdcpp PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
+
+# ------------------------------------------------------------
+# Whisper.cpp JNI wrapper build (Speech-to-Text)
+# Build whisper with its OWN ggml sources compiled directly into whisper_jni
+# to avoid target name conflicts and ensure API compatibility.
+# Similar approach to bark_jni.
+# ------------------------------------------------------------
+
+# Resolve WHISPER_DIR to an absolute path
+set(WHISPER_DIR_RELATIVE "../../../../whisper.cpp")
+get_filename_component(WHISPER_DIR ${WHISPER_DIR_RELATIVE} ABSOLUTE)
+set(WHISPER_GGML_DIR ${WHISPER_DIR}/ggml)
+
+if (NOT EXISTS "${WHISPER_DIR}/include/whisper.h")
+        message(FATAL_ERROR "whisper.cpp headers not found at ${WHISPER_DIR}. Please ensure whisper.cpp is cloned.")
+endif()
+
+# Whisper's bundled ggml sources (needed for CPU backend)
+set(WHISPER_GGML_SOURCES
+        ${WHISPER_GGML_DIR}/src/ggml.c
+        ${WHISPER_GGML_DIR}/src/ggml-alloc.c
+        ${WHISPER_GGML_DIR}/src/ggml-backend.cpp
+        ${WHISPER_GGML_DIR}/src/ggml-backend-reg.cpp
+        ${WHISPER_GGML_DIR}/src/ggml-opt.cpp
+        ${WHISPER_GGML_DIR}/src/ggml-quants.c
+        ${WHISPER_GGML_DIR}/src/ggml-threading.cpp
+        ${WHISPER_GGML_DIR}/src/gguf.cpp
+        # CPU backend
+        ${WHISPER_GGML_DIR}/src/ggml-cpu/ggml-cpu.c
+        ${WHISPER_GGML_DIR}/src/ggml-cpu/ggml-cpu.cpp
+        ${WHISPER_GGML_DIR}/src/ggml-cpu/ops.cpp
+        ${WHISPER_GGML_DIR}/src/ggml-cpu/vec.cpp
+        ${WHISPER_GGML_DIR}/src/ggml-cpu/quants.c
+        ${WHISPER_GGML_DIR}/src/ggml-cpu/traits.cpp
+        ${WHISPER_GGML_DIR}/src/ggml-cpu/unary-ops.cpp
+        ${WHISPER_GGML_DIR}/src/ggml-cpu/binary-ops.cpp
+        ${WHISPER_GGML_DIR}/src/ggml-cpu/repack.cpp
+        # Architecture-specific for ARM
+        ${WHISPER_GGML_DIR}/src/ggml-cpu/arch/arm/quants.c
+)
+
+# Whisper source files
+set(WHISPER_SOURCES
+        ${WHISPER_DIR}/src/whisper.cpp
+        whisper_jni.cpp
+)
+
+# All sources for whisper_jni
+set(WHISPER_JNI_ALL_SOURCES
+        ${WHISPER_GGML_SOURCES}
+        ${WHISPER_SOURCES}
+)
+
+# Build whisper_jni library with all sources compiled in
+add_library(whisper_jni SHARED ${WHISPER_JNI_ALL_SOURCES})
+
+# CRITICAL: Add GGML_USE_CPU for proper CPU backend initialization on Android
+# Define WHISPER_VERSION, GGML_VERSION and GGML_COMMIT which are required
+target_compile_definitions(whisper_jni PUBLIC GGML_USE_CPU)
+target_compile_definitions(whisper_jni PRIVATE
+        WHISPER_VERSION="1.0.0"
+        GGML_VERSION="0.9.4"
+        GGML_COMMIT="unknown"
+)
+
+# Set architecture-specific compile options for whisper
+if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+        target_compile_options(whisper_jni PRIVATE -march=armv8.2-a+fp16)
+elseif (${ANDROID_ABI} STREQUAL "armeabi-v7a")
+        target_compile_options(whisper_jni PRIVATE -mfpu=neon-vfpv4)
+endif()
+
+# Include directories
+target_include_directories(whisper_jni
+        PRIVATE
+        ${WHISPER_DIR}/include
+        ${WHISPER_DIR}/src
+        ${WHISPER_GGML_DIR}/include
+        ${WHISPER_GGML_DIR}/src
+        ${WHISPER_GGML_DIR}/src/ggml-cpu
+        ${WHISPER_GGML_DIR}/src/ggml-cpu/arch
+)
+
+target_compile_features(whisper_jni PUBLIC c_std_11 cxx_std_17)
+
+target_compile_options(whisper_jni PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3)
+
+# Link only against Android libraries (ggml is compiled in)
+target_link_libraries(whisper_jni
+        android log
+)
+
+target_link_options(whisper_jni PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
+
+message(STATUS "Whisper.cpp JNI wrapper configured (direct source build with bundled ggml)")
+
+target_link_options(whisper_jni PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
+
+message(STATUS "Whisper.cpp JNI wrapper configured (using whisper's bundled ggml via FetchContent)")
+
+# ------------------------------------------------------------
+# Bark.cpp JNI wrapper build (Text-to-Speech)
+# Build bark, encodec, and their ggml sources directly without add_subdirectory
+# to avoid target name conflicts with stable-diffusion.cpp's ggml.
+# ------------------------------------------------------------
+
+set(BARK_DIR_RELATIVE "../../../../bark.cpp")
+get_filename_component(BARK_DIR ${BARK_DIR_RELATIVE} ABSOLUTE)
+
+if (NOT EXISTS "${BARK_DIR}/bark.h")
+        message(FATAL_ERROR "bark.cpp headers not found at ${BARK_DIR}. Please ensure bark.cpp is cloned.")
+endif()
+
+set(BARK_ENCODEC_DIR ${BARK_DIR}/encodec.cpp)
+set(BARK_GGML_DIR ${BARK_ENCODEC_DIR}/ggml)
+
+# Collect ggml sources from bark's bundled ggml (older API, compatible with bark/encodec)
+set(BARK_GGML_SOURCES
+        ${BARK_GGML_DIR}/src/ggml.c
+        ${BARK_GGML_DIR}/src/ggml-alloc.c
+        ${BARK_GGML_DIR}/src/ggml-backend.cpp
+        ${BARK_GGML_DIR}/src/ggml-quants.c
+        # ggml-aarch64.c is required for all ARM builds as it contains
+        # implementations for quantize_mat_q8_0, ggml_gemv_*, ggml_gemm_*
+        # that are referenced from ggml.c type_traits table
+        ${BARK_GGML_DIR}/src/ggml-aarch64.c
+)
+
+# Encodec sources
+set(ENCODEC_SOURCES
+        ${BARK_ENCODEC_DIR}/encodec.cpp
+        ${BARK_ENCODEC_DIR}/ops.cpp
+)
+
+# Bark sources
+set(BARK_SOURCES
+        ${BARK_DIR}/bark.cpp
+)
+
+# All sources for bark_jni
+set(BARK_JNI_ALL_SOURCES
+        ${BARK_GGML_SOURCES}
+        ${ENCODEC_SOURCES}
+        ${BARK_SOURCES}
+        bark_jni.cpp
+)
+
+# Build bark_jni as a single shared library with all sources
+add_library(bark_jni SHARED ${BARK_JNI_ALL_SOURCES})
+
+target_include_directories(bark_jni
+        PRIVATE
+        ${BARK_DIR}
+        ${BARK_ENCODEC_DIR}
+        ${BARK_GGML_DIR}/include
+        ${BARK_GGML_DIR}/src
+)
+
+# Define version constants to avoid linker errors
+# GGML_USE_CPU is CRITICAL for proper CPU backend initialization on Android
+target_compile_definitions(bark_jni
+        PRIVATE
+        GGML_COMMIT=""
+        GGML_VERSION=""
+        EXPORTING_BARK
+        GGML_USE_CPU
+)
+
+target_compile_features(bark_jni PUBLIC c_std_11 cxx_std_17)
+
+# Set architecture-specific compile options for bark
+# Enable aggressive ARM optimizations for modern devices like S22 (Cortex-X2/A710/A510)
+if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+        # armv8.4-a includes dotprod (sdot/udot), fp16, and other advanced features
+        # Cortex-A78 tune works well for Snapdragon 8 Gen 1 cores
+        # Note: -ffast-math is incompatible with ggml (requires non-finite math)
+        target_compile_options(bark_jni PRIVATE
+                -march=armv8.4-a+dotprod+fp16
+                -mtune=cortex-a78
+                -ffp-contract=fast
+                -fno-signed-zeros
+                -fno-trapping-math
+                -freciprocal-math
+        )
+elseif (${ANDROID_ABI} STREQUAL "armeabi-v7a")
+        target_compile_options(bark_jni PRIVATE -mfpu=neon-vfpv4)
+endif()
+
+target_compile_options(bark_jni PUBLIC
+        -fvisibility=hidden
+        -fvisibility-inlines-hidden
+        -ffunction-sections
+        -fdata-sections
+        -O3
+        -fopenmp
+        -funroll-loops
+)
+
+# Enable OpenMP for multi-threaded inference - CRITICAL for performance
+# Android NDK supports OpenMP via -static-openmp
+target_compile_definitions(bark_jni PRIVATE GGML_USE_OPENMP)
+
+target_link_libraries(bark_jni
+        android log
+        -fopenmp -static-openmp
+)
+
+target_link_options(bark_jni PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
+
+message(STATUS "Bark.cpp JNI wrapper configured (direct source build with OpenMP)")
