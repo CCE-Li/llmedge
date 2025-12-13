@@ -296,28 +296,9 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
                 println("[BarkTTS] Native library load disabled via llmedge.disableNativeLoad=true")
             } else {
                 try {
-                    // First, check if this is a desktop JVM environment (for testing)
-                    val osName = (System.getProperty("os.name") ?: "").lowercase()
-                    val isDesktopJvm = osName.contains("linux") && !osName.contains("android")
-
-                    if (isDesktopJvm) {
-                        // Desktop JVM testing - load bark_jni directly
-                        logD(LOG_TAG, "Loading libbark_jni.so for desktop testing")
-                        System.loadLibrary("bark_jni")
-                    } else {
-                        // Android environment
-                        val isEmulated =
-                                Build.HARDWARE.contains("goldfish") ||
-                                        Build.HARDWARE.contains("ranchu")
-
-                        if (!isEmulated && supportsArm64V8a()) {
-                            logD(LOG_TAG, "Loading libbark_arm64.so")
-                            System.loadLibrary("bark_arm64")
-                        } else {
-                            logD(LOG_TAG, "Loading default libbark.so")
-                            System.loadLibrary("bark")
-                        }
-                    }
+                    // Load bark_jni library - same name on all platforms
+                    logD(LOG_TAG, "Loading libbark_jni.so")
+                    System.loadLibrary("bark_jni")
                 } catch (e: UnsatisfiedLinkError) {
                     logE(LOG_TAG, "Failed to load bark native library: ${e.message}")
                 }

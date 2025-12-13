@@ -509,31 +509,37 @@ object HuggingFaceHub {
     ): HFModelTree.HFModelFile? {
         // NOTE: The model specs endpoint (siblings list) does not populate a 'type' field.
         // Treat null type as a file entry.
-        val candidates =
-            files.filter {
-                (it.type == "file" || it.type == null) &&
-                        it.path.endsWith(".gguf", ignoreCase = true)
+        val allFiles = files.filter { it.type == "file" || it.type == null }
+        
+        // If a specific filename is provided, search all files (not just .gguf)
+        if (!filename.isNullOrEmpty()) {
+            allFiles.firstOrNull { it.path.equals(filename, ignoreCase = true) }?.let {
+                return it
             }
-        if (candidates.isEmpty()) {
+            allFiles.firstOrNull { it.path.endsWith(filename, ignoreCase = true) }?.let {
+                return it
+            }
+            // Also try matching just the filename part
+            allFiles.firstOrNull { 
+                it.path.substringAfterLast('/').equals(filename, ignoreCase = true) 
+            }?.let {
+                return it
+            }
+        }
+        
+        // For automatic selection, prefer GGUF files
+        val ggufCandidates = allFiles.filter { it.path.endsWith(".gguf", ignoreCase = true) }
+        if (ggufCandidates.isEmpty()) {
             return null
         }
 
-        if (!filename.isNullOrEmpty()) {
-            candidates.firstOrNull { it.path.equals(filename, ignoreCase = true) }?.let {
-                return it
-            }
-            candidates.firstOrNull { it.path.endsWith(filename, ignoreCase = true) }?.let {
-                return it
-            }
-        }
-
         preferredQuantizations.forEach { marker ->
-            candidates.firstOrNull { it.path.contains(marker, ignoreCase = true) }?.let {
+            ggufCandidates.firstOrNull { it.path.contains(marker, ignoreCase = true) }?.let {
                 return it
             }
         }
 
-        return candidates.minByOrNull { it.size ?: it.lfs?.size ?: Long.MAX_VALUE }
+        return ggufCandidates.minByOrNull { it.size ?: it.lfs?.size ?: Long.MAX_VALUE }
     }
 
     private const val DEFAULT_MODELS_DIRECTORY = "hf-models"
