@@ -18,76 +18,81 @@ class VideoProgressCallbackTest : BaseVideoIntegrationTest() {
                 private var callback: StableDiffusion.VideoProgressCallback? = null
 
                 override fun txt2img(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    steps: Int,
-                    cfg: Float,
-                    seed: Long,
-                    easyCacheEnabled: Boolean,
-                    easyCacheReuseThreshold: Float,
-                    easyCacheStartPercent: Float,
-                    easyCacheEndPercent: Float,
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        steps: Int,
+                        cfg: Float,
+                        seed: Long,
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float,
                 ): ByteArray? = null
 
                 override fun txt2vid(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    videoFrames: Int,
-                    steps: Int,
-                    cfg: Float,
-                    seed: Long,
-                    scheduler: StableDiffusion.Scheduler,
-                    strength: Float,
-                    initImage: ByteArray?,
-                    initWidth: Int,
-                    initHeight: Int,
-                    easyCacheEnabled: Boolean,
-                    easyCacheReuseThreshold: Float,
-                    easyCacheStartPercent: Float,
-                    easyCacheEndPercent: Float,
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        videoFrames: Int,
+                        steps: Int,
+                        cfg: Float,
+                        seed: Long,
+                        sampleMethod: StableDiffusion.SampleMethod,
+                        scheduler: StableDiffusion.Scheduler,
+                        strength: Float,
+                        initImage: ByteArray?,
+                        initWidth: Int,
+                        initHeight: Int,
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float,
                 ): Array<ByteArray>? {
                     repeat(videoFrames) { index ->
                         callback?.onProgress(
-                            step = index + 1,
-                            totalSteps = steps,
-                            currentFrame = index + 1,
-                            totalFrames = videoFrames,
-                            timePerStep = 0.05f,
+                                step = index + 1,
+                                totalSteps = steps,
+                                currentFrame = index + 1,
+                                totalFrames = videoFrames,
+                                timePerStep = 0.05f,
                         )
                     }
                     return frames.map { it.copyOf() }.toTypedArray()
                 }
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {
+                override fun setProgressCallback(
+                        handle: Long,
+                        callback: StableDiffusion.VideoProgressCallback?
+                ) {
                     this.callback = callback
                 }
 
                 override fun cancelGeneration(handle: Long) = Unit
                 override fun precomputeCondition(
-                    handle: Long,
-                    prompt: String,
-                    negative: String,
-                    width: Int,
-                    height: Int,
-                    clipSkip: Int,
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        clipSkip: Int,
                 ): StableDiffusion.PrecomputedCondition? = null
             }
         }
         val sd = createStableDiffusion()
         val progressEvents = mutableListOf<Pair<Int, Int>>()
-        val params = StableDiffusion.VideoGenerateParams(
-            prompt = "wan fox in snow",
-            width = 256,
-            height = 256,
-            videoFrames = 4,
-            steps = 16,
-        )
+        val params =
+                StableDiffusion.VideoGenerateParams(
+                        prompt = "wan fox in snow",
+                        width = 256,
+                        height = 256,
+                        videoFrames = 4,
+                        steps = 16,
+                )
 
         sd.txt2vid(params) { _, _, currentFrame, totalFrames, _ ->
             progressEvents += currentFrame to totalFrames

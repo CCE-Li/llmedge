@@ -540,14 +540,34 @@ target_include_directories(bark_jni
 )
 
 # Define version constants to avoid linker errors
+# GGML_USE_CPU is CRITICAL for proper CPU backend initialization on Android
 target_compile_definitions(bark_jni
         PRIVATE
         GGML_COMMIT=""
         GGML_VERSION=""
         EXPORTING_BARK
+        GGML_USE_CPU
 )
 
 target_compile_features(bark_jni PUBLIC c_std_11 cxx_std_17)
+
+# Set architecture-specific compile options for bark
+# Enable aggressive ARM optimizations for modern devices like S22 (Cortex-X2/A710/A510)
+if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+        # armv8.4-a includes dotprod (sdot/udot), fp16, and other advanced features
+        # Cortex-A78 tune works well for Snapdragon 8 Gen 1 cores
+        # Note: -ffast-math is incompatible with ggml (requires non-finite math)
+        target_compile_options(bark_jni PRIVATE
+                -march=armv8.4-a+dotprod+fp16
+                -mtune=cortex-a78
+                -ffp-contract=fast
+                -fno-signed-zeros
+                -fno-trapping-math
+                -freciprocal-math
+        )
+elseif (${ANDROID_ABI} STREQUAL "armeabi-v7a")
+        target_compile_options(bark_jni PRIVATE -mfpu=neon-vfpv4)
+endif()
 
 target_compile_options(bark_jni PUBLIC
         -fvisibility=hidden
@@ -555,12 +575,19 @@ target_compile_options(bark_jni PUBLIC
         -ffunction-sections
         -fdata-sections
         -O3
+        -fopenmp
+        -funroll-loops
 )
+
+# Enable OpenMP for multi-threaded inference - CRITICAL for performance
+# Android NDK supports OpenMP via -static-openmp
+target_compile_definitions(bark_jni PRIVATE GGML_USE_OPENMP)
 
 target_link_libraries(bark_jni
         android log
+        -fopenmp -static-openmp
 )
 
 target_link_options(bark_jni PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
 
-message(STATUS "Bark.cpp JNI wrapper configured (direct source build)")
+message(STATUS "Bark.cpp JNI wrapper configured (direct source build with OpenMP)")
