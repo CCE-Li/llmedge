@@ -404,6 +404,50 @@ __STATIC_INLINE__ uint8_t* ggml_tensor_to_sd_image(struct ggml_tensor* input, in
     }
     GGML_ASSERT(channels == 3 && input->type == GGML_TYPE_F32);
     uint8_t* image_data = (uint8_t*)malloc(width * height * channels);
+
+    // Fast-path for contiguous tensors: read a full (W*H) float plane per channel and interleave.
+    // This avoids extremely slow per-element ggml_backend_tensor_get calls when using a backend.
+    if (ggml_is_contiguous(input) && width > 0 && height > 0) {
+        const size_t plane_elems = (size_t)width * (size_t)height;
+
+        auto write_plane_to_rgb = [&](const float* plane, int ic) {
+            for (size_t p = 0; p < plane_elems; ++p) {
+                *(image_data + p * 3 + (size_t)ic) = (uint8_t)(plane[p] * 255.0f);
+            }
+        };
+
+        if (input->buffer != nullptr) {
+            // Backend tensor: copy each channel plane to host memory in 3 calls.
+            std::unique_ptr<float[]> plane(new float[plane_elems]);
+            for (int ic = 0; ic < channels; ic++) {
+                size_t off;
+                if (video) {
+                    // dims: (W, H, T, C) -> (i0,i1,i2,i3)
+                    off = (size_t)idx * (size_t)input->nb[2] + (size_t)ic * (size_t)input->nb[3];
+                } else {
+                    // dims: (W, H, C, N) -> (i0,i1,i2,i3)
+                    off = (size_t)ic * (size_t)input->nb[2] + (size_t)idx * (size_t)input->nb[3];
+                }
+                ggml_backend_tensor_get(input, plane.get(), off, plane_elems * sizeof(float));
+                write_plane_to_rgb(plane.get(), ic);
+            }
+            return image_data;
+        }
+
+        // Host tensor: planes are contiguous for a fixed (idx, ic).
+        for (int ic = 0; ic < channels; ic++) {
+            const char* base = (const char*)input->data;
+            const char* ptr;
+            if (video) {
+                ptr = base + (size_t)idx * (size_t)input->nb[2] + (size_t)ic * (size_t)input->nb[3];
+            } else {
+                ptr = base + (size_t)ic * (size_t)input->nb[2] + (size_t)idx * (size_t)input->nb[3];
+            }
+            write_plane_to_rgb((const float*)ptr, ic);
+        }
+        return image_data;
+    }
+
     for (int ih = 0; ih < height; ih++) {
         for (int iw = 0; iw < width; iw++) {
             for (int ic = 0; ic < channels; ic++) {

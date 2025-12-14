@@ -1,6 +1,7 @@
 #ifndef __WAN_HPP__
 #define __WAN_HPP__
 
+#include <cstdlib>
 #include <map>
 #include <memory>
 #include <utility>
@@ -107,11 +108,48 @@ namespace WAN {
 
             struct ggml_tensor* w = params["gamma"];
             w                     = ggml_reshape_1d(ctx->ggml_ctx, w, ggml_nelements(w));
-            auto h                = ggml_ext_cont(ctx->ggml_ctx, ggml_ext_torch_permute(ctx->ggml_ctx, x, 3, 0, 1, 2));  // [ID, IH, IW, N*IC]
-            h                     = ggml_rms_norm(ctx->ggml_ctx, h, 1e-12);
-            h                     = ggml_mul(ctx->ggml_ctx, h, w);
-            h                     = ggml_ext_cont(ctx->ggml_ctx, ggml_ext_torch_permute(ctx->ggml_ctx, h, 1, 2, 3, 0));
 
+            // WAN models most often use [W, H, T, C] (channels in ne[3]), but some blocks temporarily
+            // switch layouts (e.g. treat T as batch for Conv2d). If a tensor leaks through in a
+            // different layout, ggml broadcasting in ggml_mul() will assert.
+            //
+            // Make this robust by dynamically locating the axis that matches gamma_len and applying
+            // RMS norm along that axis.
+            const int64_t gamma_len = w->ne[0];
+            int axis_c             = -1;
+            for (int i = 3; i >= 0; --i) {
+                if (x->ne[i] == gamma_len) {
+                    axis_c = i;
+                    break;
+                }
+            }
+
+            int p[4]    = {3, 0, 1, 2};
+            int inv[4]  = {1, 2, 3, 0};
+            if (axis_c == 3) {
+                // default
+            } else if (axis_c == 2) {
+                p[0] = 2; p[1] = 0; p[2] = 1; p[3] = 3;
+                inv[0] = 1; inv[1] = 2; inv[2] = 0; inv[3] = 3;
+            } else if (axis_c == 1) {
+                p[0] = 1; p[1] = 0; p[2] = 2; p[3] = 3;
+                inv[0] = 1; inv[1] = 0; inv[2] = 2; inv[3] = 3;
+            } else if (axis_c == 0) {
+                p[0] = 0; p[1] = 1; p[2] = 2; p[3] = 3;
+                inv[0] = 0; inv[1] = 1; inv[2] = 2; inv[3] = 3;
+            } else {
+                static bool warned = false;
+                if (!warned) {
+                    warned = true;
+                    LOG_WARN("WAN::RMS_norm: could not locate channel axis by gamma length. x=[%ld %ld %ld %ld] gamma=%ld; using default permute",
+                             (long)x->ne[0], (long)x->ne[1], (long)x->ne[2], (long)x->ne[3], (long)gamma_len);
+                }
+            }
+
+            auto h = ggml_ext_cont(ctx->ggml_ctx, ggml_ext_torch_permute(ctx->ggml_ctx, x, p[0], p[1], p[2], p[3]));
+            h      = ggml_rms_norm(ctx->ggml_ctx, h, 1e-12);
+            h      = ggml_mul(ctx->ggml_ctx, h, w);
+            h      = ggml_ext_cont(ctx->ggml_ctx, ggml_ext_torch_permute(ctx->ggml_ctx, h, inv[0], inv[1], inv[2], inv[3]));
             return h;
         }
     };
@@ -163,36 +201,59 @@ namespace WAN {
             int64_t w = x->ne[0];
 
             if (mode == "upsample3d") {
-                if (feat_cache.size() > 0) {
-                    int idx = feat_idx;
-                    feat_idx += 1;
-                    if (chunk_idx == 0) {
-                        // feat_cache[idx] == nullptr, pass
-                    } else {
-                        auto time_conv = std::dynamic_pointer_cast<CausalConv3d>(blocks["time_conv"]);
+                // Temporal upsample is required both for full-sequence decode and chunked decode.
+                // In chunked mode we use a small cache to avoid boundary artifacts; in full mode we run
+                // without cache but still apply the same time conv + pixel-shuffle logic.
+                const bool use_cache = feat_cache.size() > 0;
+                int idx             = -1;
+                struct ggml_tensor* cache_x = nullptr;
 
-                        auto cache_x = ggml_ext_slice(ctx->ggml_ctx, x, 2, -CACHE_T, x->ne[2]);
-                        if (cache_x->ne[2] < 2 && feat_cache[idx] != nullptr) {  // chunk_idx >= 2
-                            // cache last frame of last two chunk
+                if (use_cache) {
+                    // Cache handling for temporal upsample.
+                    // Important: we must run the temporal upsample conv even for chunk_idx==0.
+                    // The Wan temporal upsample is designed for a (2*T - 1) output length at each stage:
+                    // generate 2*T frames then drop the first one.
+                    idx = feat_idx;
+                    feat_idx += 1;
+
+                    cache_x = ggml_ext_slice(ctx->ggml_ctx, x, 2, -CACHE_T, x->ne[2]);
+                    if (cache_x->ne[2] < CACHE_T) {
+                        if (feat_cache[idx] != nullptr) {
+                            // Prepend the last frame from the previous cache so we always keep CACHE_T frames.
                             cache_x = ggml_concat(ctx->ggml_ctx,
                                                   ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
                                                   cache_x,
                                                   2);
-                        }
-                        if (chunk_idx == 1 && cache_x->ne[2] < 2) {  // Rep
-                            cache_x = ggml_pad_ext(ctx->ggml_ctx, cache_x, 0, 0, 0, 0, (int)cache_x->ne[2], 0, 0, 0);
-                            // aka cache_x = torch.cat([torch.zeros_like(cache_x).to(cache_x.device),cache_x],dim=2)
-                        }
-                        if (chunk_idx == 1) {
-                            x = time_conv->forward(ctx, x);
                         } else {
-                            x = time_conv->forward(ctx, x, feat_cache[idx]);
+                            // Warm-start: when decoding the very first chunk (no prior cache), fill the
+                            // missing history by repeating the first available frame.
+                            cache_x = ggml_concat(ctx->ggml_ctx,
+                                                  ggml_ext_slice(ctx->ggml_ctx, cache_x, 2, 0, 1),
+                                                  cache_x,
+                                                  2);
                         }
-                        feat_cache[idx] = cache_x;
-                        x               = ggml_reshape_4d(ctx->ggml_ctx, x, w * h, t, c, 2);                                   // (2, c, t, h*w)
-                        x               = ggml_ext_cont(ctx->ggml_ctx, ggml_ext_torch_permute(ctx->ggml_ctx, x, 0, 3, 1, 2));  // (c, t, 2, h*w)
-                        x               = ggml_reshape_4d(ctx->ggml_ctx, x, w, h, 2 * t, c);                                   // (c, t*2, h, w)
                     }
+                }
+
+                auto time_conv = std::dynamic_pointer_cast<CausalConv3d>(blocks["time_conv"]);
+                if (use_cache && feat_cache[idx] != nullptr) {
+                    x = time_conv->forward(ctx, x, feat_cache[idx]);
+                } else {
+                    x = time_conv->forward(ctx, x);
+                }
+
+                if (use_cache) {
+                    feat_cache[idx] = cache_x;
+                }
+
+                // Convert (channel*2) -> (time*2) via a reshape/permute "pixel shuffle".
+                x = ggml_reshape_4d(ctx->ggml_ctx, x, w * h, t, c, 2);                                   // (2, c, t, h*w)
+                x = ggml_ext_cont(ctx->ggml_ctx, ggml_ext_torch_permute(ctx->ggml_ctx, x, 0, 3, 1, 2));  // (c, t, 2, h*w)
+                x = ggml_reshape_4d(ctx->ggml_ctx, x, w, h, 2 * t, c);                                   // (c, t*2, h, w)
+
+                if (chunk_idx == 0) {
+                    // Drop the first generated frame so the stage produces (2*T - 1) frames.
+                    x = ggml_ext_slice(ctx->ggml_ctx, x, 2, 1, x->ne[2]);
                 }
             }
 
@@ -215,23 +276,25 @@ namespace WAN {
             }
 
             if (mode == "downsample3d") {
+                auto time_conv = std::dynamic_pointer_cast<CausalConv3d>(blocks["time_conv"]);
                 if (feat_cache.size() > 0) {
                     int idx = feat_idx;
                     if (feat_cache[idx] == nullptr) {
                         feat_cache[idx] = x;
                         feat_idx += 1;
                     } else {
-                        auto time_conv = std::dynamic_pointer_cast<CausalConv3d>(blocks["time_conv"]);
-
-                        auto cache_x    = ggml_ext_slice(ctx->ggml_ctx, x, 2, -1, x->ne[2]);
-                        x               = ggml_concat(ctx->ggml_ctx,
-                                                      ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
-                                                      x,
-                                                      2);
-                        x               = time_conv->forward(ctx, x);
+                        auto cache_x = ggml_ext_slice(ctx->ggml_ctx, x, 2, -1, x->ne[2]);
+                        x            = ggml_concat(ctx->ggml_ctx,
+                                                   ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
+                                                   x,
+                                                   2);
+                        x            = time_conv->forward(ctx, x);
                         feat_cache[idx] = cache_x;
                         feat_idx += 1;
                     }
+                } else {
+                    // Full-sequence mode (no cache): still perform the temporal downsample conv.
+                    x = time_conv->forward(ctx, x);
                 }
             }
 
@@ -381,17 +444,28 @@ namespace WAN {
                     if (feat_cache.size() > 0) {
                         int idx      = feat_idx;
                         auto cache_x = ggml_ext_slice(ctx->ggml_ctx, x, 2, -CACHE_T, x->ne[2]);
-                        if (cache_x->ne[2] < 2 && feat_cache[idx] != nullptr) {
-                            // cache last frame of last two chunk
-                            cache_x = ggml_concat(ctx->ggml_ctx,
-                                                  ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
-                                                  cache_x,
-                                                  2);
+                        if (cache_x->ne[2] < CACHE_T) {
+                            if (feat_cache[idx] != nullptr) {
+                                // cache last frame of last two chunk
+                                cache_x = ggml_concat(ctx->ggml_ctx,
+                                                      ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
+                                                      cache_x,
+                                                      2);
+                            } else {
+                                // Warm-start: replicate the first frame to fill the cache history.
+                                cache_x = ggml_concat(ctx->ggml_ctx,
+                                                      ggml_ext_slice(ctx->ggml_ctx, cache_x, 2, 0, 1),
+                                                      cache_x,
+                                                      2);
+                            }
                         }
 
                         x               = layer->forward(ctx, x, feat_cache[idx]);
                         feat_cache[idx] = cache_x;
                         feat_idx += 1;
+                    } else {
+                        // Full-sequence decode (no cache): still run the conv.
+                        x = layer->forward(ctx, x);
                     }
                 } else if (i == 1 || i == 4) {
                     x = ggml_silu(ctx->ggml_ctx, x);
@@ -570,7 +644,8 @@ namespace WAN {
             k      = ggml_reshape_3d(ctx->ggml_ctx, k, c, h * w, n);                                      // [t, h * w, c]
 
             auto v = qkv_vec[2];
-            v      = ggml_reshape_3d(ctx->ggml_ctx, v, h * w, c, n);  // [t, c, h * w]
+            v      = ggml_ext_cont(ctx->ggml_ctx, ggml_ext_torch_permute(ctx->ggml_ctx, v, 2, 0, 1, 3));  // [t, h, w, c]
+            v      = ggml_reshape_3d(ctx->ggml_ctx, v, h * w, c, n);                                      // [t, c, h * w]
 
             x = ggml_ext_attention(ctx->ggml_ctx, q, k, v, false);  // [t, h * w, c]
             // v      = ggml_cont(ctx, ggml_ext_torch_permute(ctx, v, 1, 0, 2, 3));  // [t, h * w, c]
@@ -680,12 +755,20 @@ namespace WAN {
             if (feat_cache.size() > 0) {
                 int idx      = feat_idx;
                 auto cache_x = ggml_ext_slice(ctx->ggml_ctx, x, 2, -CACHE_T, x->ne[2]);
-                if (cache_x->ne[2] < 2 && feat_cache[idx] != nullptr) {
-                    // cache last frame of last two chunk
-                    cache_x = ggml_concat(ctx->ggml_ctx,
-                                          ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
-                                          cache_x,
-                                          2);
+                if (cache_x->ne[2] < CACHE_T) {
+                    if (feat_cache[idx] != nullptr) {
+                        // cache last frame of last two chunk
+                        cache_x = ggml_concat(ctx->ggml_ctx,
+                                              ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
+                                              cache_x,
+                                              2);
+                    } else {
+                        // Warm-start: replicate the first frame to fill the cache history.
+                        cache_x = ggml_concat(ctx->ggml_ctx,
+                                              ggml_ext_slice(ctx->ggml_ctx, cache_x, 2, 0, 1),
+                                              cache_x,
+                                              2);
+                    }
                 }
 
                 x               = conv1->forward(ctx, x, feat_cache[idx]);
@@ -732,12 +815,20 @@ namespace WAN {
             if (feat_cache.size() > 0) {
                 int idx      = feat_idx;
                 auto cache_x = ggml_ext_slice(ctx->ggml_ctx, x, 2, -CACHE_T, x->ne[2]);
-                if (cache_x->ne[2] < 2 && feat_cache[idx] != nullptr) {
-                    // cache last frame of last two chunk
-                    cache_x = ggml_concat(ctx->ggml_ctx,
-                                          ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
-                                          cache_x,
-                                          2);
+                if (cache_x->ne[2] < CACHE_T) {
+                    if (feat_cache[idx] != nullptr) {
+                        // cache last frame of last two chunk
+                        cache_x = ggml_concat(ctx->ggml_ctx,
+                                              ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
+                                              cache_x,
+                                              2);
+                    } else {
+                        // Warm-start: replicate the first frame to fill the cache history.
+                        cache_x = ggml_concat(ctx->ggml_ctx,
+                                              ggml_ext_slice(ctx->ggml_ctx, cache_x, 2, 0, 1),
+                                              cache_x,
+                                              2);
+                    }
                 }
 
                 x               = head_2->forward(ctx, x, feat_cache[idx]);
@@ -851,12 +942,20 @@ namespace WAN {
             if (feat_cache.size() > 0) {
                 int idx      = feat_idx;
                 auto cache_x = ggml_ext_slice(ctx->ggml_ctx, x, 2, -CACHE_T, x->ne[2]);
-                if (cache_x->ne[2] < 2 && feat_cache[idx] != nullptr) {
-                    // cache last frame of last two chunk
-                    cache_x = ggml_concat(ctx->ggml_ctx,
-                                          ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
-                                          cache_x,
-                                          2);
+                if (cache_x->ne[2] < CACHE_T) {
+                    if (feat_cache[idx] != nullptr) {
+                        // cache last frame of last two chunk
+                        cache_x = ggml_concat(ctx->ggml_ctx,
+                                              ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
+                                              cache_x,
+                                              2);
+                    } else {
+                        // Warm-start: replicate the first frame to fill the cache history.
+                        cache_x = ggml_concat(ctx->ggml_ctx,
+                                              ggml_ext_slice(ctx->ggml_ctx, cache_x, 2, 0, 1),
+                                              cache_x,
+                                              2);
+                    }
                 }
 
                 x               = conv1->forward(ctx, x, feat_cache[idx]);
@@ -903,12 +1002,20 @@ namespace WAN {
             if (feat_cache.size() > 0) {
                 int idx      = feat_idx;
                 auto cache_x = ggml_ext_slice(ctx->ggml_ctx, x, 2, -CACHE_T, x->ne[2]);
-                if (cache_x->ne[2] < 2 && feat_cache[idx] != nullptr) {
-                    // cache last frame of last two chunk
-                    cache_x = ggml_concat(ctx->ggml_ctx,
-                                          ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
-                                          cache_x,
-                                          2);
+                if (cache_x->ne[2] < CACHE_T) {
+                    if (feat_cache[idx] != nullptr) {
+                        // cache last frame of last two chunk
+                        cache_x = ggml_concat(ctx->ggml_ctx,
+                                              ggml_ext_slice(ctx->ggml_ctx, feat_cache[idx], 2, -1, feat_cache[idx]->ne[2]),
+                                              cache_x,
+                                              2);
+                    } else {
+                        // Warm-start: replicate the first frame to fill the cache history.
+                        cache_x = ggml_concat(ctx->ggml_ctx,
+                                              ggml_ext_slice(ctx->ggml_ctx, cache_x, 2, 0, 1),
+                                              cache_x,
+                                              2);
+                    }
                 }
 
                 x               = head_2->forward(ctx, x, feat_cache[idx]);
@@ -1068,20 +1175,17 @@ namespace WAN {
             auto decoder = std::dynamic_pointer_cast<Decoder3d>(blocks["decoder"]);
             auto conv2   = std::dynamic_pointer_cast<CausalConv3d>(blocks["conv2"]);
 
-            int64_t iter_ = z->ne[2];
-            auto x        = conv2->forward(ctx, z);
-            struct ggml_tensor* out;
-            for (int64_t i = 0; i < iter_; i++) {
-                _conv_idx = 0;
-                if (i == 0) {
-                    auto in = ggml_ext_slice(ctx->ggml_ctx, x, 2, i, i + 1);  // [b*c, 1, h, w]
-                    out     = decoder->forward(ctx, in, b, _feat_map, _conv_idx, i);
-                } else {
-                    auto in   = ggml_ext_slice(ctx->ggml_ctx, x, 2, i, i + 1);  // [b*c, 1, h, w]
-                    auto out_ = decoder->forward(ctx, in, b, _feat_map, _conv_idx, i);
-                    out       = ggml_concat(ctx->ggml_ctx, out, out_, 2);
-                }
-            }
+            // IMPORTANT: Decode the full latent sequence in one pass.
+            // WAN video latents have a reduced temporal resolution; the decoder's temporal upsample stages
+            // are designed to operate over the full latent T dimension (output T = (T-1)*4 + 1).
+            // Chunking the latent time dimension into T=1 slices has been observed to produce a bad second
+            // chunk (“chunk 1 result is weird”) and matches the progressive quality degradation seen after
+            // the first output frame.
+            auto x = conv2->forward(ctx, z);
+            std::vector<struct ggml_tensor*> no_cache;
+            int feat_idx = 0;
+            auto out     = decoder->forward(ctx, x, b, no_cache, feat_idx, 0);
+
             if (wan2_2) {
                 out = unpatchify(ctx->ggml_ctx, out, 2, b);
             }
@@ -1205,7 +1309,13 @@ namespace WAN {
             if (cpu_backend) {
                 ggml_backend_cpu_set_n_threads(cpu_backend, n_threads);
             }
-            if (true) {
+            // Default to full-sequence decode. The legacy chunked decode path exists mainly for
+            // debugging / comparison purposes (it has known quality issues).
+            //
+            // Set SD_WAN_VAE_DECODE_CHUNKED=1 to force the legacy chunked decode path.
+            const bool want_chunked = decode_graph && (std::getenv("SD_WAN_VAE_DECODE_CHUNKED") != nullptr);
+
+            if (!want_chunked) {
                 auto get_graph = [&]() -> struct ggml_cgraph* {
                     return build_graph(z, decode_graph);
                 };
