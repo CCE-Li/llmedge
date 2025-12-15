@@ -15,8 +15,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Test that generates 8 frames and exports them as a video file in the project root. This is for
- * manual verification of video quality.
+ * Test that generates video frames and exports them as an animated GIF in the project root. This is
+ * for manual verification of video quality.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -38,6 +38,20 @@ class VideoGenerationExportTest {
             "0", "false", "no", "n" -> false
             else -> default
         }
+    }
+
+    private fun envFloat(name: String, default: Float): Float {
+        val raw = System.getenv(name) ?: System.getProperty(name)
+        return raw?.toFloatOrNull() ?: default
+    }
+
+    private fun envLong(name: String, default: Long): Long {
+        val raw = System.getenv(name) ?: System.getProperty(name)
+        return raw?.toLongOrNull() ?: default
+    }
+
+    private fun envString(name: String, default: String): String {
+        return (System.getenv(name) ?: System.getProperty(name) ?: default)
     }
 
     private fun findRepoRoot(startDir: File): File {
@@ -73,8 +87,60 @@ class VideoGenerationExportTest {
         return if (count == 0) 0.0 else sum / count
     }
 
+    /** Rough measure of high-frequency energy; higher values often correlate with more "noise". */
+    private fun estimateHighFreqLumaEnergy(bmp: Bitmap, step: Int = 4): Double {
+        // Mean absolute difference between neighboring pixels in luma.
+        fun luma(px: Int): Double {
+            val r = (px shr 16) and 0xFF
+            val g = (px shr 8) and 0xFF
+            val b = px and 0xFF
+            return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+        }
+
+        var sum = 0.0
+        var count = 0
+        for (y in 0 until bmp.height - step step step) {
+            for (x in 0 until bmp.width - step step step) {
+                val p = bmp.getPixel(x, y)
+                val px = bmp.getPixel(x + step, y)
+                val py = bmp.getPixel(x, y + step)
+                val lp = luma(p)
+                sum += kotlin.math.abs(lp - luma(px))
+                sum += kotlin.math.abs(lp - luma(py))
+                count += 2
+            }
+        }
+        return if (count == 0) 0.0 else sum / count
+    }
+
+    /** Luma standard deviation (downsampled). */
+    private fun estimateLumaStdDev(bmp: Bitmap, step: Int = 8): Double {
+        fun luma(px: Int): Double {
+            val r = (px shr 16) and 0xFF
+            val g = (px shr 8) and 0xFF
+            val b = px and 0xFF
+            return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+        }
+
+        var sum = 0.0
+        var sumSq = 0.0
+        var count = 0
+        for (y in 0 until bmp.height step step) {
+            for (x in 0 until bmp.width step step) {
+                val v = luma(bmp.getPixel(x, y))
+                sum += v
+                sumSq += v * v
+                count++
+            }
+        }
+        if (count == 0) return 0.0
+        val mean = sum / count
+        val var0 = (sumSq / count) - (mean * mean)
+        return kotlin.math.sqrt(var0.coerceAtLeast(0.0))
+    }
+
     @Test
-    fun `generate 8 frame video and export`() = runBlocking {
+    fun `generate video and export`() = runBlocking {
         val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
         val modelId =
                 System.getenv("LLMEDGE_TEST_MODEL_ID")
@@ -112,9 +178,26 @@ class VideoGenerationExportTest {
         val height = envInt("LLMEDGE_TEST_HEIGHT", 512)
         val videoFrames = envInt("LLMEDGE_TEST_VIDEO_FRAMES", 5)
         val steps = envInt("LLMEDGE_TEST_STEPS", 12)
-        val cfgScale = 6.0f
-        val seed = 42L
-        val prompt = "a beautiful sunset over ocean waves, golden light, cinematic"
+        val cfgScale = envFloat("LLMEDGE_TEST_CFG", 6.0f)
+        val seed = envLong("LLMEDGE_TEST_SEED", 42L)
+        val prompt =
+                envString(
+                        "LLMEDGE_TEST_PROMPT",
+                        "a beautiful sunset over ocean waves, golden light, cinematic",
+                )
+        val negative = envString("LLMEDGE_TEST_NEGATIVE", "blurry, low quality, distorted")
+
+        val offloadToCpu = envBool("LLMEDGE_TEST_OFFLOAD_CPU", true)
+        val keepClipOnCpu = envBool("LLMEDGE_TEST_KEEP_CLIP_CPU", true)
+        val keepVaeOnCpu = envBool("LLMEDGE_TEST_KEEP_VAE_CPU", true)
+        val flashAttn = envBool("LLMEDGE_TEST_FLASH_ATTN", true)
+
+        val outputBase = envString("LLMEDGE_TEST_OUTPUT_BASENAME", "generated_video")
+        val outputTag =
+                envString(
+                        "LLMEDGE_TEST_OUTPUT_TAG",
+                        "${width}x${height}_f${videoFrames}_s${steps}_cfg${cfgScale}_seed${seed}_fa${if (flashAttn) 1 else 0}",
+                )
 
         val forceDownload = envBool("LLMEDGE_TEST_FORCE_DOWNLOAD", false)
         val hfToken = System.getenv("HF_TOKEN") ?: System.getProperty("HF_TOKEN")
@@ -243,7 +326,10 @@ class VideoGenerationExportTest {
         )
 
         println(
-                "[VideoExport] Starting video generation: ${width}x${height}, frames=$videoFrames, steps=$steps"
+                "[VideoExport] Starting video generation: ${width}x${height}, frames=$videoFrames, steps=$steps, cfg=$cfgScale, seed=$seed"
+        )
+        println(
+                "[VideoExport] Load flags: offloadToCpu=$offloadToCpu, keepClipOnCpu=$keepClipOnCpu, keepVaeOnCpu=$keepVaeOnCpu, flashAttn=$flashAttn"
         )
         val startTime = System.currentTimeMillis()
 
@@ -254,10 +340,10 @@ class VideoGenerationExportTest {
                         vaePath = resolvedVaePath,
                         t5xxlPath = resolvedT5Path,
                         nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
-                        offloadToCpu = true,
-                        keepClipOnCpu = true,
-                        keepVaeOnCpu = true,
-                        flashAttn = true,
+                        offloadToCpu = offloadToCpu,
+                        keepClipOnCpu = keepClipOnCpu,
+                        keepVaeOnCpu = keepVaeOnCpu,
+                        flashAttn = flashAttn,
                         sequentialLoad = false
                 )
 
@@ -268,7 +354,7 @@ class VideoGenerationExportTest {
                     val params =
                             StableDiffusion.VideoGenerateParams(
                                     prompt = prompt,
-                                    negative = "blurry, low quality, distorted",
+                                    negative = negative,
                                     width = width,
                                     height = height,
                                     videoFrames = videoFrames,
@@ -292,11 +378,11 @@ class VideoGenerationExportTest {
         assertTrue("Expected at least 1 frame", bitmaps.isNotEmpty())
 
         // Export frames + GIF to repo root
-        val projectRoot = findRepoRoot(File(System.getProperty("user.dir")))
-        val framesDir = File(projectRoot, "generated_frames")
+        val projectRoot = findRepoRoot(File(System.getProperty("user.dir") ?: "."))
+        val framesDir = File(projectRoot, "generated_frames_${outputTag}")
         framesDir.mkdirs()
 
-        // Clear old frames
+        // Clear old frames for this tag
         framesDir.listFiles()?.forEach { it.delete() }
 
         // Save each frame as PNG
@@ -306,14 +392,16 @@ class VideoGenerationExportTest {
                 bmp.compress(Bitmap.CompressFormat.PNG, 100, fos)
             }
             val luma = estimateAvgLuma(bmp)
+            val lumaStd = estimateLumaStdDev(bmp)
+            val hf = estimateHighFreqLumaEnergy(bmp)
             println(
-                    "[VideoExport] Saved ${frameFile.absolutePath} (avgLuma=${String.format("%.4f", luma)})"
+                    "[VideoExport] Saved ${frameFile.absolutePath} (avgLuma=${String.format("%.4f", luma)}, lumaStd=${String.format("%.4f", lumaStd)}, hfEnergy=${String.format("%.4f", hf)})"
             )
         }
 
         // Create GIF. Prefer ffmpeg (best quality via palettegen+paletteuse over *all* frames),
         // but fall back to an in-process encoder if ffmpeg is unavailable.
-        val outputGif = File(projectRoot, "generated_video.gif")
+        val outputGif = File(projectRoot, "${outputBase}_${outputTag}.gif")
         val fps = 8
 
         var gifCreated = false

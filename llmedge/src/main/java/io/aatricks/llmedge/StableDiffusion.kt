@@ -1737,11 +1737,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 framesPerSecond =
                                         if (totalSeconds > 0f) bitmaps.size / totalSeconds else 0f,
                                 timePerStep =
-                                        if (params.steps > 0 && params.videoFrames > 0) {
-                                            totalSeconds / (params.steps * params.videoFrames)
-                                        } else {
-                                            0f
-                                        },
+                                        if (params.steps > 0) totalSeconds / params.steps else 0f,
                                 peakMemoryUsageMb = maxOf(memoryBefore, memoryAfter),
                                 vulkanEnabled = false,
                                 frameConversionTimeSeconds = conversionSeconds,
@@ -2115,11 +2111,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 framesPerSecond =
                                         if (totalSeconds > 0f) bitmaps.size / totalSeconds else 0f,
                                 timePerStep =
-                                        if (params.steps > 0 && params.videoFrames > 0) {
-                                            totalSeconds / (params.steps * params.videoFrames)
-                                        } else {
-                                            0f
-                                        },
+                                        if (params.steps > 0) totalSeconds / params.steps else 0f,
                                 peakMemoryUsageMb = maxOf(memoryBefore, memoryAfter),
                                 vulkanEnabled = false,
                                 frameConversionTimeSeconds = conversionSeconds,

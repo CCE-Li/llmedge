@@ -150,16 +150,19 @@ SD_JNI_INTERNAL void sd_video_progress_wrapper(int step, int steps, float time, 
     }
 
     const int totalFrames = handle->totalFrames > 0 ? handle->totalFrames : 1;
-    const int totalSteps = handle->totalSteps > 0 ? handle->totalSteps : steps;
-    const int stepsPerFrame = handle->stepsPerFrame > 0
-            ? handle->stepsPerFrame
-            : (totalFrames > 0 ? std::max(steps / totalFrames, 1) : steps);
+    // For video sampling, stable-diffusion.cpp reports progress per sampling step over the
+    // whole clip (not "steps per frame"). Prefer the callback-provided total when available.
+    const int totalSteps = steps > 0 ? steps : (handle->totalSteps > 0 ? handle->totalSteps : 1);
 
-    if (stepsPerFrame > 0) {
-        int inferredFrame = step / stepsPerFrame;
+    // Provide a best-effort "frame" value for UI/clients by mapping step progress onto
+    // the frame index range. This is not a true per-frame denoise progress.
+    int inferredFrame = 0;
+    if (totalFrames > 1 && totalSteps > 0) {
+        inferredFrame = (step * totalFrames) / totalSteps;
+        if (inferredFrame < 0) inferredFrame = 0;
         if (inferredFrame >= totalFrames) inferredFrame = totalFrames - 1;
-        handle->currentFrame = inferredFrame;
     }
+    handle->currentFrame = inferredFrame;
 
     env->CallVoidMethod(
             handle->progressCallbackGlobalRef,
@@ -639,8 +642,9 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     gen.easycache.start_percent = (float)jEasyCacheStartPercent;
     gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
-    handle->stepsPerFrame = sample.sample_steps > 0 ? sample.sample_steps : 0;
-    handle->totalSteps = handle->stepsPerFrame * handle->totalFrames;
+    // Video sampling steps are global for the clip; do not multiply by frame count.
+    handle->stepsPerFrame = 0;
+    handle->totalSteps = sample.sample_steps > 0 ? sample.sample_steps : 0;
 
     // Ensure progress callback is wired for cancellation even if Kotlin-side callback is null.
     if (!handle->progressCallbackGlobalRef) {
@@ -1170,8 +1174,9 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
     sd_condition_raw_t* cond_use = reconstruct_condition(env, condArr);
     sd_condition_raw_t* uncond_use = reconstruct_condition(env, uncondArr);
 
-    handle->stepsPerFrame = sample.sample_steps > 0 ? sample.sample_steps : 0;
-    handle->totalSteps = handle->stepsPerFrame * handle->totalFrames;
+    // Video sampling steps are global for the clip; do not multiply by frame count.
+    handle->stepsPerFrame = 0;
+    handle->totalSteps = sample.sample_steps > 0 ? sample.sample_steps : 0;
 
     // Ensure progress callback is wired for cancellation even if Kotlin-side callback is null.
     if (!handle->progressCallbackGlobalRef) {
