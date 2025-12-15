@@ -4,9 +4,20 @@ project(sdcpp_desktop)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Point to stable-diffusion.cpp root
-get_filename_component(SD_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../stable-diffusion.cpp" ABSOLUTE)
+# Point to stable-diffusion.cpp root.
+#
+# By default we build against the `stable-diffusion.cpp` submodule checkout.
+# For experiments / hotfixes, callers may set -DSD_ROOT_OVERRIDE=... to point at a
+# patched source tree (e.g. a copy with overlay files applied).
+set(SD_ROOT_OVERRIDE "" CACHE PATH "Override path to stable-diffusion.cpp root")
+if (SD_ROOT_OVERRIDE)
+    get_filename_component(SD_ROOT "${SD_ROOT_OVERRIDE}" ABSOLUTE)
+else()
+    get_filename_component(SD_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../stable-diffusion.cpp" ABSOLUTE)
+endif()
 get_filename_component(LLMEDGE_CPP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../llmedge/src/main/cpp" ABSOLUTE)
+
+message(STATUS "Using stable-diffusion.cpp root: ${SD_ROOT}")
 
 # Configure stable-diffusion.cpp options
 set(SD_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)

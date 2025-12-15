@@ -23,7 +23,7 @@ inline int __android_log_print(int level, const char* tag, const char* format, .
     fprintf(stderr, "\n");
     fflush(stderr);
     va_end(args);
-    
+
     // Also print to stdout for good measure
     va_start(args, format);
     fprintf(stdout, "[%s] ", tag);
@@ -48,6 +48,57 @@ inline int __android_log_print(int level, const char* tag, const char* format, .
 #define LOG_TAG "SmolSD"
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
+
+// --------------------------------------------------------------------------------------
+// Upstream stable-diffusion.cpp enum compatibility
+//
+// llmedge's Kotlin enums intentionally include DEFAULT=0, then the upstream enum values.
+// Upstream stable-diffusion.cpp does NOT include DEFAULT; instead, callers should pass
+// *_COUNT to request the model-specific default.
+// --------------------------------------------------------------------------------------
+
+static inline int sd_get_num_physical_cores_safe() {
+    const int32_t n = sd_get_num_physical_cores();
+    return n > 0 ? (int)n : 1;
+}
+
+static inline bool map_sample_method_from_kotlin_id(int kotlin_id, enum sample_method_t* out) {
+    if (!out) return false;
+    // Kotlin ids:
+    //   0=DEFAULT, 1=EULER, 2=HEUN, 3=DPM2, 4=DPMPP2S_A, 5=DPMPP2M, 6=DPMPP2MV2,
+    //   7=IPNDM, 8=IPNDM_V, 9=LCM, 10=DDIM_TRAILING, 11=TCD, 12=EULER_A
+    // Upstream enum sample_method_t:
+    //   0=EULER, 1=EULER_A, 2=HEUN, 3=DPM2, 4=DPMPP2S_A, 5=DPMPP2M, 6=DPMPP2Mv2,
+    //   7=IPNDM, 8=IPNDM_V, 9=LCM, 10=DDIM_TRAILING, 11=TCD
+    switch (kotlin_id) {
+        case 1:  *out = EULER_SAMPLE_METHOD; break;
+        case 12: *out = EULER_A_SAMPLE_METHOD; break;
+        case 2:  *out = HEUN_SAMPLE_METHOD; break;
+        case 3:  *out = DPM2_SAMPLE_METHOD; break;
+        case 4:  *out = DPMPP2S_A_SAMPLE_METHOD; break;
+        case 5:  *out = DPMPP2M_SAMPLE_METHOD; break;
+        case 6:  *out = DPMPP2Mv2_SAMPLE_METHOD; break;
+        case 7:  *out = IPNDM_SAMPLE_METHOD; break;
+        case 8:  *out = IPNDM_V_SAMPLE_METHOD; break;
+        case 9:  *out = LCM_SAMPLE_METHOD; break;
+        case 10: *out = DDIM_TRAILING_SAMPLE_METHOD; break;
+        case 11: *out = TCD_SAMPLE_METHOD; break;
+        default:
+            return false;
+    }
+    return true;
+}
+
+static inline bool map_scheduler_from_kotlin_id(int kotlin_id, enum scheduler_t* out) {
+    if (!out) return false;
+    // Kotlin ids: 0=DEFAULT, 1=DISCRETE, 2=KARRAS, ...
+    // Upstream scheduler_t has no DEFAULT; use SCHEDULER_COUNT to request default.
+    if (kotlin_id <= 0) return false;
+    const int upstream = kotlin_id - 1;
+    if (upstream < 0 || upstream >= (int)SCHEDULER_COUNT) return false;
+    *out = (enum scheduler_t)upstream;
+    return true;
+}
 
 SD_JNI_INTERNAL void throwJavaException(JNIEnv* env, const char* className, const char* message) {
     if (!env) return;
@@ -284,7 +335,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     // text encoder is selected correctly for SD 1.x models.
     p.t5xxl_path = t5xxlPath; // keep null if not provided
     p.free_params_immediately = true;
-    p.n_threads = nThreads > 0 ? nThreads : get_num_physical_cores();
+    p.n_threads = nThreads > 0 ? nThreads : sd_get_num_physical_cores_safe();
     p.offload_params_to_cpu = offloadToCpu;
     p.keep_clip_on_cpu = keepClipOnCpu;
     p.keep_vae_on_cpu = keepVaeOnCpu;
@@ -312,16 +363,16 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
              // We need to manually instantiate T5CLIPEmbedder
              // But we need a backend.
              // And ModelLoader.
-             
+
              // We can't easily do this inside nativeCreate because we need to return a jlong handle
              // and we need to store the T5 object in it.
-             
+
              // Let's try to instantiate T5CLIPEmbedder here.
              ModelLoader model_loader;
              if (model_loader.init_from_file(modelPath, "text_encoders.t5xxl.transformer.")) {
                  ALOGI("ModelLoader initialized for T5");
                  model_loader.convert_tensors_name();
-                 
+
                  ggml_backend_t backend = nullptr;
                  #ifdef SD_USE_VULKAN
                  if (ggml_backend_vk_get_device_count() > 0) {
@@ -331,7 +382,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
                  if (!backend) {
                      backend = ggml_backend_cpu_init();
                  }
-                 
+
                  if (!backend) {
                      ALOGE("Vulkan backend not available and CPU backend init failed/missing");
                      if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
@@ -340,24 +391,24 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
                      return 0;
                  }
                  ALOGI("Backend initialized for T5");
-                 
+
                  // T5CLIPEmbedder(backend, offload, storage, use_mask, mask_pad, is_umt5)
                  bool is_umt5 = std::string(modelPath).find("umt5") != std::string::npos;
                  ALOGI("Creating T5CLIPEmbedder (is_umt5=%d)", is_umt5);
-                 
+
                  auto* t5 = new T5CLIPEmbedder(backend, offloadToCpu, model_loader.get_tensor_storage_map(), false, 0, is_umt5);
                  ALOGI("Allocating params buffer for T5");
                  t5->alloc_params_buffer();
-                 
+
                  // Load weights
                  std::map<std::string, struct ggml_tensor*> tensors;
                  t5->get_param_tensors(tensors);
                  ALOGI("Got param tensors for T5: %zu tensors", tensors.size());
-                 
+
                  std::set<std::string> ignore_tensors;
                  ALOGI("Loading tensors for T5");
-                 model_loader.load_tensors(tensors, ignore_tensors, get_num_physical_cores());
-                 
+                 model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe());
+
                  auto* handle = new SdHandle();
                  handle->ctx = nullptr;
                  handle->t5_ctx = t5;
@@ -365,17 +416,17 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
                      env->GetJavaVM(&handle->jvm);
                  }
                  ALOGI("T5-only context created successfully");
-                 
+
                  if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
                  if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
                  if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
-                 
+
                  return reinterpret_cast<jlong>(handle);
              } else {
                  ALOGE("Failed to init ModelLoader for T5");
              }
         }
-        
+
         ALOGE("Failed to create sd_ctx");
         if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
         if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
@@ -416,10 +467,12 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeDestroy(JNIEnv* env, jobject, jlo
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_io_aatricks_llmedge_StableDiffusion_nativeIsEasyCacheSupported(JNIEnv* env, jobject, jlong handlePtr) {
-    if (handlePtr == 0) return JNI_FALSE;
-    auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
-    if (!handle->ctx) return JNI_FALSE;
-    return sd_is_easycache_supported(handle->ctx) ? JNI_TRUE : JNI_FALSE;
+    (void)env;
+    (void)handlePtr;
+    // Upstream stable-diffusion.cpp does not expose a public C API to query EasyCache
+    // support. The generation APIs will internally enable/disable based on model type.
+    // Return false conservatively to prevent callers from assuming support.
+    return JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
@@ -529,21 +582,25 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     gen.video_frames = videoFrames;
     gen.sample_params = sample;
     gen.seed = seed;
-    
-    // Map sample method enum if provided (0 = DEFAULT lets native decide)
-    if (jSampleMethod >= 0) {
-        gen.sample_params.sample_method = static_cast<enum sample_method_t>(jSampleMethod);
+
+    // Map Kotlin enums (DEFAULT=0) to upstream enums (no DEFAULT).
+    // Use *_COUNT as a sentinel to request model defaults.
+    {
+        enum sample_method_t mapped_method;
+        if (map_sample_method_from_kotlin_id((int)jSampleMethod, &mapped_method)) {
+            gen.sample_params.sample_method = mapped_method;
+        } else {
+            gen.sample_params.sample_method = SAMPLE_METHOD_COUNT;
+        }
+
+        enum scheduler_t mapped_sched;
+        if (map_scheduler_from_kotlin_id((int)jScheduler, &mapped_sched)) {
+            gen.sample_params.scheduler = mapped_sched;
+        } else {
+            gen.sample_params.scheduler = SCHEDULER_COUNT;
+        }
     }
-    // Resolve default sample method if still DEFAULT
-    if (gen.sample_params.sample_method == SAMPLE_METHOD_DEFAULT) {
-        gen.sample_params.sample_method = sd_get_default_sample_method(handle->ctx);
-    }
-    
-    // Map scheduler enum if provided (0 = DEFAULT lets native decide)
-    if (jScheduler >= 0) {
-        gen.sample_params.scheduler = static_cast<enum scheduler_t>(jScheduler);
-    }
-    
+
     gen.strength = jStrength;
 
     std::vector<uint8_t> initImageData;
@@ -703,6 +760,15 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     return result;
 }
 
+// -----------------------------------------------------------------------------
+// Precomputed-condition APIs
+//
+// llmedge uses these bindings to support sequential loading/unloading on
+// memory-constrained devices:
+//   1) load T5 -> precompute condition -> unload T5
+//   2) load diffusion+VAE -> generate using precomputed condition
+// -----------------------------------------------------------------------------
+
 // JNI wrapper: precompute condition for a given prompt & video params
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_io_aatricks_llmedge_StableDiffusion_nativePrecomputeCondition(
@@ -710,29 +776,30 @@ Java_io_aatricks_llmedge_StableDiffusion_nativePrecomputeCondition(
         jstring jPrompt, jstring jNegative,
         jint width, jint height, jint clipSkip) {
     (void)thiz;
-    
+
     const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
     const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
 
-    sd_vid_gen_params_t gen{};
-    sd_vid_gen_params_init(&gen);
-    gen.prompt = prompt;
-    gen.negative_prompt = negative;
-    gen.width = width;
-    gen.height = height;
-    gen.clip_skip = clipSkip;
+    auto releaseStrings = [&]() {
+        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
+        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
+    };
 
     sd_condition_raw_t* cond = nullptr;
-    
+
     if (handlePtr != 0) {
         // Legacy path: use existing context
         auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
         if (handle->ctx) {
             try {
-                cond = sd_precompute_condition(handle->ctx, &gen);
+                cond = sd_precompute_condition(handle->ctx,
+                                               prompt,
+                                               clipSkip,
+                                               width,
+                                               height,
+                                               true);
             } catch (const std::exception& e) {
-                if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
-                if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
+                releaseStrings();
                 throwJavaException(env, "java/lang/RuntimeException", e.what());
                 return nullptr;
             }
@@ -742,62 +809,73 @@ Java_io_aatricks_llmedge_StableDiffusion_nativePrecomputeCondition(
             try {
                 // T5CLIPEmbedder::get_learned_condition returns SDCondition
                 // SDCondition has ggml_tensor* c_crossattn, c_vector, c_concat
-                
+
                 // We need a work context
                 struct ggml_init_params params;
                 params.mem_size   = 1024 * 1024 * 1024; // 1GB for intermediate tensors?
                 params.mem_buffer = nullptr;
                 params.no_alloc   = false;
                 struct ggml_context* work_ctx = ggml_init(params);
-                
+
                 ConditionerParams cparams;
                 cparams.text = prompt;
                 cparams.clip_skip = clipSkip;
                 cparams.width = width;
                 cparams.height = height;
-                
-                SDCondition sd_cond = t5->get_learned_condition(work_ctx, get_num_physical_cores(), cparams);
-                
-                // Convert SDCondition to sd_condition_raw_t
+
+                SDCondition sd_cond = t5->get_learned_condition(work_ctx, sd_get_num_physical_cores_safe(), cparams);
+
+                // Convert SDCondition to sd_condition_raw_t (always float32)
                 cond = (sd_condition_raw_t*)calloc(1, sizeof(sd_condition_raw_t));
-                
-                auto tensor_to_raw = [](struct ggml_tensor* t, sd_tensor_raw_t& raw) {
+                if (!cond) {
+                    ggml_free(work_ctx);
+                    throw std::runtime_error("Out of memory allocating condition");
+                }
+
+                auto tensor_to_raw_f32 = [](struct ggml_tensor* t, sd_tensor_raw_t& raw) {
                     if (!t) return;
                     raw.ndims = ggml_n_dims(t);
-                    for(int i=0; i<4; ++i) raw.ne[i] = t->ne[i];
-                    size_t size = ggml_nbytes(t);
-                    raw.data = (float*)malloc(size);
-                    memcpy(raw.data, t->data, size);
+                    for (int i = 0; i < 4; ++i) raw.ne[i] = t->ne[i];
+                    const size_t n = (size_t)ggml_nelements(t);
+                    raw.data = (float*)malloc(sizeof(float) * n);
+                    if (!raw.data) {
+                        raw.ndims = 0;
+                        return;
+                    }
+                    for (size_t i = 0; i < n; ++i) {
+                        raw.data[i] = ggml_get_f32_1d(t, (int)i);
+                    }
                 };
-                
-                if (sd_cond.c_crossattn) tensor_to_raw(sd_cond.c_crossattn, cond->c_crossattn);
-                if (sd_cond.c_vector) tensor_to_raw(sd_cond.c_vector, cond->c_vector);
-                if (sd_cond.c_concat) tensor_to_raw(sd_cond.c_concat, cond->c_concat);
-                
+
+                if (sd_cond.c_crossattn) tensor_to_raw_f32(sd_cond.c_crossattn, cond->c_crossattn);
+                if (sd_cond.c_vector) tensor_to_raw_f32(sd_cond.c_vector, cond->c_vector);
+                if (sd_cond.c_concat) tensor_to_raw_f32(sd_cond.c_concat, cond->c_concat);
+
                 ggml_free(work_ctx);
-                
+
             } catch (const std::exception& e) {
-                if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
-                if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
+                releaseStrings();
                 throwJavaException(env, "java/lang/RuntimeException", e.what());
                 return nullptr;
             }
         } else {
             throwJavaException(env, "java/lang/IllegalStateException", "Invalid handle state");
+            releaseStrings();
             return nullptr;
         }
     } else {
         throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion not initialized");
+        releaseStrings();
         return nullptr;
     }
 
-    if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
-    if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
+    releaseStrings();
 
     if (!cond) {
+        throwJavaException(env, "java/lang/IllegalStateException", "Condition precompute failed");
         return nullptr;
     }
-    
+
     // We'll return an Object[] = {float[] cross, int[] cross_dims, float[] vec, int[] vec_dims, float[] concat, int[] concat_dims}
     jclass objClass = env->FindClass("java/lang/Object");
     if (!objClass) {
@@ -859,7 +937,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativePrecomputeCondition(
 // Helper to reconstruct sd_condition_raw_t from Java Object[]
 static sd_condition_raw_t* reconstruct_condition(JNIEnv* env, jobjectArray condArr) {
     if (!condArr) return nullptr;
-    
+
     // Layout: [float[] cross, int[] crossDims, float[] vector, int[] vectorDims, float[] concat, int[] concatDims]
     if (env->GetArrayLength(condArr) < 6) return nullptr;
 
@@ -872,12 +950,12 @@ static sd_condition_raw_t* reconstruct_condition(JNIEnv* env, jobjectArray condA
         if (dataArr && dimsArr) {
             jsize dataLen = env->GetArrayLength(dataArr);
             jsize dimsLen = env->GetArrayLength(dimsArr);
-            
+
             raw.ndims = std::min((int)dimsLen, 4);
             jint* dims = env->GetIntArrayElements(dimsArr, nullptr);
             for(int i=0; i<raw.ndims; ++i) raw.ne[i] = dims[i];
             env->ReleaseIntArrayElements(dimsArr, dims, JNI_ABORT);
-            
+
             raw.data = (float*)malloc(dataLen * sizeof(float));
             jfloat* data = env->GetFloatArrayElements(dataArr, nullptr);
             memcpy(raw.data, data, dataLen * sizeof(float));
@@ -886,6 +964,9 @@ static sd_condition_raw_t* reconstruct_condition(JNIEnv* env, jobjectArray condA
             raw.ndims = 0;
             raw.data = nullptr;
         }
+
+        if (dataArr) env->DeleteLocalRef(dataArr);
+        if (dimsArr) env->DeleteLocalRef(dimsArr);
     };
 
     extract_tensor(0, 1, cond->c_crossattn);
@@ -909,14 +990,28 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
         return nullptr;
     }
     auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
-    
+
+    if (!handle->ctx) {
+        throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion context is null");
+        return nullptr;
+    }
+
+    const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
+    const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+
+    auto releaseStrings = [&]() {
+        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
+        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
+    };
+
     // Reconstruct conditions
     sd_condition_raw_t* cond = reconstruct_condition(env, condArr);
     sd_condition_raw_t* uncond = reconstruct_condition(env, uncondArr);
-    
+
     if (!cond) {
         ALOGE("Failed to reconstruct condition");
         if (uncond) sd_free_condition(uncond);
+        releaseStrings();
         return nullptr;
     }
 
@@ -927,6 +1022,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
 
     sd_img_gen_params_t gen{};
     sd_img_gen_params_init(&gen);
+    gen.prompt = prompt;
+    gen.negative_prompt = negative;
     gen.width = width;
     gen.height = height;
     gen.sample_params = sample;
@@ -938,6 +1035,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
     gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
     sd_image_t* out = sd_generate_image_with_precomputed_condition(handle->ctx, &gen, cond, uncond);
+
+    releaseStrings();
 
     // Cleanup reconstructed conditions
     sd_free_condition(cond);
@@ -1011,19 +1110,23 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
     gen.video_frames = videoFrames;
     gen.sample_params = sample;
     gen.seed = seed;
-    
-    // Map sample method enum if provided (0 = DEFAULT lets native decide)
-    if (jSampleMethod >= 0) {
-        gen.sample_params.sample_method = static_cast<enum sample_method_t>(jSampleMethod);
-    }
-    // Resolve default sample method if still DEFAULT
-    if (gen.sample_params.sample_method == SAMPLE_METHOD_DEFAULT) {
-        gen.sample_params.sample_method = sd_get_default_sample_method(handle->ctx);
-    }
-    
-    // Map scheduler enum if provided (0 = DEFAULT lets native decide)
-    if (jScheduler >= 0) {
-        gen.sample_params.scheduler = static_cast<enum scheduler_t>(jScheduler);
+
+    // Map Kotlin enums (DEFAULT=0) to upstream enums (no DEFAULT).
+    // Use *_COUNT as a sentinel to request model defaults.
+    {
+        enum sample_method_t mapped_method;
+        if (map_sample_method_from_kotlin_id((int)jSampleMethod, &mapped_method)) {
+            gen.sample_params.sample_method = mapped_method;
+        } else {
+            gen.sample_params.sample_method = SAMPLE_METHOD_COUNT;
+        }
+
+        enum scheduler_t mapped_sched;
+        if (map_scheduler_from_kotlin_id((int)jScheduler, &mapped_sched)) {
+            gen.sample_params.scheduler = mapped_sched;
+        } else {
+            gen.sample_params.scheduler = SCHEDULER_COUNT;
+        }
     }
 
     gen.strength = jStrength;
@@ -1052,70 +1155,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
     gen.easycache.start_percent = (float)jEasyCacheStartPercent;
     gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
-    // Convert condArr/uncondArr to sd_condition_raw_t structures
-    auto build_condition_from_objarr = [&](jobjectArray arr) -> sd_condition_raw_t* {
-        if (!arr) return nullptr;
-        jsize arrlen = env->GetArrayLength(arr);
-        if (arrlen < 6) return nullptr;
-
-        sd_condition_raw_t* cond = (sd_condition_raw_t*)calloc(1, sizeof(sd_condition_raw_t));
-        if (!cond) return nullptr;
-
-        // Helper to fill sd_tensor_raw_t* from (float[], int[])
-        auto build_tensor = [&](int dataIndex, int dimsIndex) -> sd_tensor_raw_t* {
-            jobject dataObj = env->GetObjectArrayElement(arr, dataIndex);
-            jobject dimsObj = env->GetObjectArrayElement(arr, dimsIndex);
-            if (!dataObj || !dimsObj) {
-                if (dataObj) env->DeleteLocalRef(dataObj);
-                if (dimsObj) env->DeleteLocalRef(dimsObj);
-                return nullptr;
-            }
-            jfloatArray jFloatArr = static_cast<jfloatArray>(dataObj);
-            jintArray jDimsArr = static_cast<jintArray>(dimsObj);
-            jsize dataLen = env->GetArrayLength(jFloatArr);
-            jsize dimsLen = env->GetArrayLength(jDimsArr);
-            if (dimsLen <= 0 || dimsLen > 4) {
-                env->DeleteLocalRef(dataObj);
-                env->DeleteLocalRef(dimsObj);
-                return nullptr;
-            }
-            sd_tensor_raw_t* t = (sd_tensor_raw_t*)calloc(1, sizeof(sd_tensor_raw_t));
-            t->ndims = dimsLen;
-            for (int i = 0; i < 4; ++i) t->ne[i] = 0;
-            jint dims[4] = {0,0,0,0};
-            env->GetIntArrayRegion(jDimsArr, 0, dimsLen, dims);
-            size_t expectedLen = 1;
-            for (int i = 0; i < dimsLen; ++i) {
-                t->ne[i] = dims[i];
-                expectedLen *= (size_t)dims[i];
-            }
-            // If expectedLen doesn't match dataLen, still copy as-is but it's an error case
-            t->data = (float*)malloc(sizeof(float) * static_cast<size_t>(dataLen));
-            if (!t->data) {
-                free(t);
-                env->DeleteLocalRef(dataObj);
-                env->DeleteLocalRef(dimsObj);
-                return nullptr;
-            }
-            // If sizes mismatch we still copy as many elements as present in the array
-            env->GetFloatArrayRegion(jFloatArr, 0, dataLen, reinterpret_cast<jfloat*>(t->data));
-            env->DeleteLocalRef(dataObj);
-            env->DeleteLocalRef(dimsObj);
-            return t;
-        };
-
-        sd_tensor_raw_t* t_cross = build_tensor(0, 1);
-        sd_tensor_raw_t* t_vector = build_tensor(2, 3);
-        sd_tensor_raw_t* t_concat = build_tensor(4, 5);
-        if (t_cross) { cond->c_crossattn = *t_cross; free(t_cross); }
-        if (t_vector) { cond->c_vector = *t_vector; free(t_vector); }
-        if (t_concat) { cond->c_concat = *t_concat; free(t_concat); }
-
-        return cond;
-    };
-
-    sd_condition_raw_t* cond_use = build_condition_from_objarr(condArr);
-    sd_condition_raw_t* uncond_use = build_condition_from_objarr(uncondArr);
+    sd_condition_raw_t* cond_use = reconstruct_condition(env, condArr);
+    sd_condition_raw_t* uncond_use = reconstruct_condition(env, uncondArr);
 
     handle->stepsPerFrame = sample.sample_steps > 0 ? sample.sample_steps : 0;
     handle->totalSteps = handle->stepsPerFrame * handle->totalFrames;
@@ -1134,18 +1175,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
     } catch (const std::exception& e) {
         ALOGE("Exception in sd_generate_video_with_precomputed_condition: %s", e.what());
         releaseStrings();
-        if (cond_use) {
-            if (cond_use->c_crossattn.data) free(cond_use->c_crossattn.data);
-            if (cond_use->c_vector.data) free(cond_use->c_vector.data);
-            if (cond_use->c_concat.data) free(cond_use->c_concat.data);
-            free(cond_use);
-        }
-        if (uncond_use) {
-            if (uncond_use->c_crossattn.data) free(uncond_use->c_crossattn.data);
-            if (uncond_use->c_vector.data) free(uncond_use->c_vector.data);
-            if (uncond_use->c_concat.data) free(uncond_use->c_concat.data);
-            free(uncond_use);
-        }
+        if (cond_use) sd_free_condition(cond_use);
+        if (uncond_use) sd_free_condition(uncond_use);
         const char* clazz = handle->cancellationRequested.load()
                 ? "java/util/concurrent/CancellationException"
                 : "java/lang/RuntimeException";
@@ -1156,18 +1187,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
     releaseStrings();
 
     // Free condition buffers built from Java arrays
-    if (cond_use) {
-        if (cond_use->c_crossattn.data) { free(cond_use->c_crossattn.data); cond_use->c_crossattn.data = nullptr; }
-        if (cond_use->c_vector.data)   { free(cond_use->c_vector.data);   cond_use->c_vector.data   = nullptr; }
-        if (cond_use->c_concat.data)   { free(cond_use->c_concat.data);   cond_use->c_concat.data   = nullptr; }
-        free(cond_use);
-    }
-    if (uncond_use) {
-        if (uncond_use->c_crossattn.data) { free(uncond_use->c_crossattn.data); uncond_use->c_crossattn.data = nullptr; }
-        if (uncond_use->c_vector.data)   { free(uncond_use->c_vector.data);   uncond_use->c_vector.data   = nullptr; }
-        if (uncond_use->c_concat.data)   { free(uncond_use->c_concat.data);   uncond_use->c_concat.data   = nullptr; }
-        free(uncond_use);
-    }
+    if (cond_use) sd_free_condition(cond_use);
+    if (uncond_use) sd_free_condition(uncond_use);
 
     if (!frames || numFrames <= 0) {
         if (frames) {
