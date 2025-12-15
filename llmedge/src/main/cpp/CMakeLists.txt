@@ -302,6 +302,19 @@ elseif (LLMEDGE_SDCPP_USE_MODS OR (DEFINED ENV{LLMEDGE_SDCPP_USE_MODS} AND "$ENV
         execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory "${PATCHED_SD_ROOT}")
         execute_process(COMMAND ${CMAKE_COMMAND} -E copy_directory "${SD_DIR_UPSTREAM}" "${PATCHED_SD_ROOT}")
 
+        # Remove any stale ggml-vulkan shader-generator build/prefix directories that
+        # may have been created by a previous CMake configure which referenced a
+        # different stable-diffusion.cpp source directory. If left in place, CMake
+        # will error out with a source-directory mismatch when the external
+        # project attempts to (re)configure the host-side shader generator.
+        file(GLOB _vulkan_gen_dirs "${CMAKE_CURRENT_BINARY_DIR}/stable-diffusion.cpp/ggml/src/ggml-vulkan/*-gen*")
+        foreach(_d IN LISTS _vulkan_gen_dirs)
+                if (EXISTS "${_d}")
+                        message(STATUS "LLMEDGE_SDCPP_USE_MODS: removing stale Vulkan gen dir ${_d}")
+                        execute_process(COMMAND ${CMAKE_COMMAND} -E remove_directory "${_d}")
+                endif()
+        endforeach()
+
         set(_mods_files "${LLMEDGE_SDCPP_MODS_FILES}")
         string(REPLACE "," ";" _mods_files "${_mods_files}")
         foreach(f IN LISTS _mods_files)
@@ -539,6 +552,12 @@ message(STATUS "Whisper.cpp JNI wrapper configured (using whisper's bundled ggml
 # to avoid target name conflicts with stable-diffusion.cpp's ggml.
 # ------------------------------------------------------------
 
+# Bark numeric stability/perf tuning:
+# Some aggressive compiler flags (especially reciprocal math / relaxed FP semantics or
+# targeting newer ARM ISA extensions) can produce noticeably degraded audio (or SIGILL on
+# older devices). Keep defaults conservative and allow opt-in.
+option(LLMEDGE_BARK_AGGRESSIVE_ARM_OPT "Enable aggressive ARM tuning flags for Bark (may reduce correctness/compatibility)" OFF)
+
 set(BARK_DIR_RELATIVE "../../../../bark.cpp")
 get_filename_component(BARK_DIR ${BARK_DIR_RELATIVE} ABSOLUTE)
 
@@ -606,17 +625,22 @@ target_compile_features(bark_jni PUBLIC c_std_11 cxx_std_17)
 # Set architecture-specific compile options for bark
 # Enable aggressive ARM optimizations for modern devices like S22 (Cortex-X2/A710/A510)
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-        # armv8.4-a includes dotprod (sdot/udot), fp16, and other advanced features
-        # Cortex-A78 tune works well for Snapdragon 8 Gen 1 cores
-        # Note: -ffast-math is incompatible with ggml (requires non-finite math)
-        target_compile_options(bark_jni PRIVATE
-                -march=armv8.4-a+dotprod+fp16
-                -mtune=cortex-a78
-                -ffp-contract=fast
-                -fno-signed-zeros
-                -fno-trapping-math
-                -freciprocal-math
-        )
+        # Default to a conservative baseline to maximize device compatibility.
+        target_compile_options(bark_jni PRIVATE -march=armv8-a)
+
+        if (LLMEDGE_BARK_AGGRESSIVE_ARM_OPT)
+                # Opt-in: faster on some devices, but may degrade numeric quality.
+                # Avoid -ffast-math (incompatible with ggml), but even these flags can
+                # change results; keep behind the switch.
+                target_compile_options(bark_jni PRIVATE
+                        -march=armv8.4-a+dotprod+fp16
+                        -mtune=cortex-a78
+                        -ffp-contract=fast
+                        -fno-signed-zeros
+                        -fno-trapping-math
+                        -freciprocal-math
+                )
+        endif()
 elseif (${ANDROID_ABI} STREQUAL "armeabi-v7a")
         target_compile_options(bark_jni PRIVATE -mfpu=neon-vfpv4)
 endif()

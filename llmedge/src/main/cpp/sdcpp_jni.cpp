@@ -488,6 +488,13 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
         return nullptr;
     }
     auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
+    if (!handle->ctx) {
+        // This can happen when the handle was created in "T5-only" mode for sequential
+        // precompute, but the caller mistakenly invoked txt2img.
+        throwJavaException(env, "java/lang/IllegalStateException",
+                           "StableDiffusion diffusion context is null (T5-only handle). Load a diffusion model (or use *WithPrecomputedCondition) before calling txt2img.");
+        return nullptr;
+    }
     const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
     const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
 
@@ -556,6 +563,11 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     }
 
     auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
+    if (!handle->ctx) {
+        throwJavaException(env, "java/lang/IllegalStateException",
+                           "StableDiffusion diffusion context is null (T5-only handle). Load a diffusion model (or use *WithPrecomputedCondition) before calling txt2vid.");
+        return nullptr;
+    }
     handle->cancellationRequested.store(false);
     handle->totalFrames = std::max(1, static_cast<int>(videoFrames));
     handle->currentFrame = 0;

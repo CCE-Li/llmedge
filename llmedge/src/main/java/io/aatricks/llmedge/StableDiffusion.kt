@@ -1797,10 +1797,17 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 val bmp = Bitmap.createBitmap(params.width, params.height, Bitmap.Config.ARGB_8888)
                 // Convert RGB to ARGB
                 val rgb = bytes
+                val expectedMin = params.width * params.height * 3
+                if (rgb.size < expectedMin) {
+                    Log.w(
+                            LOG_TAG,
+                            "txt2img returned short RGB buffer: size=${rgb.size}, expectedAtLeast=$expectedMin (w=${params.width}, h=${params.height})"
+                    )
+                }
                 val pixels = IntArray(params.width * params.height)
                 var idx = 0
                 var p = 0
-                while (idx < rgb.size && p < pixels.size) {
+                while (idx + 2 < rgb.size && p < pixels.size) {
                     val r = (rgb[idx].toInt() and 0xFF)
                     val g = (rgb[idx + 1].toInt() and 0xFF)
                     val b = (rgb[idx + 2].toInt() and 0xFF)
