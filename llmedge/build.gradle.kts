@@ -73,6 +73,24 @@ android {
     }
         testOptions {
             unitTests.all {
+                // Optional: show test stdout/stderr in Gradle output (useful for long-running
+                // local E2E tests that download models or run generation).
+                val showTestOutput =
+                    (System.getenv("LLMEDGE_SHOW_TEST_OUTPUT")?.equals("true", ignoreCase = true) == true) ||
+                        (project.findProperty("llmedgeShowTestOutput")?.toString()?.equals("true", ignoreCase = true) == true)
+                if (showTestOutput) {
+                    it.testLogging {
+                        showStandardStreams = true
+                        events(
+                            org.gradle.api.tasks.testing.logging.TestLogEvent.FAILED,
+                            org.gradle.api.tasks.testing.logging.TestLogEvent.SKIPPED,
+                            org.gradle.api.tasks.testing.logging.TestLogEvent.PASSED,
+                            org.gradle.api.tasks.testing.logging.TestLogEvent.STANDARD_OUT,
+                            org.gradle.api.tasks.testing.logging.TestLogEvent.STANDARD_ERROR,
+                        )
+                    }
+                }
+
                 // Check if we're running the E2E test with native library path specified
                 val nativeLibPath = System.getenv("LLMEDGE_BUILD_NATIVE_LIB_PATH")
                 val whisperLibPath = System.getenv("LLMEDGE_BUILD_WHISPER_LIB_PATH")
@@ -100,12 +118,45 @@ android {
                     System.getenv("LLMEDGE_TEST_MODEL_PATH")?.let { path ->
                         it.systemProperty("LLMEDGE_TEST_MODEL_PATH", path)
                     }
+                    System.getenv("LLMEDGE_TEST_MODEL_ID")?.let { v ->
+                        it.systemProperty("LLMEDGE_TEST_MODEL_ID", v)
+                    }
+                    System.getenv("LLMEDGE_TEST_MODEL_FILENAME")?.let { v ->
+                        it.systemProperty("LLMEDGE_TEST_MODEL_FILENAME", v)
+                    }
                     System.getenv("LLMEDGE_TEST_T5_PATH")?.let { path ->
                         it.systemProperty("LLMEDGE_TEST_T5_PATH", path)
                     }
                     System.getenv("LLMEDGE_TEST_VAE_PATH")?.let { path ->
                         it.systemProperty("LLMEDGE_TEST_VAE_PATH", path)
                     }
+
+                    // Optional overrides for explicit WAN component downloads
+                    System.getenv("LLMEDGE_TEST_VAE_FILENAME")?.let { v ->
+                        it.systemProperty("LLMEDGE_TEST_VAE_FILENAME", v)
+                    }
+                    System.getenv("LLMEDGE_TEST_T5_MODEL_ID")?.let { v ->
+                        it.systemProperty("LLMEDGE_TEST_T5_MODEL_ID", v)
+                    }
+                    System.getenv("LLMEDGE_TEST_T5_FILENAME")?.let { v ->
+                        it.systemProperty("LLMEDGE_TEST_T5_FILENAME", v)
+                    }
+                    System.getenv("LLMEDGE_TEST_FORCE_DOWNLOAD")?.let { v ->
+                        it.systemProperty("LLMEDGE_TEST_FORCE_DOWNLOAD", v)
+                    }
+                    System.getenv("LLMEDGE_TEST_VIDEO_FRAMES")?.let { v ->
+                        it.systemProperty("LLMEDGE_TEST_VIDEO_FRAMES", v)
+                    }
+                    System.getenv("LLMEDGE_TEST_STEPS")?.let { v ->
+                        it.systemProperty("LLMEDGE_TEST_STEPS", v)
+                    }
+                    System.getenv("LLMEDGE_TEST_WIDTH")?.let { v ->
+                        it.systemProperty("LLMEDGE_TEST_WIDTH", v)
+                    }
+                    System.getenv("LLMEDGE_TEST_HEIGHT")?.let { v ->
+                        it.systemProperty("LLMEDGE_TEST_HEIGHT", v)
+                    }
+
                     // Whisper test environment variables
                     System.getenv("LLMEDGE_TEST_WHISPER_MODEL_PATH")?.let { path ->
                         it.systemProperty("LLMEDGE_TEST_WHISPER_MODEL_PATH", path)

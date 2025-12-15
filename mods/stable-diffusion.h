@@ -36,42 +36,41 @@ enum rng_type_t {
 };
 
 enum sample_method_t {
-    SAMPLE_METHOD_DEFAULT,
-    EULER,
-    HEUN,
-    DPM2,
-    DPMPP2S_A,
-    DPMPP2M,
-    DPMPP2Mv2,
-    IPNDM,
-    IPNDM_V,
-    LCM,
-    DDIM_TRAILING,
-    TCD,
-    EULER_A,
+    EULER_SAMPLE_METHOD,
+    EULER_A_SAMPLE_METHOD,
+    HEUN_SAMPLE_METHOD,
+    DPM2_SAMPLE_METHOD,
+    DPMPP2S_A_SAMPLE_METHOD,
+    DPMPP2M_SAMPLE_METHOD,
+    DPMPP2Mv2_SAMPLE_METHOD,
+    IPNDM_SAMPLE_METHOD,
+    IPNDM_V_SAMPLE_METHOD,
+    LCM_SAMPLE_METHOD,
+    DDIM_TRAILING_SAMPLE_METHOD,
+    TCD_SAMPLE_METHOD,
     SAMPLE_METHOD_COUNT
 };
 
 enum scheduler_t {
-    DEFAULT,
-    DISCRETE,
-    KARRAS,
-    EXPONENTIAL,
-    AYS,
-    GITS,
-    SGM_UNIFORM,
-    SIMPLE,
-    SMOOTHSTEP,
-    SCHEDULE_COUNT
+    DISCRETE_SCHEDULER,
+    KARRAS_SCHEDULER,
+    EXPONENTIAL_SCHEDULER,
+    AYS_SCHEDULER,
+    GITS_SCHEDULER,
+    SGM_UNIFORM_SCHEDULER,
+    SIMPLE_SCHEDULER,
+    SMOOTHSTEP_SCHEDULER,
+    LCM_SCHEDULER,
+    SCHEDULER_COUNT
 };
 
 enum prediction_t {
-    DEFAULT_PRED,
     EPS_PRED,
     V_PRED,
     EDM_V_PRED,
-    SD3_FLOW_PRED,
+    FLOW_PRED,
     FLUX_FLOW_PRED,
+    FLUX2_FLOW_PRED,
     PREDICTION_COUNT
 };
 
@@ -152,20 +151,26 @@ typedef struct {
 } sd_tiling_params_t;
 
 typedef struct {
+    const char* name;
+    const char* path;
+} sd_embedding_t;
+
+typedef struct {
     const char* model_path;
     const char* clip_l_path;
     const char* clip_g_path;
     const char* clip_vision_path;
     const char* t5xxl_path;
-    const char* qwen2vl_path;
-    const char* qwen2vl_vision_path;
+    const char* llm_path;
+    const char* llm_vision_path;
     const char* diffusion_model_path;
     const char* high_noise_diffusion_model_path;
     const char* vae_path;
     const char* taesd_path;
     const char* control_net_path;
     const char* lora_model_dir;
-    const char* embedding_dir;
+    const sd_embedding_t* embeddings;
+    uint32_t embedding_count;
     const char* photo_maker_path;
     const char* tensor_type_rules;
     bool vae_decode_only;
@@ -198,6 +203,32 @@ typedef struct {
     uint8_t* data;
 } sd_image_t;
 
+// --------------------------------------------------------------------------------------
+// Precomputed text-conditioning (llmedge extension)
+//
+// These APIs allow callers to precompute the text conditioning tensors (e.g. T5/CLIP
+// embeddings) and then run generation without having text encoders loaded in the main
+// diffusion context. This enables sequential loading/unloading (T5 -> diffusion -> VAE)
+// on memory-constrained devices.
+//
+// Notes:
+// - Tensor memory layout matches ggml contiguous tensors.
+// - All tensor buffers are float32 in host memory.
+// - Fields may be omitted (ndims=0, data=NULL) if unused.
+// --------------------------------------------------------------------------------------
+
+typedef struct {
+    int ndims;        // 0 means "not present"
+    int64_t ne[4];    // ggml extents for each dimension
+    float* data;      // float32, contiguous, length = product(ne[0..ndims-1])
+} sd_tensor_raw_t;
+
+typedef struct {
+    sd_tensor_raw_t c_crossattn;
+    sd_tensor_raw_t c_vector;
+    sd_tensor_raw_t c_concat;
+} sd_condition_raw_t;
+
 typedef struct {
     int* layers;
     size_t layer_count;
@@ -220,6 +251,8 @@ typedef struct {
     int sample_steps;
     float eta;
     int shifted_timestep;
+    float* custom_sigmas;
+    int custom_sigmas_count;
 } sd_sample_params_t;
 
 typedef struct {
@@ -237,6 +270,14 @@ typedef struct {
 } sd_easycache_params_t;
 
 typedef struct {
+    bool is_high_noise;
+    float multiplier;
+    const char* path;
+} sd_lora_t;
+
+typedef struct {
+    const sd_lora_t* loras;
+    uint32_t lora_count;
     const char* prompt;
     const char* negative_prompt;
     int clip_skip;
@@ -260,6 +301,8 @@ typedef struct {
 } sd_img_gen_params_t;
 
 typedef struct {
+    const sd_lora_t* loras;
+    uint32_t lora_count;
     const char* prompt;
     const char* negative_prompt;
     int clip_skip;
@@ -279,35 +322,16 @@ typedef struct {
     sd_easycache_params_t easycache;
 } sd_vid_gen_params_t;
 
-typedef struct {
-    // Number of valid dimensions (1..4)
-    int32_t ndims;
-    // extents for each dimension; unused entries are 0
-    int32_t ne[4];
-    // contiguous float array of size product(ne[0..ndims-1])
-    float* data;
-} sd_tensor_raw_t;
-
-/**
- * Encoded condition triple (c_crossattn, c_vector, c_concat) emitted
- * by text encoders/conditioners. Each entry is a simple sd_tensor_raw_t.
- */
-typedef struct {
-    sd_tensor_raw_t c_crossattn;
-    sd_tensor_raw_t c_vector;
-    sd_tensor_raw_t c_concat;  // may be zero-length (ndims == 0) when unused
-} sd_condition_raw_t;
-
 typedef struct sd_ctx_t sd_ctx_t;
 
 typedef void (*sd_log_cb_t)(enum sd_log_level_t level, const char* text, void* data);
 typedef void (*sd_progress_cb_t)(int step, int steps, float time, void* data);
-typedef void (*sd_preview_cb_t)(int step, int frame_count, sd_image_t* frames, bool is_noisy);
+typedef void (*sd_preview_cb_t)(int step, int frame_count, sd_image_t* frames, bool is_noisy, void* data);
 
 SD_API void sd_set_log_callback(sd_log_cb_t sd_log_cb, void* data);
 SD_API void sd_set_progress_callback(sd_progress_cb_t cb, void* data);
-SD_API void sd_set_preview_callback(sd_preview_cb_t cb, enum preview_t mode, int interval, bool denoised, bool noisy);
-SD_API int32_t get_num_physical_cores();
+SD_API void sd_set_preview_callback(sd_preview_cb_t cb, enum preview_t mode, int interval, bool denoised, bool noisy, void* data);
+SD_API int32_t sd_get_num_physical_cores();
 SD_API const char* sd_get_system_info();
 
 SD_API const char* sd_type_name(enum sd_type_t type);
@@ -316,8 +340,8 @@ SD_API const char* sd_rng_type_name(enum rng_type_t rng_type);
 SD_API enum rng_type_t str_to_rng_type(const char* str);
 SD_API const char* sd_sample_method_name(enum sample_method_t sample_method);
 SD_API enum sample_method_t str_to_sample_method(const char* str);
-SD_API const char* sd_schedule_name(enum scheduler_t scheduler);
-SD_API enum scheduler_t str_to_schedule(const char* str);
+SD_API const char* sd_scheduler_name(enum scheduler_t scheduler);
+SD_API enum scheduler_t str_to_scheduler(const char* str);
 SD_API const char* sd_prediction_name(enum prediction_t prediction);
 SD_API enum prediction_t str_to_prediction(const char* str);
 SD_API const char* sd_preview_name(enum preview_t preview);
@@ -332,41 +356,51 @@ SD_API char* sd_ctx_params_to_str(const sd_ctx_params_t* sd_ctx_params);
 
 SD_API sd_ctx_t* new_sd_ctx(const sd_ctx_params_t* sd_ctx_params);
 SD_API void free_sd_ctx(sd_ctx_t* sd_ctx);
-SD_API enum sample_method_t sd_get_default_sample_method(const sd_ctx_t* sd_ctx);
 
 SD_API void sd_sample_params_init(sd_sample_params_t* sample_params);
 SD_API char* sd_sample_params_to_str(const sd_sample_params_t* sample_params);
+
+SD_API enum sample_method_t sd_get_default_sample_method(const sd_ctx_t* sd_ctx);
+SD_API enum scheduler_t sd_get_default_scheduler(const sd_ctx_t* sd_ctx);
 
 SD_API void sd_img_gen_params_init(sd_img_gen_params_t* sd_img_gen_params);
 SD_API char* sd_img_gen_params_to_str(const sd_img_gen_params_t* sd_img_gen_params);
 SD_API sd_image_t* generate_image(sd_ctx_t* sd_ctx, const sd_img_gen_params_t* sd_img_gen_params);
 
-SD_API bool sd_is_easycache_supported(sd_ctx_t* sd_ctx);
+// Compute a single conditioning for the provided text.
+//
+// This returns the "cond" tensors for `text` only. Callers that need unconditional
+// guidance should call this again with an empty string (or their negative prompt) and
+// pass both results to the *_with_precomputed_condition generation APIs.
+SD_API sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx,
+                                                   const char* text,
+                                                   int clip_skip,
+                                                   int width,
+                                                   int height,
+                                                   bool zero_out_masked);
+SD_API void sd_free_condition(sd_condition_raw_t* cond);
+
+SD_API sd_image_t* sd_generate_image_with_precomputed_condition(sd_ctx_t* sd_ctx,
+                                                                const sd_img_gen_params_t* sd_img_gen_params,
+                                                                const sd_condition_raw_t* cond,
+                                                                const sd_condition_raw_t* uncond);
 
 SD_API void sd_vid_gen_params_init(sd_vid_gen_params_t* sd_vid_gen_params);
 SD_API sd_image_t* generate_video(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* sd_vid_gen_params, int* num_frames_out);
 
-SD_API sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* sd_vid_gen_params);
-SD_API void sd_free_condition(sd_condition_raw_t* cond);
-SD_API sd_image_t* sd_generate_video_with_precomputed_condition(
-    sd_ctx_t* sd_ctx,
-    const sd_vid_gen_params_t* sd_vid_gen_params,
-    const sd_condition_raw_t* cond,
-    const sd_condition_raw_t* uncond,
-    int* num_frames_out);
-
-SD_API sd_image_t* sd_generate_image_with_precomputed_condition(
-    sd_ctx_t* sd_ctx,
-    const sd_img_gen_params_t* sd_img_gen_params,
-    const sd_condition_raw_t* cond,
-    const sd_condition_raw_t* uncond);
+SD_API sd_image_t* sd_generate_video_with_precomputed_condition(sd_ctx_t* sd_ctx,
+                                                                const sd_vid_gen_params_t* sd_vid_gen_params,
+                                                                const sd_condition_raw_t* cond,
+                                                                const sd_condition_raw_t* uncond,
+                                                                int* num_frames_out);
 
 typedef struct upscaler_ctx_t upscaler_ctx_t;
 
 SD_API upscaler_ctx_t* new_upscaler_ctx(const char* esrgan_path,
                                         bool offload_params_to_cpu,
                                         bool direct,
-                                        int n_threads);
+                                        int n_threads,
+                                        int tile_size);
 SD_API void free_upscaler_ctx(upscaler_ctx_t* upscaler_ctx);
 
 SD_API sd_image_t upscale(upscaler_ctx_t* upscaler_ctx,
@@ -387,6 +421,9 @@ SD_API bool preprocess_canny(sd_image_t image,
                              float weak,
                              float strong,
                              bool inverse);
+
+SD_API const char* sd_commit(void);
+SD_API const char* sd_version(void);
 
 #ifdef __cplusplus
 }

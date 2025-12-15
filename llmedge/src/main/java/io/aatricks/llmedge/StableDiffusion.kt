@@ -39,10 +39,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 steps: Int,
                 cfg: Float,
                 seed: Long,
-            easyCacheEnabled: Boolean,
-            easyCacheReuseThreshold: Float,
-            easyCacheStartPercent: Float,
-            easyCacheEndPercent: Float,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
         ): ByteArray?
 
         fun txt2vid(
@@ -61,10 +61,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 initImage: ByteArray?,
                 initWidth: Int,
                 initHeight: Int,
-            easyCacheEnabled: Boolean,
-            easyCacheReuseThreshold: Float,
-            easyCacheStartPercent: Float,
-            easyCacheEndPercent: Float,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
         ): Array<ByteArray>?
 
         fun precomputeCondition(
@@ -94,51 +94,66 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 initHeight: Int,
                 cond: PrecomputedCondition?,
                 uncond: PrecomputedCondition?,
-            easyCacheEnabled: Boolean,
-            easyCacheReuseThreshold: Float,
-            easyCacheStartPercent: Float,
-            easyCacheEndPercent: Float,
-        ): Array<ByteArray>? = txt2vid(
-            handle,
-            prompt,
-            negative,
-            width,
-            height,
-            videoFrames,
-            steps,
-            cfg,
-            seed,
-            sampleMethod,
-            scheduler,
-            strength,
-            initImage,
-            initWidth,
-            initHeight,
-            easyCacheEnabled,
-            easyCacheReuseThreshold,
-            easyCacheStartPercent,
-            easyCacheEndPercent
-        )
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
+        ): Array<ByteArray>? =
+                txt2vid(
+                        handle,
+                        prompt,
+                        negative,
+                        width,
+                        height,
+                        videoFrames,
+                        steps,
+                        cfg,
+                        seed,
+                        sampleMethod,
+                        scheduler,
+                        strength,
+                        initImage,
+                        initWidth,
+                        initHeight,
+                        easyCacheEnabled,
+                        easyCacheReuseThreshold,
+                        easyCacheStartPercent,
+                        easyCacheEndPercent
+                )
 
         fun setProgressCallback(handle: Long, callback: VideoProgressCallback?)
         fun cancelGeneration(handle: Long)
 
         fun txt2ImgWithPrecomputedCondition(
-            handle: Long,
-            prompt: String,
-            negative: String,
-            width: Int,
-            height: Int,
-            steps: Int,
-            cfg: Float,
-            seed: Long,
-            cond: PrecomputedCondition?,
-            uncond: PrecomputedCondition?,
-            easyCacheEnabled: Boolean,
-            easyCacheReuseThreshold: Float,
-            easyCacheStartPercent: Float,
-            easyCacheEndPercent: Float,
-        ): ByteArray? = txt2img(handle, prompt, negative, width, height, steps, cfg, seed, easyCacheEnabled, easyCacheReuseThreshold, easyCacheStartPercent, easyCacheEndPercent)
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                cond: PrecomputedCondition?,
+                uncond: PrecomputedCondition?,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
+        ): ByteArray? =
+                txt2img(
+                        handle,
+                        prompt,
+                        negative,
+                        width,
+                        height,
+                        steps,
+                        cfg,
+                        seed,
+                        easyCacheEnabled,
+                        easyCacheReuseThreshold,
+                        easyCacheStartPercent,
+                        easyCacheEndPercent
+                )
     }
 
     /** Generates an image from text. */
@@ -155,8 +170,20 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             easyCacheStartPercent: Float = 0.15f,
             easyCacheEndPercent: Float = 0.95f
     ): ByteArray? {
-        return nativeBridge.txt2img(handle, prompt, negative, width, height, steps, cfg, seed,
-            easyCacheEnabled, easyCacheReuseThreshold, easyCacheStartPercent, easyCacheEndPercent)
+        return nativeBridge.txt2img(
+                handle,
+                prompt,
+                negative,
+                width,
+                height,
+                steps,
+                cfg,
+                seed,
+                easyCacheEnabled,
+                easyCacheReuseThreshold,
+                easyCacheStartPercent,
+                easyCacheEndPercent
+        )
     }
 
     fun txt2vid(
@@ -202,7 +229,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         )
     }
 
-        fun txt2ImgWithPrecomputedCondition(
+    fun txt2ImgWithPrecomputedCondition(
             prompt: String,
             negative: String,
             width: Int,
@@ -211,12 +238,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             cfg: Float,
             seed: Long,
             cond: PrecomputedCondition?,
-            uncond: PrecomputedCondition?
-            , easyCacheEnabled: Boolean = false,
+            uncond: PrecomputedCondition?,
+            easyCacheEnabled: Boolean = false,
             easyCacheReuseThreshold: Float = 0.2f,
             easyCacheStartPercent: Float = 0.15f,
             easyCacheEndPercent: Float = 0.95f,
-        ): ByteArray? {
+    ): ByteArray? {
         return nativeBridge.txt2ImgWithPrecomputedCondition(
                 handle,
                 prompt,
@@ -227,11 +254,11 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 cfg,
                 seed,
                 cond,
-                uncond
-            , easyCacheEnabled,
-            easyCacheReuseThreshold,
-            easyCacheStartPercent,
-            easyCacheEndPercent
+                uncond,
+                easyCacheEnabled,
+                easyCacheReuseThreshold,
+                easyCacheStartPercent,
+                easyCacheEndPercent
         )
     }
 
@@ -378,7 +405,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         initHeight: Int,
                         cond: PrecomputedCondition?,
                         uncond: PrecomputedCondition?,
-                easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float, easyCacheStartPercent: Float, easyCacheEndPercent: Float
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float
                 ): Array<ByteArray>? {
                     val condArr =
                             cond?.let {
@@ -402,7 +432,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         it.cConcatDims
                                 )
                             }
-                        return instance.nativeTxt2VidWithPrecomputedCondition(
+                    return instance.nativeTxt2VidWithPrecomputedCondition(
                             handle,
                             prompt,
                             negative,
@@ -445,8 +475,11 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         cfg: Float,
                         seed: Long,
                         cond: PrecomputedCondition?,
-                        uncond: PrecomputedCondition?
-                    , easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float, easyCacheStartPercent: Float, easyCacheEndPercent: Float
+                        uncond: PrecomputedCondition?,
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float
                 ): ByteArray? {
                     val condArr =
                             cond?.let {
@@ -479,12 +512,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             steps,
                             cfg,
                             seed,
-                        condArr,
-                        uncondArr,
-                        easyCacheEnabled,
-                        easyCacheReuseThreshold,
-                        easyCacheStartPercent,
-                        easyCacheEndPercent
+                            condArr,
+                            uncondArr,
+                            easyCacheEnabled,
+                            easyCacheReuseThreshold,
+                            easyCacheStartPercent,
+                            easyCacheEndPercent
                     )
                 }
             }
@@ -542,17 +575,17 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
         @JvmStatic
         private external fun nativeCreate(
-            modelPath: String?,
-            vaePath: String?,
-            t5xxlPath: String?,
-            nThreads: Int,
-            offloadToCpu: Boolean,
-            keepClipOnCpu: Boolean,
-            keepVaeOnCpu: Boolean,
-            flashAttn: Boolean,
-            flowShift: Float,
-            loraModelDir: String?,
-            loraApplyMode: Int,
+                modelPath: String?,
+                vaePath: String?,
+                t5xxlPath: String?,
+                nThreads: Int,
+                offloadToCpu: Boolean,
+                keepClipOnCpu: Boolean,
+                keepVaeOnCpu: Boolean,
+                flashAttn: Boolean,
+                flowShift: Float,
+                loraModelDir: String?,
+                loraApplyMode: Int,
         ): Long
 
         @JvmStatic private external fun nativeGetVulkanDeviceCount(): Int
@@ -603,8 +636,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         /**
          * Public wrapper that attempts to estimate the model parameter memory (in bytes) for a
          * model path on a given device. Returns 0 on failure or if the native estimation is not
-         * available. This is a convenience helper used by higher-level managers to compute
-         * cache sizes and decide on offload heuristics.
+         * available. This is a convenience helper used by higher-level managers to compute cache
+         * sizes and decide on offload heuristics.
          */
         @JvmStatic
         fun estimateModelParamsMemoryBytes(modelPath: String, deviceIndex: Int = 0): Long {
@@ -617,14 +650,17 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
         @JvmStatic
         private fun computeEffectiveSequentialLoad(
-            context: Context,
-            resolvedModelPath: String,
-            sequentialLoad: Boolean?,
-            preferPerformanceMode: Boolean,
-            activityManagerOverride: ActivityManager? = null,
+                context: Context,
+                resolvedModelPath: String,
+                sequentialLoad: Boolean?,
+                preferPerformanceMode: Boolean,
+                activityManagerOverride: ActivityManager? = null,
         ): Pair<Boolean, Long> {
             val memoryInfo = ActivityManager.MemoryInfo()
-            val activityManager = activityManagerOverride ?: (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
+            val activityManager =
+                    activityManagerOverride
+                            ?: (context.getSystemService(Context.ACTIVITY_SERVICE) as
+                                    ActivityManager)
             activityManager.getMemoryInfo(memoryInfo)
             val totalRamGB = memoryInfo.totalMem / (1024L * 1024L * 1024L)
 
@@ -650,8 +686,14 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             val heapThresholdFactor = if (preferPerformanceMode) 0.9 else 0.75
             val sysThresholdFactor = if (preferPerformanceMode) 0.9 else 0.6
 
-            val heapSeqNeeded = (estimatedParamBytes > 0) && estimatedParamBytes.toDouble() > heapAvail.toDouble() * heapThresholdFactor
-            val sysSeqNeeded = (estimatedParamBytes > 0) && estimatedParamBytes.toDouble() > sysAvail.toDouble() * sysThresholdFactor
+            val heapSeqNeeded =
+                    (estimatedParamBytes > 0) &&
+                            estimatedParamBytes.toDouble() >
+                                    heapAvail.toDouble() * heapThresholdFactor
+            val sysSeqNeeded =
+                    (estimatedParamBytes > 0) &&
+                            estimatedParamBytes.toDouble() >
+                                    sysAvail.toDouble() * sysThresholdFactor
             val lowRamHint = (totalRamGB < 8)
 
             val effectiveSequentialLoad = lowRamHint || heapSeqNeeded || sysSeqNeeded
@@ -898,12 +940,13 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
                     // Use a combined heuristic for sequential loading which considers
                     // 1) device total RAM, 2) Java available heap, and 3) native model param size
-                    val (effectiveSequentialLoad, estimatedParamBytes) = computeEffectiveSequentialLoad(
-                            context,
-                            resolvedModelPath,
-                            sequentialLoad,
-                            preferPerformanceMode,
-                    )
+                    val (effectiveSequentialLoad, estimatedParamBytes) =
+                            computeEffectiveSequentialLoad(
+                                    context,
+                                    resolvedModelPath,
+                                    sequentialLoad,
+                                    preferPerformanceMode,
+                            )
 
                     var effectiveOffloadToCpu = offloadToCpu
                     var effectiveKeepClipOnCpu = keepClipOnCpu
@@ -951,7 +994,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     try {
                         if (!effectiveOffloadToCpu) {
                             if (forceVulkan) {
-                                android.util.Log.i(LOG_TAG, "forceVulkan=true requested; skipping Vulkan VRAM heuristics and preferring GPU path")
+                                android.util.Log.i(
+                                        LOG_TAG,
+                                        "forceVulkan=true requested; skipping Vulkan VRAM heuristics and preferring GPU path"
+                                )
                             }
                             val vulkanDevices = nativeGetVulkanDeviceCount()
                             if (vulkanDevices > 0) {
@@ -968,17 +1014,18 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 }
                                 if (chosenDevice >= 0) {
                                     estimatedParams =
-                                        estimateModelParamsMemoryBytes(
-                                            resolvedModelPath,
-                                            chosenDevice
-                                        )
+                                            estimateModelParamsMemoryBytes(
+                                                    resolvedModelPath,
+                                                    chosenDevice
+                                            )
                                     if (estimatedParams > 0) {
                                         val mem = nativeGetVulkanDeviceMemory(chosenDevice)
                                         if (mem != null && mem.size >= 2) {
-                                        freeBytes = mem[0]
+                                            freeBytes = mem[0]
                                             val THRESHOLD = 0.9
-                                            if (!forceVulkan && estimatedParams.toDouble() >
-                                                            freeBytes.toDouble() * THRESHOLD
+                                            if (!forceVulkan &&
+                                                            estimatedParams.toDouble() >
+                                                                    freeBytes.toDouble() * THRESHOLD
                                             ) {
                                                 android.util.Log.i(
                                                         LOG_TAG,
@@ -1005,19 +1052,22 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         )
                     }
 
-                        // Log final effective flags before creating native handle - this aids debugging
-                        Log.i(
+                    // Log final effective flags before creating native handle - this aids debugging
+                    Log.i(
                             LOG_TAG,
                             "Initializing StableDiffusion (effective): modelPath=$resolvedModelPath, " +
-                                "nThreads=$nThreads, sequentialLoad=$effectiveSequentialLoad, " +
-                                "offloadToCpu=$effectiveOffloadToCpu, keepClipOnCpu=$effectiveKeepClipOnCpu, " +
-                                "keepVaeOnCpu=$effectiveKeepVaeOnCpu, flashAttn=$flashAttn"
+                                    "nThreads=$nThreads, sequentialLoad=$effectiveSequentialLoad, " +
+                                    "offloadToCpu=$effectiveOffloadToCpu, keepClipOnCpu=$effectiveKeepClipOnCpu, " +
+                                    "keepVaeOnCpu=$effectiveKeepVaeOnCpu, flashAttn=$flashAttn"
+                    )
+                    if (chosenDevice >= 0) {
+                        Log.i(
+                                LOG_TAG,
+                                "Vulkan chosenDevice=$chosenDevice, estimatedModelParamsMB=${String.format("%.2f", estimatedParams / 1024.0 / 1024.0)}, freeMB=${String.format("%.2f", freeBytes / 1024.0 / 1024.0)}"
                         )
-                        if (chosenDevice >= 0) {
-                            Log.i(LOG_TAG, "Vulkan chosenDevice=$chosenDevice, estimatedModelParamsMB=${String.format("%.2f", estimatedParams / 1024.0 / 1024.0)}, freeMB=${String.format("%.2f", freeBytes / 1024.0 / 1024.0)}")
-                        }
+                    }
 
-                        var handle =
+                    var handle =
                             nativeCreate(
                                     resolvedModelPath,
                                     resolvedVaePath,
@@ -1028,30 +1078,36 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     effectiveKeepVaeOnCpu,
                                     flashAttn,
                                     flowShift,
-                                loraModelDir,
-                                loraApplyMode.id,
+                                    loraModelDir,
+                                    loraApplyMode.id,
                             )
-                        // If we requested preferred GPU path but nativeCreate failed, retry with CPU offload
-                        if (handle == 0L && forceVulkan) {
-                            android.util.Log.w(LOG_TAG, "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback")
-                            // Fallback: enable offload + keepClip/Vae on CPU and set sequentialLoad to true
-                            effectiveOffloadToCpu = true
-                            effectiveKeepClipOnCpu = true
-                            effectiveKeepVaeOnCpu = true
-                            handle = nativeCreate(
-                                resolvedModelPath,
-                                resolvedVaePath,
-                                resolvedT5xxlPath,
-                                nThreads,
-                                effectiveOffloadToCpu,
-                                effectiveKeepClipOnCpu,
-                                effectiveKeepVaeOnCpu,
-                                flashAttn,
-                                flowShift,
-                                loraModelDir,
-                                loraApplyMode.id,
-                            )
-                        }
+                    // If we requested preferred GPU path but nativeCreate failed, retry with CPU
+                    // offload
+                    if (handle == 0L && forceVulkan) {
+                        android.util.Log.w(
+                                LOG_TAG,
+                                "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback"
+                        )
+                        // Fallback: enable offload + keepClip/Vae on CPU and set sequentialLoad to
+                        // true
+                        effectiveOffloadToCpu = true
+                        effectiveKeepClipOnCpu = true
+                        effectiveKeepVaeOnCpu = true
+                        handle =
+                                nativeCreate(
+                                        resolvedModelPath,
+                                        resolvedVaePath,
+                                        resolvedT5xxlPath,
+                                        nThreads,
+                                        effectiveOffloadToCpu,
+                                        effectiveKeepClipOnCpu,
+                                        effectiveKeepVaeOnCpu,
+                                        flashAttn,
+                                        flowShift,
+                                        loraModelDir,
+                                        loraApplyMode.id,
+                                )
+                    }
                     if (handle == 0L)
                             throw IllegalStateException(
                                     "Failed to initialize Stable Diffusion context"
@@ -1112,12 +1168,13 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     activityManager.getMemoryInfo(memoryInfo)
                     val totalRamGB = memoryInfo.totalMem / (1024L * 1024L * 1024L)
 
-                    val (effectiveSequentialLoad, estimatedParamBytes) = computeEffectiveSequentialLoad(
-                            context,
-                            modelRes.file.absolutePath,
-                            sequentialLoad,
-                            preferPerformanceMode
-                    )
+                    val (effectiveSequentialLoad, estimatedParamBytes) =
+                            computeEffectiveSequentialLoad(
+                                    context,
+                                    modelRes.file.absolutePath,
+                                    sequentialLoad,
+                                    preferPerformanceMode
+                            )
 
                     var effectiveOffloadToCpu = offloadToCpu
                     var effectiveKeepClipOnCpu = keepClipOnCpu
@@ -1155,7 +1212,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     var estimatedParams: Long = -1
                     var freeBytes: Long = -1
                     if (!effectiveOffloadToCpu && forceVulkan) {
-                        android.util.Log.i(LOG_TAG, "forceVulkan=true requested; skipping Vulkan VRAM heuristics and preferring GPU path for HF loaded model")
+                        android.util.Log.i(
+                                LOG_TAG,
+                                "forceVulkan=true requested; skipping Vulkan VRAM heuristics and preferring GPU path for HF loaded model"
+                        )
                     }
                     try {
                         if (!effectiveOffloadToCpu) {
@@ -1173,14 +1233,24 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     }
                                 }
                                 if (chosenDevice >= 0) {
-                                    estimatedParams = estimateModelParamsMemoryBytes(modelRes.file.absolutePath, chosenDevice)
+                                    estimatedParams =
+                                            estimateModelParamsMemoryBytes(
+                                                    modelRes.file.absolutePath,
+                                                    chosenDevice
+                                            )
                                     if (estimatedParams > 0) {
                                         val mem = nativeGetVulkanDeviceMemory(chosenDevice)
                                         if (mem != null && mem.size >= 2) {
                                             freeBytes = mem[0]
                                             val THRESHOLD = 0.9
-                                            if (!forceVulkan && estimatedParams.toDouble() > freeBytes.toDouble() * THRESHOLD) {
-                                                android.util.Log.i(LOG_TAG, "Vulkan VRAM insufficient for HF model; enabling offload_to_cpu (estimated: ${String.format("%.2f", estimatedParams / 1024.0 / 1024.0)} MB, free: ${String.format("%.2f", freeBytes / 1024.0 / 1024.0)} MB)")
+                                            if (!forceVulkan &&
+                                                            estimatedParams.toDouble() >
+                                                                    freeBytes.toDouble() * THRESHOLD
+                                            ) {
+                                                android.util.Log.i(
+                                                        LOG_TAG,
+                                                        "Vulkan VRAM insufficient for HF model; enabling offload_to_cpu (estimated: ${String.format("%.2f", estimatedParams / 1024.0 / 1024.0)} MB, free: ${String.format("%.2f", freeBytes / 1024.0 / 1024.0)} MB)"
+                                                )
                                                 effectiveOffloadToCpu = true
                                             }
                                         }
@@ -1189,16 +1259,19 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             }
                         }
                     } catch (t: Throwable) {
-                        android.util.Log.w(LOG_TAG, "Failed to query Vulkan VRAM or estimate HF model memory: ${t.message}")
+                        android.util.Log.w(
+                                LOG_TAG,
+                                "Failed to query Vulkan VRAM or estimate HF model memory: ${t.message}"
+                        )
                     }
 
-                        // Debug log for model initialization choices
-                        Log.i(
+                    // Debug log for model initialization choices
+                    Log.i(
                             LOG_TAG,
                             "Initializing StableDiffusion from HF (effective): model=${modelRes.file.absolutePath}, nThreads=$nThreads, sequentialLoad=$effectiveSequentialLoad, offloadToCpu=$effectiveOffloadToCpu, keepClipOnCpu=$effectiveKeepClipOnCpu, keepVaeOnCpu=$effectiveKeepVaeOnCpu, flashAttn=$flashAttn"
-                        )
+                    )
 
-                        var handle =
+                    var handle =
                             nativeCreate(
                                     modelRes.file.absolutePath,
                                     vaeRes?.file?.absolutePath,
@@ -1209,28 +1282,32 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     effectiveKeepVaeOnCpu,
                                     flashAttn,
                                     flowShift,
-                                loraModelDir,
-                                loraApplyMode.id,
+                                    loraModelDir,
+                                    loraApplyMode.id,
                             )
-                        if (handle == 0L && forceVulkan) {
-                            android.util.Log.w(LOG_TAG, "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback (HF)")
-                            effectiveOffloadToCpu = true
-                            effectiveKeepClipOnCpu = true
-                            effectiveKeepVaeOnCpu = true
-                            handle = nativeCreate(
-                                modelRes.file.absolutePath,
-                                vaeRes?.file?.absolutePath,
-                                t5Res?.file?.absolutePath,
-                                nThreads,
-                                effectiveOffloadToCpu,
-                                effectiveKeepClipOnCpu,
-                                effectiveKeepVaeOnCpu,
-                                flashAttn,
-                                flowShift,
-                                loraModelDir,
-                                loraApplyMode.id,
-                            )
-                        }
+                    if (handle == 0L && forceVulkan) {
+                        android.util.Log.w(
+                                LOG_TAG,
+                                "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback (HF)"
+                        )
+                        effectiveOffloadToCpu = true
+                        effectiveKeepClipOnCpu = true
+                        effectiveKeepVaeOnCpu = true
+                        handle =
+                                nativeCreate(
+                                        modelRes.file.absolutePath,
+                                        vaeRes?.file?.absolutePath,
+                                        t5Res?.file?.absolutePath,
+                                        nThreads,
+                                        effectiveOffloadToCpu,
+                                        effectiveKeepClipOnCpu,
+                                        effectiveKeepVaeOnCpu,
+                                        flashAttn,
+                                        flowShift,
+                                        loraModelDir,
+                                        loraApplyMode.id,
+                                )
+                    }
                     if (handle == 0L)
                             throw IllegalStateException(
                                     "Failed to initialize Stable Diffusion context"
@@ -1246,7 +1323,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 }
     }
 
-        data class GenerateParams(
+    data class GenerateParams(
             val prompt: String,
             val negative: String = "",
             val width: Int = 512,
@@ -1255,21 +1332,16 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             val cfgScale: Float = 7.0f,
             val seed: Long = 42L,
             val easyCacheParams: EasyCacheParams = EasyCacheParams()
-        )
-    
+    )
 
-
-        data class EasyCacheParams(
+    data class EasyCacheParams(
             val enabled: Boolean = false,
             val reuseThreshold: Float = 0.2f,
             val startPercent: Float = 0.15f,
             val endPercent: Float = 0.95f,
-        )
+    )
 
-    /**
-     * Sample methods for diffusion models.
-     * Maps to native sample_method_t enum values.
-     */
+    /** Sample methods for diffusion models. Maps to native sample_method_t enum values. */
     enum class SampleMethod(val id: Int) {
         /** Let native code choose the default for the model type */
         DEFAULT(0),
@@ -1295,25 +1367,24 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         DDIM_TRAILING(10),
         /** TCD */
         TCD(11),
-        /** Euler Ancestral - Default for U-Net models (SD1.x/SD2.x/SDXL). May work with Wan but EULER is preferred. */
+        /**
+         * Euler Ancestral - Default for U-Net models (SD1.x/SD2.x/SDXL). May work with Wan but
+         * EULER is preferred.
+         */
         EULER_A(12);
 
         companion object {
             fun fromId(id: Int): SampleMethod = values().firstOrNull { it.id == id } ?: DEFAULT
-            
+
             /** Samplers recommended for Wan video generation */
             val WAN_RECOMMENDED = listOf(DEFAULT, EULER, HEUN)
-            
+
             /** Samplers that are NOT compatible with Wan (produce blank/noise output) */
             val WAN_INCOMPATIBLE = listOf(LCM, DPMPP2M, DPMPP2MV2, DPM2, DPMPP2S_A)
         }
     }
 
-
-    /**
-     * Noise schedulers for diffusion models.
-     * Maps to native scheduler_t enum values.
-     */
+    /** Noise schedulers for diffusion models. Maps to native scheduler_t enum values. */
     enum class Scheduler(val id: Int) {
         /** Let native code choose the default scheduler */
         DEFAULT(0),
@@ -1336,7 +1407,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
         companion object {
             fun fromId(id: Int): Scheduler = values().firstOrNull { it.id == id } ?: DEFAULT
-            
+
             /** Schedulers known to work reliably with Wan video generation */
             val WAN_RECOMMENDED = listOf(DEFAULT)
         }
@@ -1350,7 +1421,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     @Deprecated("Use SampleMethod enum instead", ReplaceWith("SampleMethod"))
     val LCM = SampleMethod.LCM
 
-        data class VideoGenerateParams(
+    data class VideoGenerateParams(
             val prompt: String,
             val negative: String = "",
             val width: Int = 512,
@@ -1364,11 +1435,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             val sampleMethod: SampleMethod = SampleMethod.DEFAULT,
             val scheduler: Scheduler = Scheduler.DEFAULT,
             val easyCacheParams: EasyCacheParams = EasyCacheParams()
-        ) {
+    ) {
         /**
-         * Calculate the actual number of frames that will be generated.
-         * Wan model uses formula: actual_frames = (videoFrames-1)/4*4+1
-         * Examples: 5→5, 8→5, 9→9, 10→9, 12→9, 13→13
+         * Calculate the actual number of frames that will be generated. Wan model uses formula:
+         * actual_frames = (videoFrames-1)/4*4+1 Examples: 5→5, 8→5, 9→9, 10→9, 12→9, 13→13
          */
         fun actualFrameCount(): Int = (videoFrames - 1) / 4 * 4 + 1
 
@@ -1382,7 +1452,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             }
             // Wan model uses formula: actual_frames = (videoFrames-1)/4*4+1
             // So 1-4 -> 1 frame, 5-8 -> 5 frames, 9-12 -> 9 frames, etc.
-            require(videoFrames in 5..64) { 
+            require(videoFrames in 5..64) {
                 "Frame count must be between 5 and 64. Note: Wan model rounds to (n-1)/4*4+1, so use 5+ for multiple frames"
             }
             require(steps in 10..50) { "Steps must be between 10 and 50" }
@@ -1404,22 +1474,23 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             fun default(prompt: String = "") = VideoGenerateParams(prompt = prompt)
 
             /**
-             * Get the recommended videoFrames value to generate exactly N frames.
-             * Since Wan uses (n-1)/4*4+1, to get exactly N frames you need:
-             * 1 frame → 1-4, 5 frames → 5-8, 9 frames → 9-12, etc.
+             * Get the recommended videoFrames value to generate exactly N frames. Since Wan uses
+             * (n-1)/4*4+1, to get exactly N frames you need: 1 frame → 1-4, 5 frames → 5-8, 9
+             * frames → 9-12, etc.
              */
             fun recommendedFrameInput(desiredFrames: Int): Int {
                 require(desiredFrames >= 1) { "Desired frames must be at least 1" }
                 // Reverse the formula: to get N, input N is fine if N = (N-1)/4*4+1
                 // Otherwise input N+3 at most
-                return if (desiredFrames == 1) 1
-                else ((desiredFrames - 1) / 4) * 4 + 5
+                return if (desiredFrames == 1) 1 else ((desiredFrames - 1) / 4) * 4 + 5
             }
         }
     }
 
     enum class LoraApplyMode(val id: Int) {
-        AUTO(0), IMMEDIATELY(1), AT_RUNTIME(2);
+        AUTO(0),
+        IMMEDIATELY(1),
+        AT_RUNTIME(2);
         companion object {
             fun fromId(id: Int): LoraApplyMode = values().firstOrNull { it.id == id } ?: AUTO
         }
@@ -1555,10 +1626,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         initBytes,
                                         initWidth,
                                         initHeight,
-                                    params.easyCacheParams.enabled,
-                                    params.easyCacheParams.reuseThreshold,
-                                    params.easyCacheParams.startPercent,
-                                    params.easyCacheParams.endPercent,
+                                        params.easyCacheParams.enabled,
+                                        params.easyCacheParams.reuseThreshold,
+                                        params.easyCacheParams.startPercent,
+                                        params.easyCacheParams.endPercent,
                                 )
                                         ?: throw IllegalStateException("Video generation failed")
                             }
@@ -1604,37 +1675,52 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 }
 
                 val avg = frameBytes.map { computeAvgBrightness(it) }.average()
-                Log.d(LOG_TAG, "Video frame analysis: ${frameBytes.size} frames, avg brightness=$avg, first frame size=${frameBytes.firstOrNull()?.size ?: 0}")
-                
+                Log.d(
+                        LOG_TAG,
+                        "Video frame analysis: ${frameBytes.size} frames, avg brightness=$avg, first frame size=${frameBytes.firstOrNull()?.size ?: 0}"
+                )
+
                 if (avg < 1.0) {
-                    Log.w(LOG_TAG, "Detected potentially black frames (avg brightness < 1.0), attempting channel swap...")
+                    Log.w(
+                            LOG_TAG,
+                            "Detected potentially black frames (avg brightness < 1.0), attempting channel swap..."
+                    )
                     // Try swapping R and B channels
-                    val swapped = frameBytes.map { bytes ->
-                        val out = ByteArray(bytes.size)
-                        var j = 0
-                        var k = 0
-                        while (k + 2 < bytes.size) {
-                            val r = bytes[k]
-                            val g = bytes[k + 1]
-                            val b = bytes[k + 2]
-                            out[j++] = b
-                            out[j++] = g
-                            out[j++] = r
-                            k += 3
-                        }
-                        out
-                    }.toTypedArray()
+                    val swapped =
+                            frameBytes
+                                    .map { bytes ->
+                                        val out = ByteArray(bytes.size)
+                                        var j = 0
+                                        var k = 0
+                                        while (k + 2 < bytes.size) {
+                                            val r = bytes[k]
+                                            val g = bytes[k + 1]
+                                            val b = bytes[k + 2]
+                                            out[j++] = b
+                                            out[j++] = g
+                                            out[j++] = r
+                                            k += 3
+                                        }
+                                        out
+                                    }
+                                    .toTypedArray()
                     val swappedAvg = swapped.map { computeAvgBrightness(it) }.average()
                     Log.d(LOG_TAG, "After BGR swap: avg brightness=$swappedAvg")
                     if (swappedAvg > avg) {
                         frameBytes = swapped
-                        Log.w(LOG_TAG, "Swapped RGB->BGR for video frames to recover non-black output")
+                        Log.w(
+                                LOG_TAG,
+                                "Swapped RGB->BGR for video frames to recover non-black output"
+                        )
                     } else if (avg < 0.1) {
                         // Still very dark - log raw byte samples for debugging
                         val sample = frameBytes.firstOrNull()
                         if (sample != null && sample.size >= 30) {
                             val sampleBytes = sample.take(30).map { it.toInt() and 0xFF }
-                            Log.e(LOG_TAG, "Frame appears completely black. First 30 bytes: $sampleBytes")
+                            Log.e(
+                                    LOG_TAG,
+                                    "Frame appears completely black. First 30 bytes: $sampleBytes"
+                            )
                         }
                     }
                 }
@@ -1651,11 +1737,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 framesPerSecond =
                                         if (totalSeconds > 0f) bitmaps.size / totalSeconds else 0f,
                                 timePerStep =
-                                        if (params.steps > 0 && params.videoFrames > 0) {
-                                            totalSeconds / (params.steps * params.videoFrames)
-                                        } else {
-                                            0f
-                                        },
+                                        if (params.steps > 0) totalSeconds / params.steps else 0f,
                                 peakMemoryUsageMb = maxOf(memoryBefore, memoryAfter),
                                 vulkanEnabled = false,
                                 frameConversionTimeSeconds = conversionSeconds,
@@ -1684,13 +1766,13 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
     fun getLastGenerationMetrics(): GenerationMetrics? = lastGenerationMetrics
 
-        suspend fun txt2img(params: GenerateParams): Bitmap =
+    suspend fun txt2img(params: GenerateParams): Bitmap =
             // Use Dispatchers.Default for CPU-bound generation to prefer a CPU-optimized
             // thread pool and reduce context-switching/stack allocations compared to IO.
             withContext(Dispatchers.Default) {
                 val bytes =
                         generationMutex.withLock {
-                                nativeBridge.txt2img(
+                            nativeBridge.txt2img(
                                     handle,
                                     params.prompt,
                                     params.negative,
@@ -1698,13 +1780,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     params.height,
                                     params.steps,
                                     params.cfgScale,
-                                    params.seed
-                                    ,
+                                    params.seed,
                                     params.easyCacheParams.enabled,
                                     params.easyCacheParams.reuseThreshold,
                                     params.easyCacheParams.startPercent,
                                     params.easyCacheParams.endPercent
-                                )
+                            )
                                     ?: throw IllegalStateException("Image generation failed")
                         }
 
@@ -1712,10 +1793,17 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 val bmp = Bitmap.createBitmap(params.width, params.height, Bitmap.Config.ARGB_8888)
                 // Convert RGB to ARGB
                 val rgb = bytes
+                val expectedMin = params.width * params.height * 3
+                if (rgb.size < expectedMin) {
+                    Log.w(
+                            LOG_TAG,
+                            "txt2img returned short RGB buffer: size=${rgb.size}, expectedAtLeast=$expectedMin (w=${params.width}, h=${params.height})"
+                    )
+                }
                 val pixels = IntArray(params.width * params.height)
                 var idx = 0
                 var p = 0
-                while (idx < rgb.size && p < pixels.size) {
+                while (idx + 2 < rgb.size && p < pixels.size) {
                     val r = (rgb[idx].toInt() and 0xFF)
                     val g = (rgb[idx + 1].toInt() and 0xFF)
                     val b = (rgb[idx + 2].toInt() and 0xFF)
@@ -1835,8 +1923,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             cfg: Float,
             seed: Long,
             cond: Array<Any?>?,
-            uncond: Array<Any?>?
-            , easyCacheEnabled: Boolean = false,
+            uncond: Array<Any?>?,
+            easyCacheEnabled: Boolean = false,
             easyCacheReuseThreshold: Float = 0.2f,
             easyCacheStartPercent: Float = 0.15f,
             easyCacheEndPercent: Float = 0.95f
@@ -1901,7 +1989,14 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         return bitmaps
     }
 
-    /** Wrapper that calls the native PrecomputeCondition API and converts to a Kotlin type. */
+    /**
+     * Wrapper that calls the native PrecomputeCondition API and converts to a Kotlin type.
+     *
+     * This computes a single conditioning for the provided [prompt]. If you intend to use CFG
+     * ($\text{cfgScale} \neq 1$), also precompute an unconditional/negative conditioning (e.g. with
+     * an empty prompt or your negative prompt) and pass it as `uncond` to
+     * [txt2VidWithPrecomputedCondition].
+     */
     fun precomputeCondition(
             prompt: String,
             negative: String = "",
@@ -1915,8 +2010,11 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     }
 
     /**
-     * Variant of txt2vid that accepts precomputed conditioning for both cond/uncond This provides a
-     * convenience wrapper around the nativeTxt2VidWithPrecomputedCondition binding.
+     * Variant of txt2vid that accepts precomputed conditioning for both cond/uncond.
+     *
+     * Note: if [VideoGenerateParams.cfgScale] is not 1.0, you should pass a non-null [uncond]. If
+     * [uncond] is null, the native layer will log a warning and run with CFG disabled to avoid
+     * crashing.
      */
     suspend fun txt2VidWithPrecomputedCondition(
             params: VideoGenerateParams,
@@ -1971,10 +2069,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         initHeight,
                                         cond,
                                         uncond,
-                                    params.easyCacheParams.enabled,
-                                    params.easyCacheParams.reuseThreshold,
-                                    params.easyCacheParams.startPercent,
-                                    params.easyCacheParams.endPercent,
+                                        params.easyCacheParams.enabled,
+                                        params.easyCacheParams.reuseThreshold,
+                                        params.easyCacheParams.startPercent,
+                                        params.easyCacheParams.endPercent,
                                 )
                                         ?: throw IllegalStateException("Video generation failed")
                             }
@@ -2013,11 +2111,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 framesPerSecond =
                                         if (totalSeconds > 0f) bitmaps.size / totalSeconds else 0f,
                                 timePerStep =
-                                        if (params.steps > 0 && params.videoFrames > 0) {
-                                            totalSeconds / (params.steps * params.videoFrames)
-                                        } else {
-                                            0f
-                                        },
+                                        if (params.steps > 0) totalSeconds / params.steps else 0f,
                                 peakMemoryUsageMb = maxOf(memoryBefore, memoryAfter),
                                 vulkanEnabled = false,
                                 frameConversionTimeSeconds = conversionSeconds,
@@ -2037,7 +2131,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         return io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(bytes, width, height)
     }
 
-    private fun rgbBytesToBitmap(bytes: ByteArray, width: Int, height: Int, pixels: IntArray): Bitmap {
+    private fun rgbBytesToBitmap(
+            bytes: ByteArray,
+            width: Int,
+            height: Int,
+            pixels: IntArray
+    ): Bitmap {
         return io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(bytes, width, height, pixels)
     }
 
