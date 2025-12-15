@@ -263,12 +263,64 @@ target_link_options(
 # Stable Diffusion JNI wrapper build (Vulkan enabled)
 # ------------------------------------------------------------
 
-# Resolve SD_DIR to an absolute path
+# Resolve SD_DIR to an absolute path (upstream submodule)
 set(SD_DIR_RELATIVE "../../../../stable-diffusion.cpp")
-get_filename_component(SD_DIR ${SD_DIR_RELATIVE} ABSOLUTE)
+get_filename_component(SD_DIR_UPSTREAM ${SD_DIR_RELATIVE} ABSOLUTE)
+
+# Optional: build stable-diffusion.cpp from a copied tree with overlays from the repo's
+# `mods/` directory. This keeps the git submodule working tree pristine (no `-dirty`).
+#
+# Controls:
+#   -DSD_ROOT_OVERRIDE=/abs/path      : use that stable-diffusion.cpp root directly
+#   -DLLMEDGE_SDCPP_USE_MODS=ON       : enable copy+overlay
+#   -DLLMEDGE_SDCPP_MODS_FILES=...    : semicolon- or comma-separated list of overlay files
+set(SD_ROOT_OVERRIDE "" CACHE PATH "Override path to stable-diffusion.cpp root")
+
+get_filename_component(LLMEDGE_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+set(LLMEDGE_MODS_DIR "${LLMEDGE_REPO_ROOT}/mods")
+
+set(_LLMEDGE_SDCPP_USE_MODS_DEFAULT OFF)
+if (EXISTS "${LLMEDGE_MODS_DIR}/stable-diffusion.cpp" OR EXISTS "${LLMEDGE_MODS_DIR}/stable-diffusion.h")
+        set(_LLMEDGE_SDCPP_USE_MODS_DEFAULT ON)
+endif()
+option(LLMEDGE_SDCPP_USE_MODS "Build stable-diffusion.cpp from a copied tree with mods/ overlays (keeps submodule clean)" ${_LLMEDGE_SDCPP_USE_MODS_DEFAULT})
+
+# Default overlays: only include wan.hpp when it exists in mods/.
+set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT "stable-diffusion.cpp;stable-diffusion.h")
+if (EXISTS "${LLMEDGE_MODS_DIR}/wan.hpp")
+        set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT "wan.hpp;${_LLMEDGE_SDCPP_MODS_FILES_DEFAULT}")
+endif()
+set(LLMEDGE_SDCPP_MODS_FILES "${_LLMEDGE_SDCPP_MODS_FILES_DEFAULT}" CACHE STRING "Overlay files from mods/ onto the copied stable-diffusion.cpp tree (semicolon- or comma-separated)")
+
+set(SD_DIR "${SD_DIR_UPSTREAM}")
+if (SD_ROOT_OVERRIDE)
+        get_filename_component(SD_DIR "${SD_ROOT_OVERRIDE}" ABSOLUTE)
+elseif (LLMEDGE_SDCPP_USE_MODS OR (DEFINED ENV{LLMEDGE_SDCPP_USE_MODS} AND "$ENV{LLMEDGE_SDCPP_USE_MODS}" STREQUAL "1"))
+        set(PATCHED_SD_ROOT "${CMAKE_CURRENT_BINARY_DIR}/patched-sd-src")
+        message(STATUS "LLMEDGE_SDCPP_USE_MODS enabled: copying stable-diffusion.cpp sources to ${PATCHED_SD_ROOT} and overlaying mods")
+        execute_process(COMMAND ${CMAKE_COMMAND} -E rm -rf "${PATCHED_SD_ROOT}")
+        execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory "${PATCHED_SD_ROOT}")
+        execute_process(COMMAND ${CMAKE_COMMAND} -E copy_directory "${SD_DIR_UPSTREAM}" "${PATCHED_SD_ROOT}")
+
+        set(_mods_files "${LLMEDGE_SDCPP_MODS_FILES}")
+        string(REPLACE "," ";" _mods_files "${_mods_files}")
+        foreach(f IN LISTS _mods_files)
+                string(STRIP "${f}" f_trimmed)
+                if (f_trimmed STREQUAL "")
+                        continue()
+                endif()
+                if (EXISTS "${LLMEDGE_MODS_DIR}/${f_trimmed}")
+                        execute_process(COMMAND ${CMAKE_COMMAND} -E copy "${LLMEDGE_MODS_DIR}/${f_trimmed}" "${PATCHED_SD_ROOT}/${f_trimmed}")
+                else()
+                        message(STATUS "LLMEDGE_SDCPP_USE_MODS: mods/${f_trimmed} not found; skipping")
+                endif()
+        endforeach()
+
+        set(SD_DIR "${PATCHED_SD_ROOT}")
+endif()
 
 if (NOT EXISTS "${SD_DIR}/wan.hpp")
-        message(FATAL_ERROR "stable-diffusion.cpp Wan headers not found. Run git submodule update --init --recursive.")
+        message(FATAL_ERROR "stable-diffusion.cpp Wan headers not found at ${SD_DIR}. Run git submodule update --init --recursive (or disable overlays).")
 endif()
 
 option(WAN_SUPPORT "Enable Wan video generation support" ON)

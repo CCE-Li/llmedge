@@ -10,9 +10,16 @@ mkdir -p "$BUILD_DIR"
 # Optional: build against a patched copy of stable-diffusion.cpp by overlaying the
 # contents of the repo's `mods/` directory.
 #
-# This is useful for A/B comparisons against upstream without permanently modifying
-# the `stable-diffusion.cpp` submodule working tree.
-USE_MODS="${LLMEDGE_SDCPP_USE_MODS:-0}"
+# This is useful for keeping the `stable-diffusion.cpp` submodule clean (no `-dirty`)
+# while still compiling llmedge-specific extensions.
+USE_MODS="${LLMEDGE_SDCPP_USE_MODS:-}"
+if [[ -z "${USE_MODS}" ]]; then
+  if [[ -f "$ROOT_DIR/mods/stable-diffusion.cpp" || -f "$ROOT_DIR/mods/stable-diffusion.h" || -f "$ROOT_DIR/mods/wan.hpp" ]]; then
+    USE_MODS=1
+  else
+    USE_MODS=0
+  fi
+fi
 CMAKE_EXTRA_ARGS=()
 if [[ "$USE_MODS" == "1" ]]; then
   PATCHED_SD_ROOT="$BUILD_DIR/patched-sd-src"
@@ -29,8 +36,13 @@ if [[ "$USE_MODS" == "1" ]]; then
   # and may contain files that won't compile against newer stable-diffusion.cpp.
   # Therefore, we only overlay explicitly requested files.
   #
-  # Default overlays: wan.hpp (WAN VAE fixes).
-  MODS_FILES_RAW="${LLMEDGE_SDCPP_MODS_FILES:-wan.hpp}"
+  # Default overlays: only apply files that exist in mods/ by default.
+  # If you add additional overlays (e.g. wan.hpp), set LLMEDGE_SDCPP_MODS_FILES accordingly.
+  _DEFAULT_MODS_FILES="stable-diffusion.cpp,stable-diffusion.h"
+  if [[ -f "$ROOT_DIR/mods/wan.hpp" ]]; then
+    _DEFAULT_MODS_FILES="wan.hpp,$_DEFAULT_MODS_FILES"
+  fi
+  MODS_FILES_RAW="${LLMEDGE_SDCPP_MODS_FILES:-$_DEFAULT_MODS_FILES}"
   if [[ -d "$ROOT_DIR/mods" ]]; then
     IFS=',' read -r -a MODS_FILES <<< "$MODS_FILES_RAW"
     for f in "${MODS_FILES[@]}"; do
