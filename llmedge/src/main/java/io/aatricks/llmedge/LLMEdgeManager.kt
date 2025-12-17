@@ -160,7 +160,8 @@ object LLMEdgeManager {
                 val easyCache: StableDiffusion.EasyCacheParams = StableDiffusion.EasyCacheParams(),
                 val loraModelDir: String? = null,
                 val loraApplyMode: StableDiffusion.LoraApplyMode =
-                        StableDiffusion.LoraApplyMode.AUTO
+                        StableDiffusion.LoraApplyMode.AUTO,
+                val taehvPath: String? = null
         ) {
                 /**
                  * Calculate the actual number of frames that will be generated. Wan model uses
@@ -1203,7 +1204,8 @@ object LLMEdgeManager {
                                                 onProgress,
                                                 sequentialLoad = useSequential,
                                                 loraModelDir = params.loraModelDir,
-                                                loraApplyMode = params.loraApplyMode
+                                                loraApplyMode = params.loraApplyMode,
+                                                taehvPath = params.taehvPath
                                         )
                                 val sdParams =
                                         StableDiffusion.VideoGenerateParams(
@@ -1526,7 +1528,8 @@ object LLMEdgeManager {
                                         sequentialLoad = true,
                                         loadT5 = false,
                                         loraModelDir = params.loraModelDir,
-                                        loraApplyMode = params.loraApplyMode
+                                        loraApplyMode = params.loraApplyMode,
+                                        taehvPath = params.taehvPath
                                 )
 
                         val sdParams =
@@ -1779,19 +1782,38 @@ object LLMEdgeManager {
                 sequentialLoad: Boolean? = null,
                 loadT5: Boolean = true,
                 loraModelDir: String? = null,
-                loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
+                loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO,
+                taehvPath: String? = null
         ): StableDiffusion {
                 // Check if we already have the correct VIDEO model loaded
                 val spec = currentDiffusionModelSpec
+                
+                // Determine expected VAE path (either custom or default)
+                val usingCustomVae = taehvPath != null
+                // For cache check, we can't easily get the default VAE path without I/O if not cached,
+                // but we can check if spec matches what we expect.
+                // If taehvPath is provided, spec.vaePath must equal it.
+                // If taehvPath is NOT provided, spec.vaePath should resolve to the default VAE file.
+                
                 cachedModel?.let {
                         // Only return cached model if it's specifically a video model with VAE and
                         // T5
                         // or if loaded without T5 when `loadT5=false`.
                         val t5Match =
                                 if (loadT5) spec?.t5xxlPath != null else spec?.t5xxlPath == null
+                                
+                        // Check VAE match
+                        val vaeMatch = if (usingCustomVae) {
+                            spec?.vaePath == taehvPath
+                        } else {
+                            // If we didn't request a custom VAE, allow the cached one if it's the default.
+                            // We can check the filename if path is absolute.
+                            spec?.vaePath?.endsWith(DEFAULT_VIDEO_VAE_FILENAME) == true
+                        }
+
                         if (spec != null &&
                                         spec.filename == DEFAULT_VIDEO_MODEL_FILENAME &&
-                                        spec.vaePath != null && // Video models require VAE
+                                        vaeMatch && // Video models require VAE
                                         t5Match &&
                                         spec.flowShift == flowShift &&
                                         spec.loraModelDir == loraModelDir &&
@@ -1813,12 +1835,18 @@ object LLMEdgeManager {
                         mi.availMem / (1024L * 1024L)
                 }
 
-                ensureVideoFiles(context, onProgress)
+                ensureVideoFiles(context, onProgress, skipVae = usingCustomVae)
                 prepareMemoryForLoading()
 
                 val modelFile =
                         getFile(context, DEFAULT_VIDEO_MODEL_ID, DEFAULT_VIDEO_MODEL_FILENAME)
-                val vaeFile = getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME)
+                
+                val vaePath = if (usingCustomVae) {
+                    taehvPath!!
+                } else {
+                    getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME).absolutePath
+                }
+
                 val t5File =
                         if (loadT5)
                                 getFile(
@@ -1837,7 +1865,7 @@ object LLMEdgeManager {
                 val cacheKey =
                         makeDiffusionCacheKey(
                                 modelFile.absolutePath,
-                                vaeFile.absolutePath,
+                                vaePath,
                                 t5File?.absolutePath,
                                 flowShift,
                                 loraModelDir,
@@ -1851,7 +1879,7 @@ object LLMEdgeManager {
                                         modelId = DEFAULT_VIDEO_MODEL_ID,
                                         filename = DEFAULT_VIDEO_MODEL_FILENAME,
                                         path = modelFile.absolutePath,
-                                        vaePath = vaeFile.absolutePath,
+                                        vaePath = vaePath,
                                         t5xxlPath = t5File?.absolutePath,
                                         flowShift = flowShift,
                                         loraModelDir = loraModelDir,
@@ -1866,13 +1894,13 @@ object LLMEdgeManager {
                 val finalKeepVaeOnCpu = if (preferPerformanceMode) false else true
                 Log.i(
                         TAG,
-                        "StableDiffusion.load(video) called with finalSequentialLoad=${finalSequentialLoadV}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, keepClipOnCpu=${finalKeepClipOnCpu}, keepVaeOnCpu=${finalKeepVaeOnCpu}, flashAttn=$flashAttn"
+                        "StableDiffusion.load(video) called with finalSequentialLoad=${finalSequentialLoadV}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, keepClipOnCpu=${finalKeepClipOnCpu}, keepVaeOnCpu=${finalKeepVaeOnCpu}, flashAttn=$flashAttn, vae=$vaePath"
                 )
                 val model =
                         StableDiffusion.load(
                                 context = context,
                                 modelPath = modelFile.absolutePath,
-                                vaePath = vaeFile.absolutePath,
+                                vaePath = vaePath,
                                 t5xxlPath = t5File?.absolutePath,
                                 nThreads =
                                         CpuTopology.getOptimalThreadCount(
@@ -1904,7 +1932,7 @@ object LLMEdgeManager {
                                 modelId = DEFAULT_VIDEO_MODEL_ID,
                                 filename = DEFAULT_VIDEO_MODEL_FILENAME,
                                 path = modelFile.absolutePath,
-                                vaePath = vaeFile.absolutePath,
+                                vaePath = vaePath,
                                 t5xxlPath = t5File?.absolutePath,
                                 flowShift = flowShift,
                                 loraModelDir = loraModelDir,
@@ -2089,7 +2117,8 @@ object LLMEdgeManager {
 
         private suspend fun ensureVideoFiles(
                 context: Context,
-                onProgress: ((String, Int, Int) -> Unit)?
+                onProgress: ((String, Int, Int) -> Unit)?,
+                skipVae: Boolean = false
         ) {
                 val hfCallback: ((Long, Long?) -> Unit)? =
                         onProgress?.let { genCb ->
@@ -2113,17 +2142,19 @@ object LLMEdgeManager {
                         true,
                         hfCallback
                 )
-                HuggingFaceHub.ensureRepoFileOnDisk(
-                        context,
-                        DEFAULT_VIDEO_VAE_ID,
-                        "main",
-                        DEFAULT_VIDEO_VAE_FILENAME,
-                        emptyList(),
-                        null,
-                        false,
-                        true,
-                        hfCallback
-                )
+                if (!skipVae) {
+                        HuggingFaceHub.ensureRepoFileOnDisk(
+                                context,
+                                DEFAULT_VIDEO_VAE_ID,
+                                "main",
+                                DEFAULT_VIDEO_VAE_FILENAME,
+                                emptyList(),
+                                null,
+                                false,
+                                true,
+                                hfCallback
+                        )
+                }
                 HuggingFaceHub.ensureRepoFileOnDisk(
                         context,
                         DEFAULT_VIDEO_T5XXL_ID,
