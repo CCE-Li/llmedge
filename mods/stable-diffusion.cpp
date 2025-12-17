@@ -293,9 +293,13 @@ public:
         }
 
         if (strlen(SAFE_STR(sd_ctx_params->vae_path)) > 0) {
-            LOG_INFO("loading vae from '%s'", sd_ctx_params->vae_path);
-            if (!model_loader.init_from_file(sd_ctx_params->vae_path, "vae.")) {
-                LOG_WARN("loading vae from '%s' failed", sd_ctx_params->vae_path);
+            if (!use_tiny_autoencoder || sd_ctx_params->tae_preview_only) {
+                LOG_INFO("loading vae from '%s'", sd_ctx_params->vae_path);
+                if (!model_loader.init_from_file(sd_ctx_params->vae_path, "vae.")) {
+                    LOG_WARN("loading vae from '%s' failed", sd_ctx_params->vae_path);
+                }
+            } else {
+                LOG_INFO("taesd path provided; skipping VAE load");
             }
         }
 
