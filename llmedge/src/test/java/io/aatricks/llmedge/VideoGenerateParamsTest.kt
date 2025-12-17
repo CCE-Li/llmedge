@@ -70,13 +70,13 @@ class VideoGenerateParamsTest {
     }
 
     @Test
-    fun `steps must stay within 10 to 50`() {
+    fun `steps must be at least 1`() {
         val params = StableDiffusion.VideoGenerateParams(
             prompt = "valid",
-            steps = 9,
+            steps = 0,
         )
 
-        assertValidationFails(params, "Steps must be between 10 and 50")
+        assertValidationFails(params, "Steps must be between 1 and 50")
     }
 
     @Test
@@ -203,13 +203,13 @@ class VideoGenerateParamsTest {
     }
 
     @Test
-    fun `minimum 10 steps passes validation`() {
+    fun `minimum 1 step passes validation`() {
         val params = StableDiffusion.VideoGenerateParams(
             prompt = "valid",
-            steps = 10,
+            steps = 1,
         )
 
-        assertTrue("Min steps (10) should be valid", params.validate().isSuccess)
+        assertTrue("Min steps (1) should be valid", params.validate().isSuccess)
     }
 
     @Test

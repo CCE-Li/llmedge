@@ -1455,7 +1455,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             require(videoFrames in 5..64) {
                 "Frame count must be between 5 and 64. Note: Wan model rounds to (n-1)/4*4+1, so use 5+ for multiple frames"
             }
-            require(steps in 10..50) { "Steps must be between 10 and 50" }
+            require(steps in 1..50) { "Steps must be between 1 and 50" }
             require(cfgScale in 1.0f..15.0f) { "CFG scale must be between 1.0 and 15.0" }
             require(strength in 0.0f..1.0f) { "Strength must be between 0.0 and 1.0" }
             require(seed >= -1L) { "Seed must be -1 or non-negative" }
