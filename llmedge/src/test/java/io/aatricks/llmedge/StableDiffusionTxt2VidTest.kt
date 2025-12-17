@@ -76,6 +76,7 @@ class StableDiffusionTxt2VidTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    vaceStrength: Float,
                     easyCacheEnabled: Boolean,
                     easyCacheReuseThreshold: Float,
                     easyCacheStartPercent: Float,
@@ -208,6 +209,7 @@ class StableDiffusionTxt2VidTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    vaceStrength: Float,
                     easyCacheEnabled: Boolean,
                     easyCacheReuseThreshold: Float,
                     easyCacheStartPercent: Float,
@@ -291,6 +293,7 @@ class StableDiffusionTxt2VidTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    vaceStrength: Float,
                     easyCacheEnabled: Boolean,
                     easyCacheReuseThreshold: Float,
                     easyCacheStartPercent: Float,
@@ -358,11 +361,12 @@ class StableDiffusionTxt2VidTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
-                            easyCacheEnabled: Boolean,
-                            easyCacheReuseThreshold: Float,
-                            easyCacheStartPercent: Float,
-                            easyCacheEndPercent: Float,
-                        ): Array<ByteArray>? {
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray>? {
                     instance.cancelGeneration()
                     throw RuntimeException("native aborted")
                 }
@@ -430,6 +434,7 @@ class StableDiffusionTxt2VidTest {
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    vaceStrength: Float,
                     easyCacheEnabled: Boolean,
                     easyCacheReuseThreshold: Float,
                     easyCacheStartPercent: Float,

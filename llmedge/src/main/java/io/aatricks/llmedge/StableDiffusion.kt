@@ -2090,6 +2090,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         initHeight,
                                         cond,
                                         uncond,
+                                        params.vaceStrength,
                                         params.easyCacheParams.enabled,
                                         params.easyCacheParams.reuseThreshold,
                                         params.easyCacheParams.startPercent,

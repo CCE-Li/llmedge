@@ -99,7 +99,7 @@ class LLMEdgeManagerTest {
 
                 override fun txt2vid(handle: Long, prompt: String, negative: String, width: Int, height: Int,
                                      videoFrames: Int, steps: Int, cfg: Float, seed: Long, sampleMethod: StableDiffusion.SampleMethod, scheduler: StableDiffusion.Scheduler,
-                                     strength: Float, initImage: ByteArray?, initWidth: Int, initHeight: Int, easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float, easyCacheStartPercent: Float, easyCacheEndPercent: Float): Array<ByteArray>? {
+                                     strength: Float, initImage: ByteArray?, initWidth: Int, initHeight: Int, vaceStrength: Float, easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float, easyCacheStartPercent: Float, easyCacheEndPercent: Float): Array<ByteArray>? {
                     return Array(videoFrames) { ByteArray(width * height * 3) { ((it + 1) % 255).toByte() } }
                 }
 
@@ -114,7 +114,7 @@ class LLMEdgeManagerTest {
                     )
                 }
 
-                override fun txt2vidWithPrecomputedCondition(handle: Long, prompt: String, negative: String, width: Int, height: Int, videoFrames: Int, steps: Int, cfg: Float, seed: Long, sampleMethod: StableDiffusion.SampleMethod, scheduler: StableDiffusion.Scheduler, strength: Float, initImage: ByteArray?, initWidth: Int, initHeight: Int, cond: StableDiffusion.PrecomputedCondition?, uncond: StableDiffusion.PrecomputedCondition?, easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float, easyCacheStartPercent: Float, easyCacheEndPercent: Float): Array<ByteArray>? {
+                override fun txt2vidWithPrecomputedCondition(handle: Long, prompt: String, negative: String, width: Int, height: Int, videoFrames: Int, steps: Int, cfg: Float, seed: Long, sampleMethod: StableDiffusion.SampleMethod, scheduler: StableDiffusion.Scheduler, strength: Float, initImage: ByteArray?, initWidth: Int, initHeight: Int, cond: StableDiffusion.PrecomputedCondition?, uncond: StableDiffusion.PrecomputedCondition?, vaceStrength: Float, easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float, easyCacheStartPercent: Float, easyCacheEndPercent: Float): Array<ByteArray>? {
                     return Array(videoFrames) { ByteArray(width * height * 3) { 5 } }
                 }
 

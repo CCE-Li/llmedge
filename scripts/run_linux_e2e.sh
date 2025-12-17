@@ -89,7 +89,8 @@ env | grep -i llmedge || true
   --tests "*VideoGenerationLinuxE2ETest" \
   --no-daemon \
   --console=plain \
-  --info \
+  --warning-mode=none \
+  --quiet \
   -DLLMEDGE_BUILD_NATIVE_LIB_PATH="${LLMEDGE_BUILD_NATIVE_LIB_PATH:-}" \
   -DLLMEDGE_TEST_MODEL_ID="${LLMEDGE_TEST_MODEL_ID:-}" \
   -DLLMEDGE_TEST_MODEL_PATH="${LLMEDGE_TEST_MODEL_PATH:-}" \
