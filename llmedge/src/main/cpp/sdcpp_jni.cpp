@@ -305,6 +305,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         jboolean keepClipOnCpu,
         jboolean keepVaeOnCpu,
         jboolean flashAttn,
+        jboolean jvaeDecodeOnly,
         jfloat flowShift,
         jstring jLoraModelDir, jint jLoraApplyMode) {
     (void)clazz;
@@ -326,11 +327,12 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     ALOGI("  vaePath=%s", vaePath ? vaePath : "NULL");
     ALOGI("  t5xxlPath=%s", t5xxlPath ? t5xxlPath : "NULL");
     ALOGI("  taesdPath=%s", taesdPath ? taesdPath : "NULL");
-    ALOGI("  offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s",
+    ALOGI("  offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s, vaeDecodeOnly=%s",
           offloadToCpu ? "true" : "false",
           keepClipOnCpu ? "true" : "false",
           keepVaeOnCpu ? "true" : "false",
-          flashAttn ? "true" : "false");
+          flashAttn ? "true" : "false",
+          jvaeDecodeOnly ? "true" : "false");
 
     sd_ctx_params_t p{};
     sd_ctx_params_init(&p);
@@ -348,9 +350,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     p.keep_vae_on_cpu = keepVaeOnCpu;
     p.diffusion_flash_attn = flashAttn;
     p.flow_shift = flowShift;
-    // Enable VAE encoder for I2V (Image-to-Video) support
-    // Default is true (decode-only), but we need encoder for I2V
-    p.vae_decode_only = false;
+    // VAE decode only (usually true for TAE, false for full VAE if encoding needed for I2V)
+    p.vae_decode_only = jvaeDecodeOnly;
     if (jLoraModelDir) {
         const char* loraPath = env->GetStringUTFChars(jLoraModelDir, nullptr);
         if (loraPath) {

@@ -71,7 +71,7 @@ class VideoGenerationLinuxE2ETest {
         println("[VideoGenerationLinuxE2ETest] modelPath=$modelPath t5Path=$t5Path vaePath=$vaePath taesdPath=$taesdPath")
 
         Assume.assumeTrue("T5 path not set", !t5Path.isNullOrBlank())
-        Assume.assumeTrue("VAE path not set", !vaePath.isNullOrBlank())
+        Assume.assumeTrue("VAE or TAESD path not set", !vaePath.isNullOrBlank() || !taesdPath.isNullOrBlank())
 
         // Test parameters
         val width = 256
@@ -197,7 +197,7 @@ class VideoGenerationLinuxE2ETest {
             println("[VideoGenerationLinuxE2ETest-I2V] modelPath=$modelPath t5Path=$t5Path vaePath=$vaePath taesdPath=$taesdPath")
             Assume.assumeTrue("Model path not set", !modelPath.isNullOrBlank())
             Assume.assumeTrue("T5 path not set", !t5Path.isNullOrBlank())
-            Assume.assumeTrue("VAE path not set", !vaePath.isNullOrBlank())
+            Assume.assumeTrue("VAE or TAESD path not set", !vaePath.isNullOrBlank() || !taesdPath.isNullOrBlank())
 
             val libPath = System.getenv(LIB_PATH_ENV)
                 ?: System.getProperty(LIB_PATH_ENV)
@@ -294,7 +294,7 @@ class VideoGenerationLinuxE2ETest {
             println("[SamplerSchedulerTest] modelPath=$modelPath t5Path=$t5Path vaePath=$vaePath taesdPath=$taesdPath")
             Assume.assumeTrue("Model path not set", !modelPath.isNullOrBlank())
             Assume.assumeTrue("T5 path not set", !t5Path.isNullOrBlank())
-            Assume.assumeTrue("VAE path not set", !vaePath.isNullOrBlank())
+            Assume.assumeTrue("VAE or TAESD path not set", !vaePath.isNullOrBlank() || !taesdPath.isNullOrBlank())
 
             val libPath = System.getenv(LIB_PATH_ENV)
                 ?: System.getProperty(LIB_PATH_ENV)

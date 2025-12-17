@@ -93,13 +93,13 @@ object LLMEdgeManager {
         private data class LoadedDiffusionModelSpec(
                 val modelId: String,
                 val filename: String,
-                val path: String?,
+                val path: String,
                 val vaePath: String?,
                 val t5xxlPath: String?,
+                val taesdPath: String? = null,
                 val flowShift: Float = Float.POSITIVE_INFINITY,
                 val loraModelDir: String? = null,
-                val loraApplyMode: StableDiffusion.LoraApplyMode =
-                        StableDiffusion.LoraApplyMode.AUTO
+                val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
         )
         private var currentDiffusionModelSpec: LoadedDiffusionModelSpec? = null
 
@@ -1205,7 +1205,8 @@ object LLMEdgeManager {
                                                 sequentialLoad = useSequential,
                                                 loraModelDir = params.loraModelDir,
                                                 loraApplyMode = params.loraApplyMode,
-                                                taehvPath = params.taehvPath
+                                                taehvPath = params.taehvPath,
+                                                vaeDecodeOnly = params.initImage == null
                                         )
                                 val sdParams =
                                         StableDiffusion.VideoGenerateParams(
@@ -1529,7 +1530,8 @@ object LLMEdgeManager {
                                         loadT5 = false,
                                         loraModelDir = params.loraModelDir,
                                         loraApplyMode = params.loraApplyMode,
-                                        taehvPath = params.taehvPath
+                                        taehvPath = params.taehvPath,
+                                        vaeDecodeOnly = params.initImage == null
                                 )
 
                         val sdParams =
@@ -1699,6 +1701,7 @@ object LLMEdgeManager {
                                 modelFile.absolutePath,
                                 null,
                                 null,
+                                null,
                                 Float.POSITIVE_INFINITY,
                                 loraModelDir,
                                 loraApplyMode
@@ -1745,6 +1748,7 @@ object LLMEdgeManager {
                                 forceVulkan = preferPerformanceMode,
                                 preferPerformanceMode = preferPerformanceMode,
                                 flashAttn = adaptiveFlashAttn,
+                                vaeDecodeOnly = true,
                                 loraModelDir = loraModelDir,
                                 loraApplyMode = loraApplyMode
                                 // sequentialLoad defaults to null, allowing auto-detection
@@ -1783,7 +1787,8 @@ object LLMEdgeManager {
                 loadT5: Boolean = true,
                 loraModelDir: String? = null,
                 loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO,
-                taehvPath: String? = null
+                taehvPath: String? = null,
+                vaeDecodeOnly: Boolean = true
         ): StableDiffusion {
                 // Check if we already have the correct VIDEO model loaded
                 val spec = currentDiffusionModelSpec
@@ -1802,9 +1807,9 @@ object LLMEdgeManager {
                         val t5Match =
                                 if (loadT5) spec?.t5xxlPath != null else spec?.t5xxlPath == null
                                 
-                        // Check VAE match
+                        // Check VAE/TAESD match
                         val vaeMatch = if (usingCustomVae) {
-                            spec?.vaePath == taehvPath
+                            spec?.taesdPath == taehvPath
                         } else {
                             // If we didn't request a custom VAE, allow the cached one if it's the default.
                             // We can check the filename if path is absolute.
@@ -1813,7 +1818,7 @@ object LLMEdgeManager {
 
                         if (spec != null &&
                                         spec.filename == DEFAULT_VIDEO_MODEL_FILENAME &&
-                                        vaeMatch && // Video models require VAE
+                                        vaeMatch && // Video models require VAE or TAESD
                                         t5Match &&
                                         spec.flowShift == flowShift &&
                                         spec.loraModelDir == loraModelDir &&
@@ -1841,10 +1846,22 @@ object LLMEdgeManager {
                 val modelFile =
                         getFile(context, DEFAULT_VIDEO_MODEL_ID, DEFAULT_VIDEO_MODEL_FILENAME)
                 
-                val vaePath = if (usingCustomVae) {
-                    taehvPath!!
+                val vaePath: String?
+                val taesdPath: String?
+                if (usingCustomVae) {
+                    val file = java.io.File(taehvPath!!)
+                    if (file.exists() && file.length() < 100 * 1024 * 1024) {
+                        // Tiny AutoEncoder (TAESD/TAEHV)
+                        vaePath = null
+                        taesdPath = taehvPath
+                    } else {
+                        // Full VAE
+                        vaePath = taehvPath
+                        taesdPath = null
+                    }
                 } else {
-                    getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME).absolutePath
+                    vaePath = getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME).absolutePath
+                    taesdPath = null
                 }
 
                 val t5File =
@@ -1867,6 +1884,7 @@ object LLMEdgeManager {
                                 modelFile.absolutePath,
                                 vaePath,
                                 t5File?.absolutePath,
+                                taesdPath,
                                 flowShift,
                                 loraModelDir,
                                 loraApplyMode
@@ -1881,6 +1899,7 @@ object LLMEdgeManager {
                                         path = modelFile.absolutePath,
                                         vaePath = vaePath,
                                         t5xxlPath = t5File?.absolutePath,
+                                        taesdPath = taesdPath,
                                         flowShift = flowShift,
                                         loraModelDir = loraModelDir,
                                         loraApplyMode = loraApplyMode
@@ -1894,7 +1913,7 @@ object LLMEdgeManager {
                 val finalKeepVaeOnCpu = if (preferPerformanceMode) false else true
                 Log.i(
                         TAG,
-                        "StableDiffusion.load(video) called with finalSequentialLoad=${finalSequentialLoadV}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, keepClipOnCpu=${finalKeepClipOnCpu}, keepVaeOnCpu=${finalKeepVaeOnCpu}, flashAttn=$flashAttn, vae=$vaePath"
+                        "StableDiffusion.load(video) called with finalSequentialLoad=${finalSequentialLoadV}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, keepClipOnCpu=${finalKeepClipOnCpu}, keepVaeOnCpu=${finalKeepVaeOnCpu}, flashAttn=$flashAttn, vae=$vaePath, taesd=$taesdPath"
                 )
                 val model =
                         StableDiffusion.load(
@@ -1902,6 +1921,7 @@ object LLMEdgeManager {
                                 modelPath = modelFile.absolutePath,
                                 vaePath = vaePath,
                                 t5xxlPath = t5File?.absolutePath,
+                                taesdPath = taesdPath,
                                 nThreads =
                                         CpuTopology.getOptimalThreadCount(
                                                 CpuTopology.TaskType.DIFFUSION
@@ -1913,6 +1933,7 @@ object LLMEdgeManager {
                                 keepClipOnCpu = finalKeepClipOnCpu,
                                 keepVaeOnCpu = finalKeepVaeOnCpu,
                                 flashAttn = flashAttn,
+                                vaeDecodeOnly = vaeDecodeOnly,
                                 flowShift = flowShift,
                                 loraModelDir = loraModelDir,
                                 loraApplyMode = loraApplyMode
@@ -1934,6 +1955,7 @@ object LLMEdgeManager {
                                 path = modelFile.absolutePath,
                                 vaePath = vaePath,
                                 t5xxlPath = t5File?.absolutePath,
+                                taesdPath = taesdPath,
                                 flowShift = flowShift,
                                 loraModelDir = loraModelDir,
                                 loraApplyMode = loraApplyMode
@@ -2083,9 +2105,10 @@ object LLMEdgeManager {
                 if (spec != null) {
                         val key =
                                 makeDiffusionCacheKey(
-                                        spec.path ?: "",
+                                        spec.path,
                                         spec.vaePath,
                                         spec.t5xxlPath,
+                                        spec.taesdPath,
                                         spec.flowShift,
                                         spec.loraModelDir,
                                         spec.loraApplyMode
@@ -2250,6 +2273,7 @@ object LLMEdgeManager {
                 modelPath: String,
                 vaePath: String?,
                 t5Path: String?,
+                taesdPath: String? = null,
                 flowShift: Float = Float.POSITIVE_INFINITY,
                 loraModelDir: String? = null,
                 loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
@@ -2258,6 +2282,7 @@ object LLMEdgeManager {
                                 modelPath,
                                 vaePath ?: "",
                                 t5Path ?: "",
+                                taesdPath ?: "",
                                 flowShift.toString(),
                                 loraModelDir ?: "",
                                 loraApplyMode.name

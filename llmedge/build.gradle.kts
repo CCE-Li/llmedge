@@ -130,6 +130,9 @@ android {
                     System.getenv("LLMEDGE_TEST_VAE_PATH")?.let { path ->
                         it.systemProperty("LLMEDGE_TEST_VAE_PATH", path)
                     }
+                    System.getenv("LLMEDGE_TEST_TAESD_PATH")?.let { path ->
+                        it.systemProperty("LLMEDGE_TEST_TAESD_PATH", path)
+                    }
 
                     // Optional overrides for explicit WAN component downloads
                     System.getenv("LLMEDGE_TEST_VAE_FILENAME")?.let { v ->

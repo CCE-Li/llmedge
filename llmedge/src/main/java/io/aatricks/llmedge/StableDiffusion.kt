@@ -584,7 +584,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
         @JvmStatic
         private external fun nativeCreate(
-                modelPath: String?,
+                modelPath: String,
                 vaePath: String?,
                 t5xxlPath: String?,
                 taesdPath: String?,
@@ -593,9 +593,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 keepClipOnCpu: Boolean,
                 keepVaeOnCpu: Boolean,
                 flashAttn: Boolean,
+                vaeDecodeOnly: Boolean,
                 flowShift: Float,
                 loraModelDir: String?,
-                loraApplyMode: Int,
+                loraApplyMode: Int
         ): Long
 
         @JvmStatic private external fun nativeGetVulkanDeviceCount(): Int
@@ -817,6 +818,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 keepClipOnCpu: Boolean = false,
                 keepVaeOnCpu: Boolean = false,
                 flashAttn: Boolean = true,
+                vaeDecodeOnly: Boolean = true,
                 sequentialLoad: Boolean? = null,
                 forceVulkan: Boolean = false,
                 preferPerformanceMode: Boolean = false,
@@ -854,6 +856,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         keepClipOnCpu = keepClipOnCpu,
                                         keepVaeOnCpu = keepVaeOnCpu,
                                         flashAttn = flashAttn,
+                                        vaeDecodeOnly = vaeDecodeOnly,
                                         sequentialLoad = sequentialLoad,
                                         preferPerformanceMode = preferPerformanceMode,
                                         token = token,
@@ -1090,6 +1093,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     effectiveKeepClipOnCpu,
                                     effectiveKeepVaeOnCpu,
                                     flashAttn,
+                                    vaeDecodeOnly,
                                     flowShift,
                                     loraModelDir,
                                     loraApplyMode.id,
@@ -1097,35 +1101,16 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     // If we requested preferred GPU path but nativeCreate failed, retry with CPU
                     // offload
                     if (handle == 0L && forceVulkan) {
-                        android.util.Log.w(
-                                LOG_TAG,
-                                "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback"
-                        )
-                        // Fallback: enable offload + keepClip/Vae on CPU and set sequentialLoad to
-                        // true
-                        effectiveOffloadToCpu = true
-                        effectiveKeepClipOnCpu = true
-                        effectiveKeepVaeOnCpu = true
-                        handle =
-                                nativeCreate(
-                                        resolvedModelPath,
-                                        resolvedVaePath,
-                                        resolvedT5xxlPath,
-                                        taesdPath,
-                                        nThreads,
-                                        effectiveOffloadToCpu,
-                                        effectiveKeepClipOnCpu,
-                                        effectiveKeepVaeOnCpu,
-                                        flashAttn,
-                                        flowShift,
-                                        loraModelDir,
-                                        loraApplyMode.id,
-                                )
+                    } 
+                    if (handle == 0L) {
+                        val errorMsg = buildString {
+                            append("Failed to initialize Stable Diffusion context.")
+                            if (taesdPath != null) append(" Custom TAE/TAEHV: $taesdPath.")
+                            if (resolvedVaePath != null) append(" Custom VAE: $resolvedVaePath.")
+                            append(" This often happens due to incompatible VAE/TAE weights or insufficient memory. Check logcat for [SmolSD] errors.")
+                        }
+                        throw IllegalStateException(errorMsg)
                     }
-                    if (handle == 0L)
-                            throw IllegalStateException(
-                                    "Failed to initialize Stable Diffusion context"
-                            )
                     val instance = StableDiffusion(handle)
                     instance.modelMetadata = metadata
 
@@ -1153,6 +1138,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 keepClipOnCpu: Boolean = false,
                 keepVaeOnCpu: Boolean = false,
                 flashAttn: Boolean = true,
+                vaeDecodeOnly: Boolean = true,
                 sequentialLoad: Boolean? = null,
                 forceVulkan: Boolean = false,
                 preferPerformanceMode: Boolean = false,
@@ -1297,6 +1283,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     effectiveKeepClipOnCpu,
                                     effectiveKeepVaeOnCpu,
                                     flashAttn,
+                                    vaeDecodeOnly,
                                     flowShift,
                                     loraModelDir,
                                     loraApplyMode.id,
@@ -1320,6 +1307,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         effectiveKeepClipOnCpu,
                                         effectiveKeepVaeOnCpu,
                                         flashAttn,
+                                        vaeDecodeOnly,
                                         flowShift,
                                         loraModelDir,
                                         loraApplyMode.id,

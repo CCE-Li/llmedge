@@ -685,7 +685,7 @@ object ImageUtils {
         }
 
         private fun contest(b: Int, g: Int, r: Int): Int {
-            var bestd = Int.MAX_VALUE.inv()
+            var bestd = 0x7fffffff
             var bestbiasd = bestd
             var bestpos = -1
             var bestbiaspos = bestpos
