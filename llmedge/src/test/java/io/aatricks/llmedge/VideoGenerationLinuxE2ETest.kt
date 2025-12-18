@@ -66,12 +66,11 @@ class VideoGenerationLinuxE2ETest {
 
         // Get model paths from environment
         val t5Path = System.getenv("LLMEDGE_TEST_T5_PATH") ?: System.getProperty("LLMEDGE_TEST_T5_PATH")
-        val vaePath = System.getenv("LLMEDGE_TEST_VAE_PATH") ?: System.getProperty("LLMEDGE_TEST_VAE_PATH")
         val taesdPath = System.getenv("LLMEDGE_TEST_TAESD_PATH") ?: System.getProperty("LLMEDGE_TEST_TAESD_PATH")
-        println("[VideoGenerationLinuxE2ETest] modelPath=$modelPath t5Path=$t5Path vaePath=$vaePath taesdPath=$taesdPath")
+        println("[VideoGenerationLinuxE2ETest] modelPath=$modelPath t5Path=$t5Path taesdPath=$taesdPath")
 
         Assume.assumeTrue("T5 path not set", !t5Path.isNullOrBlank())
-        Assume.assumeTrue("VAE or TAESD path not set", !vaePath.isNullOrBlank() || !taesdPath.isNullOrBlank())
+        Assume.assumeTrue("TAESD path not set", !taesdPath.isNullOrBlank())
 
         // Test parameters
         val width = 256
@@ -92,7 +91,7 @@ class VideoGenerationLinuxE2ETest {
             StableDiffusion.load(
                 context = context,
                 modelPath = modelPath,
-                vaePath = vaePath,
+                vaePath = null, // Disable VAE loading
                 t5xxlPath = t5Path,
                 taesdPath = taesdPath,
                 nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
@@ -145,6 +144,24 @@ class VideoGenerationLinuxE2ETest {
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
             }
             println("[VideoGenerationLinuxE2ETest] Saved frame to ${file.absolutePath}")
+        }
+
+        // Generate GIF
+        val projectRoot = File(System.getProperty("user.dir") ?: ".")
+        val outputGif = File(projectRoot, "generated_video.gif")
+        try {
+            java.io.FileOutputStream(outputGif).use { fos ->
+                io.aatricks.llmedge.vision.ImageUtils.createAnimatedGif(
+                    frames = bitmaps,
+                    delayMs = 125, // 8 FPS
+                    output = fos,
+                    loop = 0
+                )
+            }
+            println("[VideoGenerationLinuxE2ETest] Saved GIF to ${outputGif.absolutePath}")
+        } catch (e: Exception) {
+            println("[VideoGenerationLinuxE2ETest] Failed to save GIF: ${e.message}")
+            e.printStackTrace()
         }
 
         // Basic sanity checks for generated frames

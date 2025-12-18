@@ -283,18 +283,26 @@ object ImageUtils {
         val width = frames[0].width
         val height = frames[0].height
         val encoder = GifEncoder()
+        
+        // Use Disposal Method 1 (Do not dispose) for smoother video-like GIFs
+        // and avoid "cut by parts" artifacts.
+        encoder.setDispose(1)
+        
         encoder.start(output)
         encoder.setRepeat(loop)
         encoder.setDelay(delayMs)
-        encoder.setQuality(10) // Lower = better quality but slower
         
+        // Use a global palette from the first frame for the whole GIF
+        // to eliminate color-flickering between frames.
+        var first = true
         for (frame in frames) {
             // Resize if dimensions don't match
             val resized = if (frame.width != width || frame.height != height) {
                 Bitmap.createScaledBitmap(frame, width, height, true)
             } else frame
             
-            encoder.addFrame(resized)
+            encoder.addFrame(resized, isFirst = first)
+            first = false
             
             if (resized !== frame) {
                 resized.recycle()
@@ -323,36 +331,56 @@ object ImageUtils {
         private var delay = 0
         private var sample = 10
         private var firstFrame = true
+        private var nq: NeuQuant? = null
 
         fun setDelay(ms: Int) { delay = ms / 10 }
         fun setRepeat(iter: Int) { repeat = iter }
         fun setQuality(quality: Int) { sample = quality.coerceIn(1, 30) }
+        fun setDispose(d: Int) { dispose = d }
 
         fun start(os: OutputStream) {
             out = os
             writeString("GIF89a")
         }
 
-        fun addFrame(im: Bitmap): Boolean {
+        fun addFrame(im: Bitmap, isFirst: Boolean): Boolean {
             if (out == null) return false
             
             width = im.width
             height = im.height
             getImagePixels(im)
-            analyzePixels()
             
-            if (firstFrame) {
+            if (isFirst) {
+                analyzePixels()
                 writeLSD()
                 writePalette()
                 if (repeat >= 0) writeNetscapeExt()
+            } else {
+                // Map pixels using the global palette generated from the first frame
+                indexPixelsWithExistingPalette()
             }
             
             writeGraphicCtrlExt()
-            writeImageDesc()
-            if (!firstFrame) writePalette()
+            writeImageDesc(isFirst)
             writePixels()
-            firstFrame = false
             return true
+        }
+
+        private fun indexPixelsWithExistingPalette() {
+            val len = pixels!!.size
+            val nPix = len / 3
+            indexedPixels = ByteArray(nPix)
+            
+            val localNq = nq ?: return
+            for (i in 0 until nPix) {
+                val index = localNq.map(
+                    pixels!![i * 3].toInt() and 0xff,
+                    pixels!![i * 3 + 1].toInt() and 0xff,
+                    pixels!![i * 3 + 2].toInt() and 0xff
+                )
+                indexedPixels!![i] = index.toByte()
+            }
+            pixels = null
         }
 
         fun finish(): Boolean {
@@ -382,11 +410,11 @@ object ImageUtils {
             val nPix = len / 3
             indexedPixels = ByteArray(nPix)
             
-            val nq = NeuQuant(pixels!!, len, sample)
-            colorTab = nq.process()
+            nq = NeuQuant(pixels!!, len, sample)
+            colorTab = nq!!.process()
             
             for (i in 0 until nPix) {
-                val index = nq.map(
+                val index = nq!!.map(
                     pixels!![i * 3].toInt() and 0xff,
                     pixels!![i * 3 + 1].toInt() and 0xff,
                     pixels!![i * 3 + 2].toInt() and 0xff
@@ -437,13 +465,14 @@ object ImageUtils {
             out?.write(0)
         }
 
-        private fun writeImageDesc() {
+        private fun writeImageDesc(isFirst: Boolean) {
             out?.write(0x2c)
             writeShort(0)
             writeShort(0)
             writeShort(width)
             writeShort(height)
-            if (firstFrame) out?.write(0) else out?.write(0x80 or palSize)
+            // No local color table anymore, we use the global one for all frames.
+            out?.write(0)
         }
 
         private fun writePixels() {
