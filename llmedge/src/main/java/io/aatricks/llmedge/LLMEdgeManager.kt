@@ -99,7 +99,8 @@ object LLMEdgeManager {
                 val taesdPath: String? = null,
                 val flowShift: Float = Float.POSITIVE_INFINITY,
                 val loraModelDir: String? = null,
-                val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO
+                val loraApplyMode: StableDiffusion.LoraApplyMode =
+                        StableDiffusion.LoraApplyMode.AUTO
         )
         private var currentDiffusionModelSpec: LoadedDiffusionModelSpec? = null
 
@@ -1435,7 +1436,8 @@ object LLMEdgeManager {
                 params: VideoGenerationParams,
                 onProgress: ((String, Int, Int) -> Unit)?
         ): List<Bitmap> {
-                ensureVideoFiles(context, onProgress)
+                // Skip downloading default VAE if custom TAEHV is provided
+                ensureVideoFiles(context, onProgress, skipVae = params.taehvPath != null)
 
                 // Check available memory before loading T5 (~6GB model)
                 val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
@@ -1792,29 +1794,33 @@ object LLMEdgeManager {
         ): StableDiffusion {
                 // Check if we already have the correct VIDEO model loaded
                 val spec = currentDiffusionModelSpec
-                
+
                 // Determine expected VAE path (either custom or default)
                 val usingCustomVae = taehvPath != null
-                // For cache check, we can't easily get the default VAE path without I/O if not cached,
+                // For cache check, we can't easily get the default VAE path without I/O if not
+                // cached,
                 // but we can check if spec matches what we expect.
                 // If taehvPath is provided, spec.vaePath must equal it.
-                // If taehvPath is NOT provided, spec.vaePath should resolve to the default VAE file.
-                
+                // If taehvPath is NOT provided, spec.vaePath should resolve to the default VAE
+                // file.
+
                 cachedModel?.let {
                         // Only return cached model if it's specifically a video model with VAE and
                         // T5
                         // or if loaded without T5 when `loadT5=false`.
                         val t5Match =
                                 if (loadT5) spec?.t5xxlPath != null else spec?.t5xxlPath == null
-                                
+
                         // Check VAE/TAESD match
-                        val vaeMatch = if (usingCustomVae) {
-                            spec?.taesdPath == taehvPath
-                        } else {
-                            // If we didn't request a custom VAE, allow the cached one if it's the default.
-                            // We can check the filename if path is absolute.
-                            spec?.vaePath?.endsWith(DEFAULT_VIDEO_VAE_FILENAME) == true
-                        }
+                        val vaeMatch =
+                                if (usingCustomVae) {
+                                        spec?.taesdPath == taehvPath
+                                } else {
+                                        // If we didn't request a custom VAE, allow the cached one
+                                        // if it's the default.
+                                        // We can check the filename if path is absolute.
+                                        spec?.vaePath?.endsWith(DEFAULT_VIDEO_VAE_FILENAME) == true
+                                }
 
                         if (spec != null &&
                                         spec.filename == DEFAULT_VIDEO_MODEL_FILENAME &&
@@ -1845,23 +1851,25 @@ object LLMEdgeManager {
 
                 val modelFile =
                         getFile(context, DEFAULT_VIDEO_MODEL_ID, DEFAULT_VIDEO_MODEL_FILENAME)
-                
+
                 val vaePath: String?
                 val taesdPath: String?
                 if (usingCustomVae) {
-                    val file = java.io.File(taehvPath!!)
-                    if (file.exists() && file.length() < 100 * 1024 * 1024) {
-                        // Tiny AutoEncoder (TAESD/TAEHV)
-                        vaePath = null
-                        taesdPath = taehvPath
-                    } else {
-                        // Full VAE
-                        vaePath = taehvPath
-                        taesdPath = null
-                    }
+                        val file = java.io.File(taehvPath!!)
+                        if (file.exists() && file.length() < 100 * 1024 * 1024) {
+                                // Tiny AutoEncoder (TAESD/TAEHV)
+                                vaePath = null
+                                taesdPath = taehvPath
+                        } else {
+                                // Full VAE
+                                vaePath = taehvPath
+                                taesdPath = null
+                        }
                 } else {
-                    vaePath = getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME).absolutePath
-                    taesdPath = null
+                        vaePath =
+                                getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME)
+                                        .absolutePath
+                        taesdPath = null
                 }
 
                 val t5File =
