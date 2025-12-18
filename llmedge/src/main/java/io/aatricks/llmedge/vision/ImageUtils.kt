@@ -19,27 +19,23 @@ package io.aatricks.llmedge.vision
 import android.content.Context
 import android.graphics.*
 import android.media.ExifInterface
-import android.net.Uri
+import java.io.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.CoroutineContext
-import java.io.*
 
 /**
- * Image processing helpers: decoding, scaling, basic OCR-friendly filtering and
- * file conversions used by the vision example.
+ * Image processing helpers: decoding, scaling, basic OCR-friendly filtering and file conversions
+ * used by the vision example.
  */
 object ImageUtils {
-    
+
     private const val MAX_DIMENSION = 1600
     private const val JPEG_QUALITY = 90
-    
+
     /** Convert an ImageSource to a Bitmap. Throws IOException on failure. */
     private suspend fun <T> safeWithIO(block: suspend () -> T): T {
         return try {
-            withContext(Dispatchers.IO) {
-                block()
-            }
+            withContext(Dispatchers.IO) { block() }
         } catch (e: Throwable) {
             // Some runtime environments can (incorrectly) have Dispatchers.IO == null
             // which causes a NullPointerException inside withContext. Fall back to
@@ -51,41 +47,43 @@ object ImageUtils {
     }
 
     suspend fun imageToBitmap(context: Context, source: ImageSource): Bitmap = safeWithIO {
-        val bmp: Bitmap? = when (source) {
-            is ImageSource.BitmapSource -> source.bitmap
-            is ImageSource.FileSource -> BitmapFactory.decodeFile(source.file.absolutePath)
-            is ImageSource.UriSource -> {
-                context.contentResolver.openInputStream(source.uri)?.use { stream ->
-                    BitmapFactory.decodeStream(stream)
+        val bmp: Bitmap? =
+                when (source) {
+                    is ImageSource.BitmapSource -> source.bitmap
+                    is ImageSource.FileSource -> BitmapFactory.decodeFile(source.file.absolutePath)
+                    is ImageSource.UriSource -> {
+                        context.contentResolver.openInputStream(source.uri)?.use { stream ->
+                            BitmapFactory.decodeStream(stream)
+                        }
+                    }
+                    is ImageSource.ByteArraySource -> {
+                        BitmapFactory.decodeByteArray(source.bytes, 0, source.bytes.size)
+                    }
                 }
-            }
-            is ImageSource.ByteArraySource -> {
-                BitmapFactory.decodeByteArray(source.bytes, 0, source.bytes.size)
-            }
-        }
 
         if (bmp == null) {
-            val srcDesc = when (source) {
-                is ImageSource.BitmapSource -> "BitmapSource"
-                is ImageSource.FileSource -> "File(${source.file.absolutePath})"
-                is ImageSource.UriSource -> "Uri(${source.uri})"
-                is ImageSource.ByteArraySource -> "ByteArray(len=${source.bytes.size})"
-                else -> "unknown"
-            }
+            val srcDesc =
+                    when (source) {
+                        is ImageSource.BitmapSource -> "BitmapSource"
+                        is ImageSource.FileSource -> "File(${source.file.absolutePath})"
+                        is ImageSource.UriSource -> "Uri(${source.uri})"
+                        is ImageSource.ByteArraySource -> "ByteArray(len=${source.bytes.size})"
+                        else -> "unknown"
+                    }
             throw IOException("Failed to decode image from source: $srcDesc")
         }
 
         bmp
     }
-    
+
     /** Save an ImageSource to a temporary file. */
     suspend fun imageToFile(
-        context: Context,
-        source: ImageSource,
-        filename: String = "temp_image.jpg"
+            context: Context,
+            source: ImageSource,
+            filename: String = "temp_image.jpg"
     ): File = safeWithIO {
         val tempFile = File(context.cacheDir, filename)
-        
+
         when (source) {
             is ImageSource.FileSource -> source.file
             is ImageSource.BitmapSource -> {
@@ -94,9 +92,7 @@ object ImageUtils {
             }
             is ImageSource.UriSource -> {
                 context.contentResolver.openInputStream(source.uri)?.use { input ->
-                    tempFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
+                    tempFile.outputStream().use { output -> input.copyTo(output) }
                 }
                 tempFile
             }
@@ -106,89 +102,110 @@ object ImageUtils {
             }
         }
     }
-    
+
     /** Preprocess a bitmap for OCR/vision: scale and optional enhancement. */
     fun preprocessImage(
-        bitmap: Bitmap,
-        correctOrientation: Boolean = true,
-        maxDimension: Int = MAX_DIMENSION,
-        enhance: Boolean = false
+            bitmap: Bitmap,
+            correctOrientation: Boolean = true,
+            maxDimension: Int = MAX_DIMENSION,
+            enhance: Boolean = false
     ): Bitmap {
         var result = bitmap
-        
+
         // Scale down if needed
         if (bitmap.width > maxDimension || bitmap.height > maxDimension) {
             result = scaleBitmap(result, maxDimension)
         }
-        
+
         // Apply OCR enhancements if requested
         if (enhance) {
             result = enhanceForOcr(result)
         }
-        
+
         return result
     }
-    
+
     /** Scale a bitmap to fit within max dimension while preserving aspect ratio. */
     private fun scaleBitmap(bitmap: Bitmap, maxDimension: Int): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
-        
+
         if (width <= maxDimension && height <= maxDimension) {
             return bitmap
         }
-        
-        val scale = if (width > height) {
-            maxDimension.toFloat() / width
-        } else {
-            maxDimension.toFloat() / height
-        }
-        
+
+        val scale =
+                if (width > height) {
+                    maxDimension.toFloat() / width
+                } else {
+                    maxDimension.toFloat() / height
+                }
+
         val newWidth = (width * scale).toInt()
         val newHeight = (height * scale).toInt()
-        
+
         return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
     }
-    
+
     /** Enhance image for better OCR results (grayscale + contrast). */
     private fun enhanceForOcr(bitmap: Bitmap): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
-        
+
         // Convert to grayscale
         val grayscale = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(grayscale)
         val paint = Paint()
-        
+
         // Grayscale color matrix
         val colorMatrix = ColorMatrix()
         colorMatrix.setSaturation(0f)
-        
+
         // Increase contrast
-        val contrastMatrix = ColorMatrix(floatArrayOf(
-            1.5f, 0f, 0f, 0f, -40f,
-            0f, 1.5f, 0f, 0f, -40f,
-            0f, 0f, 1.5f, 0f, -40f,
-            0f, 0f, 0f, 1f, 0f
-        ))
-        
+        val contrastMatrix =
+                ColorMatrix(
+                        floatArrayOf(
+                                1.5f,
+                                0f,
+                                0f,
+                                0f,
+                                -40f,
+                                0f,
+                                1.5f,
+                                0f,
+                                0f,
+                                -40f,
+                                0f,
+                                0f,
+                                1.5f,
+                                0f,
+                                -40f,
+                                0f,
+                                0f,
+                                0f,
+                                1f,
+                                0f
+                        )
+                )
+
         colorMatrix.postConcat(contrastMatrix)
         paint.colorFilter = ColorMatrixColorFilter(colorMatrix)
-        
+
         canvas.drawBitmap(bitmap, 0f, 0f, paint)
-        
+
         return grayscale
     }
-    
+
     /** Apply EXIF orientation correction to a bitmap. */
     fun applyExifOrientation(bitmap: Bitmap, imagePath: String): Bitmap {
         return try {
             val exif = ExifInterface(imagePath)
-            val orientation = exif.getAttributeInt(
-                ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_NORMAL
-            )
-            
+            val orientation =
+                    exif.getAttributeInt(
+                            ExifInterface.TAG_ORIENTATION,
+                            ExifInterface.ORIENTATION_NORMAL
+                    )
+
             val matrix = Matrix()
             when (orientation) {
                 ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
@@ -198,7 +215,7 @@ object ImageUtils {
                 ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
                 else -> return bitmap
             }
-            
+
             Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
         } catch (e: Exception) {
             bitmap
@@ -214,20 +231,20 @@ object ImageUtils {
             throw IOException("Failed to decode image file: ${file.absolutePath}", e)
         }
     }
-    
+
     /** Save a bitmap to a file as JPEG. */
     private fun saveBitmapToFile(bitmap: Bitmap, file: File, quality: Int = JPEG_QUALITY) {
         file.outputStream().use { stream ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
         }
     }
-    
+
     /** Convert an ImageSource to a byte array. */
     suspend fun imageToByteArray(
-        context: Context,
-        source: ImageSource,
-        format: Bitmap.CompressFormat = Bitmap.CompressFormat.JPEG,
-        quality: Int = JPEG_QUALITY
+            context: Context,
+            source: ImageSource,
+            format: Bitmap.CompressFormat = Bitmap.CompressFormat.JPEG,
+            quality: Int = JPEG_QUALITY
     ): ByteArray = safeWithIO {
         when (source) {
             is ImageSource.ByteArraySource -> source.bytes
@@ -235,7 +252,8 @@ object ImageUtils {
             is ImageSource.UriSource -> {
                 context.contentResolver.openInputStream(source.uri)?.use { stream ->
                     stream.readBytes()
-                } ?: throw IOException("Failed to open URI: ${source.uri}")
+                }
+                        ?: throw IOException("Failed to open URI: ${source.uri}")
             }
             is ImageSource.BitmapSource -> {
                 ByteArrayOutputStream().use { stream ->
@@ -247,7 +265,12 @@ object ImageUtils {
     }
 
     /** Convert raw RGB bytes (R,G,B 3 bytes per pixel) to a Bitmap. */
-    fun rgbBytesToBitmap(rgb: ByteArray, width: Int, height: Int, pixels: IntArray? = null): Bitmap {
+    fun rgbBytesToBitmap(
+            rgb: ByteArray,
+            width: Int,
+            height: Int,
+            pixels: IntArray? = null
+    ): Bitmap {
         val total = width * height
         val pixelArray = if (pixels == null || pixels.size < total) IntArray(total) else pixels
         var idx = 0
@@ -264,57 +287,63 @@ object ImageUtils {
     }
 
     /**
-     * Creates an animated GIF from a list of Bitmaps.
-     * Uses a simple GIF89a encoder with global color table.
-     * 
+     * Creates an animated GIF from a list of Bitmaps. Uses a simple GIF89a encoder with global
+     * color table.
+     *
      * @param frames List of Bitmap frames (should be same dimensions)
      * @param delayMs Delay between frames in milliseconds
      * @param output Output stream to write GIF data
      * @param loop Number of times to loop (0 = infinite)
+     * @param quality Quality of color quantization (1-30, lower = better quality but slower)
      */
     fun createAnimatedGif(
-        frames: List<Bitmap>,
-        delayMs: Int = 100,
-        output: OutputStream,
-        loop: Int = 0
+            frames: List<Bitmap>,
+            delayMs: Int = 100,
+            output: OutputStream,
+            loop: Int = 0,
+            quality: Int = 10
     ) {
         if (frames.isEmpty()) return
-        
+
         val width = frames[0].width
         val height = frames[0].height
         val encoder = GifEncoder()
-        
+
         // Use Disposal Method 1 (Do not dispose) for smoother video-like GIFs
         // and avoid "cut by parts" artifacts.
         encoder.setDispose(1)
-        
+
+        // Set quality for color quantization (1 = best, 30 = fastest)
+        encoder.setQuality(quality.coerceIn(1, 30))
+
         encoder.start(output)
         encoder.setRepeat(loop)
         encoder.setDelay(delayMs)
-        
+
         // Use a global palette from the first frame for the whole GIF
         // to eliminate color-flickering between frames.
         var first = true
         for (frame in frames) {
             // Resize if dimensions don't match
-            val resized = if (frame.width != width || frame.height != height) {
-                Bitmap.createScaledBitmap(frame, width, height, true)
-            } else frame
-            
+            val resized =
+                    if (frame.width != width || frame.height != height) {
+                        Bitmap.createScaledBitmap(frame, width, height, true)
+                    } else frame
+
             encoder.addFrame(resized, isFirst = first)
             first = false
-            
+
             if (resized !== frame) {
                 resized.recycle()
             }
         }
-        
+
         encoder.finish()
     }
 
     /**
-     * Simple GIF encoder based on NeuQuant neural network quantization.
-     * Adapted from open source implementations.
+     * Simple GIF encoder based on NeuQuant neural network quantization. Adapted from open source
+     * implementations.
      */
     private class GifEncoder {
         private var width = 0
@@ -333,10 +362,18 @@ object ImageUtils {
         private var firstFrame = true
         private var nq: NeuQuant? = null
 
-        fun setDelay(ms: Int) { delay = ms / 10 }
-        fun setRepeat(iter: Int) { repeat = iter }
-        fun setQuality(quality: Int) { sample = quality.coerceIn(1, 30) }
-        fun setDispose(d: Int) { dispose = d }
+        fun setDelay(ms: Int) {
+            delay = ms / 10
+        }
+        fun setRepeat(iter: Int) {
+            repeat = iter
+        }
+        fun setQuality(quality: Int) {
+            sample = quality.coerceIn(1, 30)
+        }
+        fun setDispose(d: Int) {
+            dispose = d
+        }
 
         fun start(os: OutputStream) {
             out = os
@@ -345,11 +382,11 @@ object ImageUtils {
 
         fun addFrame(im: Bitmap, isFirst: Boolean): Boolean {
             if (out == null) return false
-            
+
             width = im.width
             height = im.height
             getImagePixels(im)
-            
+
             if (isFirst) {
                 analyzePixels()
                 writeLSD()
@@ -359,7 +396,7 @@ object ImageUtils {
                 // Map pixels using the global palette generated from the first frame
                 indexPixelsWithExistingPalette()
             }
-            
+
             writeGraphicCtrlExt()
             writeImageDesc(isFirst)
             writePixels()
@@ -370,14 +407,15 @@ object ImageUtils {
             val len = pixels!!.size
             val nPix = len / 3
             indexedPixels = ByteArray(nPix)
-            
+
             val localNq = nq ?: return
             for (i in 0 until nPix) {
-                val index = localNq.map(
-                    pixels!![i * 3].toInt() and 0xff,
-                    pixels!![i * 3 + 1].toInt() and 0xff,
-                    pixels!![i * 3 + 2].toInt() and 0xff
-                )
+                val index =
+                        localNq.map(
+                                pixels!![i * 3].toInt() and 0xff,
+                                pixels!![i * 3 + 1].toInt() and 0xff,
+                                pixels!![i * 3 + 2].toInt() and 0xff
+                        )
                 indexedPixels!![i] = index.toByte()
             }
             pixels = null
@@ -395,13 +433,14 @@ object ImageUtils {
             pixels = ByteArray(w * h * 3)
             val data = IntArray(w * h)
             image.getPixels(data, 0, w, 0, 0, w, h)
-            
+
+            // Store as BGR order to match NeuQuant algorithm expectations
             for (i in data.indices) {
                 val px = data[i]
                 val j = i * 3
-                pixels!![j] = ((px shr 16) and 0xff).toByte()
-                pixels!![j + 1] = ((px shr 8) and 0xff).toByte()
-                pixels!![j + 2] = (px and 0xff).toByte()
+                pixels!![j] = (px and 0xff).toByte() // B
+                pixels!![j + 1] = ((px shr 8) and 0xff).toByte() // G
+                pixels!![j + 2] = ((px shr 16) and 0xff).toByte() // R
             }
         }
 
@@ -409,16 +448,17 @@ object ImageUtils {
             val len = pixels!!.size
             val nPix = len / 3
             indexedPixels = ByteArray(nPix)
-            
+
             nq = NeuQuant(pixels!!, len, sample)
             colorTab = nq!!.process()
-            
+
             for (i in 0 until nPix) {
-                val index = nq!!.map(
-                    pixels!![i * 3].toInt() and 0xff,
-                    pixels!![i * 3 + 1].toInt() and 0xff,
-                    pixels!![i * 3 + 2].toInt() and 0xff
-                )
+                val index =
+                        nq!!.map(
+                                pixels!![i * 3].toInt() and 0xff,
+                                pixels!![i * 3 + 1].toInt() and 0xff,
+                                pixels!![i * 3 + 2].toInt() and 0xff
+                        )
                 usedEntry[index] = true
                 indexedPixels!![i] = index.toByte()
             }
@@ -491,10 +531,13 @@ object ImageUtils {
     }
 
     /**
-     * NeuQuant Neural-Net Quantization Algorithm
-     * Adapted from Anthony Dekker's NeuQuant algorithm
+     * NeuQuant Neural-Net Quantization Algorithm Adapted from Anthony Dekker's NeuQuant algorithm
      */
-    private class NeuQuant(private val thepicture: ByteArray, private val lengthcount: Int, private val samplefac: Int) {
+    private class NeuQuant(
+            private val thepicture: ByteArray,
+            private val lengthcount: Int,
+            private val samplefac: Int
+    ) {
         private val netsize = 256
         private val prime1 = 499
         private val prime2 = 491
@@ -552,9 +595,10 @@ object ImageUtils {
             var k = 0
             for (i in 0 until netsize) {
                 val j = index[i]
-                map[k++] = network[j][0].toByte()
-                map[k++] = network[j][1].toByte()
-                map[k++] = network[j][2].toByte()
+                // Network stores BGR, but GIF palette needs RGB order
+                map[k++] = network[j][2].toByte() // R
+                map[k++] = network[j][1].toByte() // G
+                map[k++] = network[j][0].toByte() // B
             }
             return map
         }
@@ -575,10 +619,18 @@ object ImageUtils {
                 }
                 val q = network[smallpos]
                 if (i != smallpos) {
-                    var j = q[0]; q[0] = p[0]; p[0] = j
-                    j = q[1]; q[1] = p[1]; p[1] = j
-                    j = q[2]; q[2] = p[2]; p[2] = j
-                    j = q[3]; q[3] = p[3]; p[3] = j
+                    var j = q[0]
+                    q[0] = p[0]
+                    p[0] = j
+                    j = q[1]
+                    q[1] = p[1]
+                    p[1] = j
+                    j = q[2]
+                    q[2] = p[2]
+                    p[2] = j
+                    j = q[3]
+                    q[3] = p[3]
+                    p[3] = j
                 }
                 if (smallval != previouscol) {
                     netindex[previouscol] = (startpos + i) shr 1
@@ -601,15 +653,17 @@ object ImageUtils {
 
             var rad = radius shr radiusbiasshift
             if (rad <= 1) rad = 0
-            for (i in 0 until rad) radpower[i] = alpha * (((rad * rad - i * i) * radbias) / (rad * rad))
+            for (i in 0 until rad) radpower[i] =
+                    alpha * (((rad * rad - i * i) * radbias) / (rad * rad))
 
-            val step = when {
-                lengthcount < 500009 -> 3 * prime1
-                lengthcount % prime1 != 0 -> 3 * prime1
-                lengthcount % prime2 != 0 -> 3 * prime2
-                lengthcount % prime3 != 0 -> 3 * prime3
-                else -> 3 * prime4
-            }
+            val step =
+                    when {
+                        lengthcount < 500009 -> 3 * prime1
+                        lengthcount % prime1 != 0 -> 3 * prime1
+                        lengthcount % prime2 != 0 -> 3 * prime2
+                        lengthcount % prime3 != 0 -> 3 * prime3
+                        else -> 3 * prime4
+                    }
 
             var pix = 0
             for (i in 0 until samplepixels) {
@@ -627,7 +681,8 @@ object ImageUtils {
                     radius -= radius / radiusdec
                     rad = radius shr radiusbiasshift
                     if (rad <= 1) rad = 0
-                    for (k in 0 until rad) radpower[k] = alpha * (((rad * rad - k * k) * radbias) / (rad * rad))
+                    for (k in 0 until rad) radpower[k] =
+                            alpha * (((rad * rad - k * k) * radbias) / (rad * rad))
                 }
             }
         }
@@ -645,12 +700,17 @@ object ImageUtils {
                     else {
                         i++
                         if (dist < 0) dist = -dist
-                        var a = p[0] - b; if (a < 0) a = -a
+                        var a = p[0] - b
+                        if (a < 0) a = -a
                         dist += a
                         if (dist < bestd) {
-                            a = p[2] - r; if (a < 0) a = -a
+                            a = p[2] - r
+                            if (a < 0) a = -a
                             dist += a
-                            if (dist < bestd) { bestd = dist; best = p[3] }
+                            if (dist < bestd) {
+                                bestd = dist
+                                best = p[3]
+                            }
                         }
                     }
                 }
@@ -661,12 +721,17 @@ object ImageUtils {
                     else {
                         j--
                         if (dist < 0) dist = -dist
-                        var a = p[0] - b; if (a < 0) a = -a
+                        var a = p[0] - b
+                        if (a < 0) a = -a
                         dist += a
                         if (dist < bestd) {
-                            a = p[2] - r; if (a < 0) a = -a
+                            a = p[2] - r
+                            if (a < 0) a = -a
                             dist += a
-                            if (dist < bestd) { bestd = dist; best = p[3] }
+                            if (dist < bestd) {
+                                bestd = dist
+                                best = p[3]
+                            }
                         }
                     }
                 }
@@ -684,8 +749,10 @@ object ImageUtils {
         }
 
         private fun alterneigh(rad: Int, i: Int, b: Int, g: Int, r: Int) {
-            var lo = i - rad; if (lo < -1) lo = -1
-            var hi = i + rad; if (hi > netsize) hi = netsize
+            var lo = i - rad
+            if (lo < -1) lo = -1
+            var hi = i + rad
+            if (hi > netsize) hi = netsize
             var j = i + 1
             var k = i - 1
             var m = 1
@@ -720,14 +787,23 @@ object ImageUtils {
             var bestbiaspos = bestpos
             for (i in 0 until netsize) {
                 val n = network[i]
-                var dist = n[0] - b; if (dist < 0) dist = -dist
-                var a = n[1] - g; if (a < 0) a = -a
+                var dist = n[0] - b
+                if (dist < 0) dist = -dist
+                var a = n[1] - g
+                if (a < 0) a = -a
                 dist += a
-                a = n[2] - r; if (a < 0) a = -a
+                a = n[2] - r
+                if (a < 0) a = -a
                 dist += a
-                if (dist < bestd) { bestd = dist; bestpos = i }
+                if (dist < bestd) {
+                    bestd = dist
+                    bestpos = i
+                }
                 val biasdist = dist - ((bias[i]) shr (intbiasshift - netbiasshift))
-                if (biasdist < bestbiasd) { bestbiasd = biasdist; bestbiaspos = i }
+                if (biasdist < bestbiasd) {
+                    bestbiasd = biasdist
+                    bestbiaspos = i
+                }
                 val betafreq = (freq[i] shr betashift)
                 freq[i] -= betafreq
                 bias[i] += (betafreq shl gammashift)
@@ -739,115 +815,174 @@ object ImageUtils {
     }
 
     /**
-     * LZW encoder for GIF
+     * LZW encoder for GIF - based on GIF89a specification.
+     *
+     * The code size increases when the code table is about to exceed the maximum value
+     * representable by the current number of bits.
      */
-    private class LZWEncoder(private val imgW: Int, private val imgH: Int, private val pixAry: ByteArray, private val initCodeSize: Int) {
+    private class LZWEncoder(
+            private val imgW: Int,
+            private val imgH: Int,
+            private val pixAry: ByteArray,
+            private val initCodeSize: Int
+    ) {
         private val EOF = -1
         private var curPixel = 0
+
+        // LZW parameters
         private var codeSize = 0
         private var clearCode = 0
         private var EOFCode = 0
         private var freeEnt = 0
         private var maxCode = 0
-        private var aCount = 0
+        private var gInitBits = 0
+
+        // Hash table for string matching
         private val HSIZE = 5003
         private val htab = IntArray(HSIZE)
         private val codetab = IntArray(HSIZE)
-        private val accum = ByteArray(256)
-        private var gInitBits = 0
+
+        // Bit accumulator for output
         private var curAccum = 0
         private var curBits = 0
-        private val masks = intArrayOf(0x0000, 0x0001, 0x0003, 0x0007, 0x000F, 0x001F, 0x003F, 0x007F, 0x00FF,
-            0x01FF, 0x03FF, 0x07FF, 0x0FFF, 0x1FFF, 0x3FFF, 0x7FFF, 0xFFFF)
+
+        // Block output buffer (max 255 bytes per sub-block in GIF)
+        private val accum = ByteArray(256)
+        private var aCount = 0
 
         fun encode(os: OutputStream) {
+            // Write the minimum LZW code size
             os.write(initCodeSize)
-            curPixel = 0
+
+            // Initialize and compress
             compress(initCodeSize + 1, os)
+
+            // Write block terminator
             os.write(0)
         }
 
         private fun compress(initBits: Int, outs: OutputStream) {
+            // Initialize
             gInitBits = initBits
+            codeSize = gInitBits
             clearCode = 1 shl (initBits - 1)
             EOFCode = clearCode + 1
             freeEnt = clearCode + 2
-            aCount = 0
+            maxCode = (1 shl codeSize) - 1
+
+            // Clear hash table
+            for (i in 0 until HSIZE) htab[i] = -1
+
+            // Output clear code first
+            outputCode(clearCode, outs)
+
+            // Get first pixel
             var ent = nextPixel()
-            var hshift = 0
-            var fcode = HSIZE
-            while (fcode < 65536) { hshift++; fcode *= 2 }
-            hshift = 8 - hshift
-            val hSizeReg = HSIZE
-            clearHash(hSizeReg)
-            output(clearCode, outs)
+            if (ent == EOF) {
+                outputCode(EOFCode, outs)
+                flushBits(outs)
+                return
+            }
 
             var c: Int
             while (nextPixel().also { c = it } != EOF) {
-                fcode = (c shl 12) + ent
-                var i = (c shl hshift) xor ent
-                if (htab[i] == fcode) { ent = codetab[i]; continue }
-                else if (htab[i] >= 0) {
-                    var disp = hSizeReg - i
-                    if (i == 0) disp = 1
-                    do { i -= disp; if (i < 0) i += hSizeReg }
-                    while (htab[i] >= 0 && htab[i] != fcode)
+                // Compute hash
+                val fcode = (c shl 12) + ent
+                var i = (c shl 4) xor ent // XOR hashing
+
+                // Check for match
+                if (htab[i] == fcode) {
+                    ent = codetab[i]
+                    continue
                 }
-                if (htab[i] == fcode) { ent = codetab[i]; continue }
-                output(ent, outs)
+
+                // Handle hash collision with double hashing
+                if (htab[i] >= 0) {
+                    var disp = HSIZE - i
+                    if (i == 0) disp = 1
+                    while (true) {
+                        i -= disp
+                        if (i < 0) i += HSIZE
+                        if (htab[i] == fcode) {
+                            ent = codetab[i]
+                            break
+                        }
+                        if (htab[i] < 0) break
+                    }
+                    if (htab[i] == fcode) continue
+                }
+
+                // No match - output current code
+                outputCode(ent, outs)
                 ent = c
+
+                // Add to string table
                 if (freeEnt < 4096) {
-                    codetab[i] = freeEnt++
+                    codetab[i] = freeEnt
                     htab[i] = fcode
-                } else clearHash(hSizeReg).also { output(clearCode, outs) }
+
+                    // Check if we need to increase code size BEFORE we use this new code
+                    // The decoder will also add an entry here and needs to bump at the same point
+                    if (freeEnt > maxCode && codeSize < 12) {
+                        codeSize++
+                        maxCode = (1 shl codeSize) - 1
+                    }
+                    freeEnt++
+                } else {
+                    // Table full - reset
+                    outputCode(clearCode, outs)
+                    for (k in 0 until HSIZE) htab[k] = -1
+                    freeEnt = clearCode + 2
+                    codeSize = gInitBits
+                    maxCode = (1 shl codeSize) - 1
+                }
             }
-            output(ent, outs)
-            output(EOFCode, outs)
+
+            // Output final code and EOF
+            outputCode(ent, outs)
+            outputCode(EOFCode, outs)
+            flushBits(outs)
         }
 
-        private fun clearHash(hsize: Int) {
-            for (i in 0 until hsize) htab[i] = -1
-            freeEnt = clearCode + 2
-            codeSize = gInitBits
-            maxCode = (1 shl codeSize) - 1
-        }
-
-        private fun nextPixel(): Int {
-            if (curPixel >= pixAry.size) return EOF
-            return pixAry[curPixel++].toInt() and 0xff
-        }
-
-        private fun output(code: Int, outs: OutputStream) {
-            curAccum = curAccum and masks[curBits]
-            curAccum = if (curBits > 0) curAccum or (code shl curBits) else code
+        private fun outputCode(code: Int, outs: OutputStream) {
+            // Add code to accumulator (LSB first)
+            curAccum = curAccum or (code shl curBits)
             curBits += codeSize
+
+            // Output complete bytes
             while (curBits >= 8) {
-                accum[aCount++] = (curAccum and 0xff).toByte()
-                if (aCount >= 254) flushChar(outs)
+                addToBlock((curAccum and 0xff).toByte(), outs)
                 curAccum = curAccum shr 8
                 curBits -= 8
             }
-            if (freeEnt > maxCode || code == clearCode) {
-                if (code == clearCode) { codeSize = gInitBits; maxCode = (1 shl codeSize) - 1 }
-                else { codeSize++; maxCode = if (codeSize == 12) 4096 else (1 shl codeSize) - 1 }
+        }
+
+        private fun flushBits(outs: OutputStream) {
+            // Output any remaining bits
+            if (curBits > 0) {
+                addToBlock((curAccum and 0xff).toByte(), outs)
             }
-            if (code == EOFCode) {
-                while (curBits > 0) {
-                    accum[aCount++] = (curAccum and 0xff).toByte()
-                    if (aCount >= 254) flushChar(outs)
-                    curAccum = curAccum shr 8
-                    curBits -= 8
-                }
-                flushChar(outs)
+            flushBlock(outs)
+        }
+
+        private fun addToBlock(b: Byte, outs: OutputStream) {
+            accum[aCount++] = b
+            if (aCount >= 254) {
+                flushBlock(outs)
             }
         }
 
-        private fun flushChar(outs: OutputStream) {
+        private fun flushBlock(outs: OutputStream) {
             if (aCount > 0) {
                 outs.write(aCount)
                 outs.write(accum, 0, aCount)
                 aCount = 0
             }
+        }
+
+        private fun nextPixel(): Int {
+            if (curPixel >= pixAry.size) return EOF
+            return pixAry[curPixel++].toInt() and 0xff
         }
     }
 }
