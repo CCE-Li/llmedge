@@ -1732,7 +1732,11 @@ object LLMEdgeManager {
                 // CPU backend with sequential load can be 5x faster than Vulkan.
                 // The auto-detection enables CPU backend on low-memory devices which is
                 // often the better choice for mobile diffusion workloads.
-                val finalSequentialLoad = if (preferPerformanceMode) null else sequentialLoad
+                // Fix: Respect explicit sequentialLoad=true request (e.g. from generateImageSequentially)
+                val finalSequentialLoad =
+                        if (sequentialLoad == true) true
+                        else if (preferPerformanceMode) null
+                        else sequentialLoad
                 Log.i(
                         TAG,
                         "StableDiffusion.load(image) called with finalSequentialLoad=${finalSequentialLoad}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, flashAttn=$adaptiveFlashAttn"
@@ -1916,7 +1920,10 @@ object LLMEdgeManager {
                 }
 
                 val loadStart = System.currentTimeMillis()
-                val finalSequentialLoadV = if (preferPerformanceMode) null else sequentialLoad
+                val finalSequentialLoadV =
+                        if (sequentialLoad == true) true
+                        else if (preferPerformanceMode) null
+                        else sequentialLoad
                 val finalKeepClipOnCpu = if (preferPerformanceMode) false else true
                 val finalKeepVaeOnCpu = if (preferPerformanceMode) false else true
                 Log.i(
