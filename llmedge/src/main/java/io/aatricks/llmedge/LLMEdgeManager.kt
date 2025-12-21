@@ -1926,7 +1926,12 @@ object LLMEdgeManager {
                         if (sequentialLoad == true) true
                         else if (preferPerformanceMode) null
                         else sequentialLoad
-                // Keep T5 and TAEHV on CPU when using custom TAEHV to match Test stability and save VRAM
+
+                // Check Vulkan availability for the forceVulkan flag, but allow performance mode optimizations (memory thresholds) on CPU
+                val hasVulkan = isVulkanAvailable()
+
+                // Keep T5 and TAEHV on CPU when using custom TAEHV (stability fix). 
+                // Otherwise respect performance mode preference (if perf mode is ON, we allow offloading i.e. keep=false).
                 val finalKeepClipOnCpu = if (usingCustomTae || !preferPerformanceMode) true else false
                 val finalKeepVaeOnCpu = if (usingCustomTae || !preferPerformanceMode) true else false
                 // Log runtime ABI details to help diagnose device-specific native crashes
@@ -1941,7 +1946,7 @@ object LLMEdgeManager {
                 }
                 Log.i(
                         TAG,
-                        "StableDiffusion.load(video) called with finalSequentialLoad=${finalSequentialLoadV}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, keepClipOnCpu=${finalKeepClipOnCpu}, keepVaeOnCpu=${finalKeepVaeOnCpu}, flashAttn=$flashAttn, vae=$vaePath, taesd=$taesdPath"
+                        "StableDiffusion.load(video) called with finalSequentialLoad=${finalSequentialLoadV}, forceVulkan=${preferPerformanceMode && hasVulkan}, offloadToCpu=false, keepClipOnCpu=${finalKeepClipOnCpu}, keepVaeOnCpu=${finalKeepVaeOnCpu}, flashAttn=$flashAttn, vae=$vaePath, taesd=$taesdPath, hasVulkan=$hasVulkan"
                 )
                 val model =
                         StableDiffusion.load(
@@ -1956,7 +1961,8 @@ object LLMEdgeManager {
                                         ),
                                 offloadToCpu = false,
                                 sequentialLoad = finalSequentialLoadV,
-                                forceVulkan = preferPerformanceMode,
+                                // Don't force Vulkan when using TAEHV to avoid backend conflicts, otherwise respect performance mode AND availability
+                                forceVulkan = if (usingCustomTae) false else (preferPerformanceMode && hasVulkan),
                                 preferPerformanceMode = preferPerformanceMode,
                                 keepClipOnCpu = finalKeepClipOnCpu,
                                 keepVaeOnCpu = finalKeepVaeOnCpu,
