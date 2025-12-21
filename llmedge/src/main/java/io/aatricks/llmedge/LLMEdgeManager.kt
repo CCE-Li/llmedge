@@ -1139,8 +1139,6 @@ object LLMEdgeManager {
                 diffusionModelMutex.withLock {
                         contextRef = WeakReference(context.applicationContext)
                         unloadSmolLM() // Free up memory from LLM
-
-                        val isLowMem = isLowMemoryDevice(context)
                         // Sequential load logic is handled inside getOrLoadImageModel via
                         // auto-detection if null,
                         // or we can force it here if needed. Current implementation uses default
@@ -1193,6 +1191,10 @@ object LLMEdgeManager {
 
                         val isLowMem = isLowMemoryDevice(context)
                         val useSequential = params.forceSequentialLoad || isLowMem
+                        Log.i(
+                                TAG,
+                                "generateVideo: preferPerformanceMode=$preferPerformanceMode, isLowMem=$isLowMem, forceSequential=${params.forceSequentialLoad}, useSequential=$useSequential, taehvPath=${params.taehvPath ?: "(none)"}, hasInitImage=${params.initImage != null}"
+                        )
 
                         if (useSequential) {
                                 return generateVideoSequentially(context, params, onProgress)
@@ -1799,14 +1801,9 @@ object LLMEdgeManager {
                 // Check if we already have the correct VIDEO model loaded
                 val spec = currentDiffusionModelSpec
 
-                // Determine expected VAE path (either custom or default)
-                val usingCustomVae = taehvPath != null
-                // For cache check, we can't easily get the default VAE path without I/O if not
-                // cached,
-                // but we can check if spec matches what we expect.
-                // If taehvPath is provided, spec.vaePath must equal it.
-                // If taehvPath is NOT provided, spec.vaePath should resolve to the default VAE
-                // file.
+                // If taehvPath is provided, it is treated as a tiny autoencoder (TAEHV/TAESD)
+                // and must be passed via `taesdPath` (NOT `vaePath`).
+                val usingCustomTae = taehvPath != null
 
                 cachedModel?.let {
                         // Only return cached model if it's specifically a video model with VAE and
@@ -1817,7 +1814,7 @@ object LLMEdgeManager {
 
                         // Check VAE/TAESD match
                         val vaeMatch =
-                                if (usingCustomVae) {
+                                if (usingCustomTae) {
                                         spec?.taesdPath == taehvPath
                                 } else {
                                         // If we didn't request a custom VAE, allow the cached one
@@ -1850,7 +1847,7 @@ object LLMEdgeManager {
                         mi.availMem / (1024L * 1024L)
                 }
 
-                ensureVideoFiles(context, onProgress, skipVae = usingCustomVae)
+                ensureVideoFiles(context, onProgress, skipVae = usingCustomTae)
                 prepareMemoryForLoading()
 
                 val modelFile =
@@ -1858,17 +1855,22 @@ object LLMEdgeManager {
 
                 val vaePath: String?
                 val taesdPath: String?
-                if (usingCustomVae) {
-                        val file = java.io.File(taehvPath!!)
-                        if (file.exists() && file.length() < 100 * 1024 * 1024) {
-                                // Tiny AutoEncoder (TAESD/TAEHV)
-                                vaePath = null
-                                taesdPath = taehvPath
-                        } else {
-                                // Full VAE
-                                vaePath = taehvPath
-                                taesdPath = null
+                if (usingCustomTae) {
+                        val file = File(taehvPath!!)
+                        if (!file.exists() || !file.isFile || file.length() <= 0L) {
+                                throw java.io.FileNotFoundException(
+                                        "TAEHV/TAESD file not found or empty: ${file.absolutePath}"
+                                )
                         }
+                        // Treat taehvPath strictly as a tiny autoencoder (TAEHV/TAESD).
+                        // Some TAEHV safetensors can be >100MB, so file-size heuristics are not
+                        // reliable and can cause native crashes if misrouted via `vaePath`.
+                        vaePath = null
+                        taesdPath = file.absolutePath
+                        Log.i(
+                                TAG,
+                                "Using custom TAEHV/TAESD: path=${file.absolutePath}, sizeMB=${file.length() / (1024L * 1024L)}"
+                        )
                 } else {
                         vaePath =
                                 getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME)
@@ -1926,6 +1928,16 @@ object LLMEdgeManager {
                         else sequentialLoad
                 val finalKeepClipOnCpu = if (preferPerformanceMode) false else true
                 val finalKeepVaeOnCpu = if (preferPerformanceMode) false else true
+                // Log runtime ABI details to help diagnose device-specific native crashes
+                try {
+                        val is64 = android.os.Process.is64Bit()
+                        Log.i(
+                                TAG,
+                                "Runtime ABI: is64Bit=$is64, primaryAbi=${android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "?"}"
+                        )
+                } catch (_: Throwable) {
+                        // best-effort only
+                }
                 Log.i(
                         TAG,
                         "StableDiffusion.load(video) called with finalSequentialLoad=${finalSequentialLoadV}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, keepClipOnCpu=${finalKeepClipOnCpu}, keepVaeOnCpu=${finalKeepVaeOnCpu}, flashAttn=$flashAttn, vae=$vaePath, taesd=$taesdPath"
