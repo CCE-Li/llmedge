@@ -1926,8 +1926,8 @@ object LLMEdgeManager {
                         if (sequentialLoad == true) true
                         else if (preferPerformanceMode) null
                         else sequentialLoad
-                val finalKeepClipOnCpu = if (preferPerformanceMode) false else true
-                // Keep TAEHV on CPU to prevent crashes on some devices, otherwise respect performance mode
+                // Keep T5 and TAEHV on CPU when using custom TAEHV to match Test stability and save VRAM
+                val finalKeepClipOnCpu = if (usingCustomTae || !preferPerformanceMode) true else false
                 val finalKeepVaeOnCpu = if (usingCustomTae || !preferPerformanceMode) true else false
                 // Log runtime ABI details to help diagnose device-specific native crashes
                 try {
