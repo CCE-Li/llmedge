@@ -1927,7 +1927,8 @@ object LLMEdgeManager {
                         else if (preferPerformanceMode) null
                         else sequentialLoad
                 val finalKeepClipOnCpu = if (preferPerformanceMode) false else true
-                val finalKeepVaeOnCpu = if (preferPerformanceMode) false else true
+                // Keep TAEHV on CPU to prevent crashes on some devices, otherwise respect performance mode
+                val finalKeepVaeOnCpu = if (usingCustomTae || !preferPerformanceMode) true else false
                 // Log runtime ABI details to help diagnose device-specific native crashes
                 try {
                         val is64 = android.os.Process.is64Bit()
