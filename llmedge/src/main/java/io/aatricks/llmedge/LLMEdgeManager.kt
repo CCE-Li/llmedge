@@ -1739,9 +1739,12 @@ object LLMEdgeManager {
                         if (sequentialLoad == true) true
                         else if (preferPerformanceMode) null
                         else sequentialLoad
+                // Check Vulkan availability
+                val hasVulkan = isVulkanAvailable()
+
                 Log.i(
                         TAG,
-                        "StableDiffusion.load(image) called with finalSequentialLoad=${finalSequentialLoad}, forceVulkan=${preferPerformanceMode}, offloadToCpu=false, flashAttn=$adaptiveFlashAttn"
+                        "StableDiffusion.load(image) called with finalSequentialLoad=${finalSequentialLoad}, forceVulkan=${preferPerformanceMode && hasVulkan}, offloadToCpu=false, flashAttn=$adaptiveFlashAttn, hasVulkan=$hasVulkan"
                 )
                 val model =
                         StableDiffusion.load(
@@ -1753,7 +1756,7 @@ object LLMEdgeManager {
                                         ),
                                 offloadToCpu = false,
                                 sequentialLoad = finalSequentialLoad,
-                                forceVulkan = preferPerformanceMode,
+                                forceVulkan = preferPerformanceMode && hasVulkan,
                                 preferPerformanceMode = preferPerformanceMode,
                                 flashAttn = adaptiveFlashAttn,
                                 vaeDecodeOnly = true,
