@@ -1754,7 +1754,7 @@ object LLMEdgeManager {
                                         CpuTopology.getOptimalThreadCount(
                                                 CpuTopology.TaskType.DIFFUSION
                                         ),
-                                offloadToCpu = false,
+                                offloadToCpu = !preferPerformanceMode,
                                 sequentialLoad = finalSequentialLoad,
                                 forceVulkan = preferPerformanceMode && hasVulkan,
                                 preferPerformanceMode = preferPerformanceMode,
@@ -1962,7 +1962,8 @@ object LLMEdgeManager {
                                         CpuTopology.getOptimalThreadCount(
                                                 CpuTopology.TaskType.DIFFUSION
                                         ),
-                                offloadToCpu = false,
+                                // Keep weights in RAM for TAEHV stability or if performance mode is off
+                                offloadToCpu = usingCustomTae || !preferPerformanceMode,
                                 sequentialLoad = finalSequentialLoadV,
                                 // Don't force Vulkan when using TAEHV to avoid backend conflicts, otherwise respect performance mode AND availability
                                 forceVulkan = if (usingCustomTae) false else (preferPerformanceMode && hasVulkan),
