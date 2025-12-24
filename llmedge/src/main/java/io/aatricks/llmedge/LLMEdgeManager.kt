@@ -19,6 +19,8 @@ import kotlinx.coroutines.sync.withLock
 object LLMEdgeManager {
         private const val TAG = "LLMEdgeManager"
         private const val MIN_AVAILABLE_MEMORY_MB = 2000L
+        /** Auto-enable sequential load if total RAM is below this threshold (in MB). */
+        private const val AUTO_SEQUENTIAL_THRESHOLD_MB = 12288L // 12GB
 
         // Default Video Model (Wan 2.1)
         private const val DEFAULT_VIDEO_MODEL_ID = "Comfy-Org/Wan_2.1_ComfyUI_repackaged"
@@ -1187,16 +1189,28 @@ object LLMEdgeManager {
                 onProgress: ((String, Int, Int) -> Unit)? = null
         ): List<Bitmap> =
                 diffusionModelMutex.withLock {
-                        contextRef = WeakReference(context.applicationContext)
-                        unloadSmolLM() // Free up memory from LLM
-
-                        val isLowMem = isLowMemoryDevice(context)
-                        val useSequential = params.forceSequentialLoad || isLowMem
-                        Log.i(
-                                TAG,
-                                "generateVideo: preferPerformanceMode=$preferPerformanceMode, isLowMem=$isLowMem, forceSequential=${params.forceSequentialLoad}, useSequential=$useSequential, taehvPath=${params.taehvPath ?: "(none)"}, hasInitImage=${params.initImage != null}"
-                        )
-
+                                        contextRef = WeakReference(context.applicationContext)
+                                        unloadSmolLM() // Free up memory from LLM
+                        
+                                        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                                        val mi = ActivityManager.MemoryInfo()
+                                        am.getMemoryInfo(mi)
+                                        val totalRamMB = mi.totalMem / (1024L * 1024L)
+                        
+                                        val isLowMem = isLowMemoryDevice(context)
+                                        // Heuristic: If device has < 12GB total RAM, always use sequential load for video (Wan 2.1 is huge)
+                                        // unless performance mode is explicitly enabled by the developer.
+                                        val shouldAutoSequential = totalRamMB < AUTO_SEQUENTIAL_THRESHOLD_MB && !preferPerformanceMode
+                                        val useSequential = params.forceSequentialLoad || isLowMem || shouldAutoSequential
+                        
+                                        if (shouldAutoSequential && !params.forceSequentialLoad && !isLowMem) {
+                                                Log.i(TAG, "generateVideo: Auto-enabling sequential load (Device RAM ${totalRamMB}MB < ${AUTO_SEQUENTIAL_THRESHOLD_MB}MB)")
+                                        }
+                        
+                                        Log.i(
+                                                TAG,
+                                                "generateVideo: preferPerformanceMode=$preferPerformanceMode, totalRam=${totalRamMB}MB, isLowMem=$isLowMem, forceSequential=${params.forceSequentialLoad}, useSequential=$useSequential, taehvPath=${params.taehvPath ?: "(none)"}, hasInitImage=${params.initImage != null}"
+                                        )
                         if (useSequential) {
                                 return generateVideoSequentially(context, params, onProgress)
                         } else {
