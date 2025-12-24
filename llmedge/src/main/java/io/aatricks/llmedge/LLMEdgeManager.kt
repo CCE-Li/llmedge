@@ -1438,6 +1438,7 @@ object LLMEdgeManager {
                 params: VideoGenerationParams,
                 onProgress: ((String, Int, Int) -> Unit)?
         ): List<Bitmap> {
+                Log.i(TAG, "generateVideoSequentially: starting preparation")
                 // Skip downloading default VAE if custom TAEHV is provided
                 ensureVideoFiles(context, onProgress, skipVae = params.taehvPath != null)
 
@@ -1464,6 +1465,7 @@ object LLMEdgeManager {
                         "Memory check passed: available=${availMemMB}MB, required=${requiredMemMB}MB"
                 )
 
+                Log.i(TAG, "Step 1: Loading T5 encoder for pre-computation")
                 prepareMemoryForLoading()
                 var t5Model: StableDiffusion? = null
                 var cond: StableDiffusion.PrecomputedCondition?
@@ -1476,6 +1478,7 @@ object LLMEdgeManager {
                                         DEFAULT_VIDEO_T5XXL_ID,
                                         DEFAULT_VIDEO_T5XXL_FILENAME
                                 )
+                        Log.i(TAG, "T5 load path: ${t5File.absolutePath}")
                         t5Model =
                                 StableDiffusion.load(
                                         context = context,
@@ -1492,6 +1495,7 @@ object LLMEdgeManager {
                                         flashAttn = params.flashAttn
                                 )
 
+                        Log.i(TAG, "T5 model loaded, pre-computing condition")
                         cond =
                                 t5Model.precomputeCondition(
                                         params.prompt,
@@ -1499,6 +1503,7 @@ object LLMEdgeManager {
                                         params.width,
                                         params.height
                                 )
+                        Log.i(TAG, "Pre-computed condition (positive)")
                         uncond =
                                 if (params.negative.isNotEmpty()) {
                                         t5Model.precomputeCondition(
@@ -1515,10 +1520,13 @@ object LLMEdgeManager {
                                                 params.height
                                         )
                                 }
+                        Log.i(TAG, "Pre-computed condition (negative)")
                 } finally {
+                        Log.i(TAG, "Unloading T5 encoder")
                         t5Model?.close()
                 }
 
+                Log.i(TAG, "Step 2: Loading Diffusion model + VAE/TAEHV")
                 prepareMemoryForLoading()
                 var diffusionModel: StableDiffusion? = null
                 try {
@@ -1538,6 +1546,7 @@ object LLMEdgeManager {
                                         vaeDecodeOnly = params.initImage == null
                                 )
 
+                        Log.i(TAG, "Diffusion model loaded, starting generation")
                         val sdParams =
                                 StableDiffusion.VideoGenerateParams(
                                         prompt = params.prompt,
@@ -2181,6 +2190,7 @@ object LLMEdgeManager {
                 onProgress: ((String, Int, Int) -> Unit)?,
                 skipVae: Boolean = false
         ) {
+                Log.i(TAG, "ensureVideoFiles: skipVae=$skipVae")
                 val hfCallback: ((Long, Long?) -> Unit)? =
                         onProgress?.let { genCb ->
                                 { downloaded: Long, total: Long? ->
@@ -2192,7 +2202,7 @@ object LLMEdgeManager {
                                 }
                         }
 
-                HuggingFaceHub.ensureRepoFileOnDisk(
+                val modelFile = HuggingFaceHub.ensureRepoFileOnDisk(
                         context,
                         DEFAULT_VIDEO_MODEL_ID,
                         "main",
@@ -2203,8 +2213,10 @@ object LLMEdgeManager {
                         true,
                         hfCallback
                 )
+                Log.i(TAG, "Video model file: ${modelFile.file.absolutePath} (exists=${modelFile.file.exists()}, size=${modelFile.file.length()})")
+
                 if (!skipVae) {
-                        HuggingFaceHub.ensureRepoFileOnDisk(
+                        val vaeFile = HuggingFaceHub.ensureRepoFileOnDisk(
                                 context,
                                 DEFAULT_VIDEO_VAE_ID,
                                 "main",
@@ -2215,8 +2227,12 @@ object LLMEdgeManager {
                                 true,
                                 hfCallback
                         )
+                        Log.i(TAG, "VAE model file: ${vaeFile.file.absolutePath} (exists=${vaeFile.file.exists()}, size=${vaeFile.file.length()})")
+                } else {
+                        Log.i(TAG, "Skipping VAE load as requested")
                 }
-                HuggingFaceHub.ensureRepoFileOnDisk(
+
+                val t5File = HuggingFaceHub.ensureRepoFileOnDisk(
                         context,
                         DEFAULT_VIDEO_T5XXL_ID,
                         "main",
@@ -2227,6 +2243,7 @@ object LLMEdgeManager {
                         true,
                         hfCallback
                 )
+                Log.i(TAG, "T5XXL model file: ${t5File.file.absolutePath} (exists=${t5File.file.exists()}, size=${t5File.file.length()})")
         }
 
         private suspend fun ensureImageFiles(

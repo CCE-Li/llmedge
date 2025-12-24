@@ -1101,6 +1101,29 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     // If we requested preferred GPU path but nativeCreate failed, retry with CPU
                     // offload
                     if (handle == 0L && forceVulkan) {
+                        android.util.Log.w(
+                                LOG_TAG,
+                                "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback"
+                        )
+                        effectiveOffloadToCpu = true
+                        effectiveKeepClipOnCpu = true
+                        effectiveKeepVaeOnCpu = true
+                        handle =
+                                nativeCreate(
+                                        resolvedModelPath,
+                                        resolvedVaePath,
+                                        resolvedT5xxlPath,
+                                        taesdPath,
+                                        nThreads,
+                                        effectiveOffloadToCpu,
+                                        effectiveKeepClipOnCpu,
+                                        effectiveKeepVaeOnCpu,
+                                        flashAttn,
+                                        vaeDecodeOnly,
+                                        flowShift,
+                                        loraModelDir,
+                                        loraApplyMode.id,
+                                )
                     } 
                     if (handle == 0L) {
                         val errorMsg = buildString {
