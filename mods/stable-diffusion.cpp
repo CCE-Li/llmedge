@@ -607,14 +607,14 @@ public:
             }
             if (use_tiny_autoencoder) {
                 if (sd_version_is_wan(version) || sd_version_is_qwen_image(version)) {
-                    tae_first_stage = std::make_shared<TinyAutoEncoder>(vae_backend,
+                    tae_first_stage = std::make_shared<TinyVideoAutoEncoder>(vae_backend,
                                                                              offload_params_to_cpu,
                                                                              tensor_storage_map,
                                                                              "decoder",
                                                                              vae_decode_only,
                                                                              version);
                 } else {
-                    tae_first_stage = std::make_shared<TinyAutoEncoder>(vae_backend,
+                    tae_first_stage = std::make_shared<TinyImageAutoEncoder>(vae_backend,
                                                                              offload_params_to_cpu,
                                                                              tensor_storage_map,
                                                                              "decoder.layers",

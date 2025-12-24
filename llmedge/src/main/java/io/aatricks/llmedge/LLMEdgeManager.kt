@@ -329,6 +329,7 @@ object LLMEdgeManager {
          * available
          */
         fun getVulkanDeviceInfo(): VulkanDeviceInfo? {
+                if (!isVulkanAvailable()) return null
                 return try {
                         val deviceCount = io.aatricks.llmedge.StableDiffusion.getVulkanDeviceCount()
                         if (deviceCount <= 0) return null
@@ -1199,6 +1200,7 @@ object LLMEdgeManager {
                         if (useSequential) {
                                 return generateVideoSequentially(context, params, onProgress)
                         } else {
+                                Log.i(TAG, "generateVideo: loading model in non-sequential mode")
                                 val model =
                                         getOrLoadVideoModel(
                                                 context,
@@ -1971,8 +1973,8 @@ object LLMEdgeManager {
                                         CpuTopology.getOptimalThreadCount(
                                                 CpuTopology.TaskType.DIFFUSION
                                         ),
-                                // Keep weights in RAM for TAEHV stability or if performance mode is off
-                                offloadToCpu = usingCustomTae || !preferPerformanceMode,
+                                // Keep weights in RAM for TAEHV stability, if sequential load is used, or if performance mode is off
+                                offloadToCpu = (sequentialLoad == true) || usingCustomTae || !preferPerformanceMode,
                                 sequentialLoad = finalSequentialLoadV,
                                 // Don't force Vulkan when using TAEHV to avoid backend conflicts, otherwise respect performance mode AND availability
                                 forceVulkan = if (usingCustomTae) false else (preferPerformanceMode && hasVulkan),
