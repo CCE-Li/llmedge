@@ -164,7 +164,10 @@ object LLMEdgeManager {
                 val loraModelDir: String? = null,
                 val loraApplyMode: StableDiffusion.LoraApplyMode =
                         StableDiffusion.LoraApplyMode.AUTO,
-                val taehvPath: String? = null
+                val taehvPath: String? = null,
+                val modelPath: String? = null,
+                val vaePath: String? = null,
+                val t5xxlPath: String? = null
         ) {
                 /**
                  * Calculate the actual number of frames that will be generated. Wan model uses
@@ -1225,7 +1228,10 @@ object LLMEdgeManager {
                                                 loraModelDir = params.loraModelDir,
                                                 loraApplyMode = params.loraApplyMode,
                                                 taehvPath = params.taehvPath,
-                                                vaeDecodeOnly = params.initImage == null
+                                                vaeDecodeOnly = params.initImage == null,
+                                                modelPathOverride = params.modelPath,
+                                                vaePathOverride = params.vaePath,
+                                                t5xxlPathOverride = params.t5xxlPath
                                         )
                                 val sdParams =
                                         StableDiffusion.VideoGenerateParams(
@@ -1455,15 +1461,17 @@ object LLMEdgeManager {
                 onProgress: ((String, Int, Int) -> Unit)?
         ): List<Bitmap> {
                 Log.i(TAG, "generateVideoSequentially: starting preparation")
-                // Skip downloading default VAE if custom TAEHV is provided
-                ensureVideoFiles(context, onProgress, skipVae = params.taehvPath != null)
+                // Skip downloading default VAE if custom TAEHV or VAE override is provided
+                if (params.modelPath == null || (params.vaePath == null && params.taehvPath == null) || params.t5xxlPath == null) {
+                        ensureVideoFiles(context, onProgress, skipVae = params.taehvPath != null || params.vaePath != null)
+                }
 
                 // Check available memory before loading T5 (~6GB model)
                 val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
                 val memInfo = ActivityManager.MemoryInfo()
                 am.getMemoryInfo(memInfo)
                 val availMemMB = memInfo.availMem / (1024L * 1024L)
-                val requiredMemMB = 6000L // T5 Q3_K_S needs ~6GB
+                val requiredMemMB = if (params.t5xxlPath != null) 0L else 6000L // T5 Q3_K_S needs ~6GB, assume 0 if override provided (caller knows best)
 
                 if (availMemMB < requiredMemMB) {
                         Log.e(
@@ -1488,17 +1496,16 @@ object LLMEdgeManager {
                 var uncond: StableDiffusion.PrecomputedCondition?
 
                 try {
-                        val t5File =
-                                getFile(
+                        val t5Path = params.t5xxlPath ?: getFile(
                                         context,
                                         DEFAULT_VIDEO_T5XXL_ID,
                                         DEFAULT_VIDEO_T5XXL_FILENAME
-                                )
-                        Log.i(TAG, "T5 load path: ${t5File.absolutePath}")
+                                ).absolutePath
+                        Log.i(TAG, "T5 load path: ${t5Path}")
                         t5Model =
                                 StableDiffusion.load(
                                         context = context,
-                                        modelPath = t5File.absolutePath,
+                                        modelPath = t5Path,
                                         vaePath = null,
                                         t5xxlPath = null,
                                         nThreads =
@@ -1520,7 +1527,8 @@ object LLMEdgeManager {
                                         params.height
                                 )
                         Log.i(TAG, "Pre-computed condition (positive)")
-                        uncond =
+                        
+                        uncond = if (params.cfgScale != 1.0f) {
                                 if (params.negative.isNotEmpty()) {
                                         t5Model.precomputeCondition(
                                                 params.negative,
@@ -1536,7 +1544,11 @@ object LLMEdgeManager {
                                                 params.height
                                         )
                                 }
-                        Log.i(TAG, "Pre-computed condition (negative)")
+                        } else {
+                                Log.i(TAG, "Skipping negative prompt pre-computation (cfgScale=1.0)")
+                                null
+                        }
+                        if (uncond != null) Log.i(TAG, "Pre-computed condition (negative)")
                 } finally {
                         Log.i(TAG, "Unloading T5 encoder")
                         t5Model?.close()
@@ -1559,7 +1571,10 @@ object LLMEdgeManager {
                                         loraModelDir = params.loraModelDir,
                                         loraApplyMode = params.loraApplyMode,
                                         taehvPath = params.taehvPath,
-                                        vaeDecodeOnly = params.initImage == null
+                                        vaeDecodeOnly = params.initImage == null,
+                                        modelPathOverride = params.modelPath,
+                                        vaePathOverride = params.vaePath,
+                                        t5xxlPathOverride = params.t5xxlPath
                                 )
 
                         Log.i(TAG, "Diffusion model loaded, starting generation")
@@ -1824,7 +1839,10 @@ object LLMEdgeManager {
                 loraModelDir: String? = null,
                 loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO,
                 taehvPath: String? = null,
-                vaeDecodeOnly: Boolean = true
+                vaeDecodeOnly: Boolean = true,
+                modelPathOverride: String? = null,
+                vaePathOverride: String? = null,
+                t5xxlPathOverride: String? = null
         ): StableDiffusion {
                 // Check if we already have the correct VIDEO model loaded
                 val spec = currentDiffusionModelSpec
@@ -1838,12 +1856,17 @@ object LLMEdgeManager {
                         // T5
                         // or if loaded without T5 when `loadT5=false`.
                         val t5Match =
-                                if (loadT5) spec?.t5xxlPath != null else spec?.t5xxlPath == null
+                                if (loadT5) {
+                                        if (t5xxlPathOverride != null) spec?.t5xxlPath == t5xxlPathOverride
+                                        else spec?.t5xxlPath != null
+                                } else spec?.t5xxlPath == null
 
                         // Check VAE/TAESD match
                         val vaeMatch =
                                 if (usingCustomTae) {
                                         spec?.taesdPath == taehvPath
+                                } else if (vaePathOverride != null) {
+                                        spec?.vaePath == vaePathOverride
                                 } else {
                                         // If we didn't request a custom VAE, allow the cached one
                                         // if it's the default.
@@ -1851,8 +1874,11 @@ object LLMEdgeManager {
                                         spec?.vaePath?.endsWith(DEFAULT_VIDEO_VAE_FILENAME) == true
                                 }
 
+                        val modelMatch = if (modelPathOverride != null) spec?.path == modelPathOverride
+                                         else spec?.filename == DEFAULT_VIDEO_MODEL_FILENAME
+
                         if (spec != null &&
-                                        spec.filename == DEFAULT_VIDEO_MODEL_FILENAME &&
+                                        modelMatch &&
                                         vaeMatch && // Video models require VAE or TAESD
                                         t5Match &&
                                         spec.flowShift == flowShift &&
@@ -1875,11 +1901,13 @@ object LLMEdgeManager {
                         mi.availMem / (1024L * 1024L)
                 }
 
-                ensureVideoFiles(context, onProgress, skipVae = usingCustomTae)
+                // Skip downloading if overrides are provided
+                if (modelPathOverride == null || (vaePathOverride == null && !usingCustomTae) || (loadT5 && t5xxlPathOverride == null)) {
+                        ensureVideoFiles(context, onProgress, skipVae = usingCustomTae || vaePathOverride != null)
+                }
                 prepareMemoryForLoading()
 
-                val modelFile =
-                        getFile(context, DEFAULT_VIDEO_MODEL_ID, DEFAULT_VIDEO_MODEL_FILENAME)
+                val resolvedModelPath = modelPathOverride ?: getFile(context, DEFAULT_VIDEO_MODEL_ID, DEFAULT_VIDEO_MODEL_FILENAME).absolutePath
 
                 val vaePath: String?
                 val taesdPath: String?
@@ -1899,6 +1927,9 @@ object LLMEdgeManager {
                                 TAG,
                                 "Using custom TAEHV/TAESD: path=${file.absolutePath}, sizeMB=${file.length() / (1024L * 1024L)}"
                         )
+                } else if (vaePathOverride != null) {
+                        vaePath = vaePathOverride
+                        taesdPath = null
                 } else {
                         vaePath =
                                 getFile(context, DEFAULT_VIDEO_VAE_ID, DEFAULT_VIDEO_VAE_FILENAME)
@@ -1906,13 +1937,13 @@ object LLMEdgeManager {
                         taesdPath = null
                 }
 
-                val t5File =
+                val t5Path =
                         if (loadT5)
-                                getFile(
+                                t5xxlPathOverride ?: getFile(
                                         context,
                                         DEFAULT_VIDEO_T5XXL_ID,
                                         DEFAULT_VIDEO_T5XXL_FILENAME
-                                )
+                                ).absolutePath
                         else null
                 if (!loadT5) {
                         Log.i(
@@ -1923,9 +1954,9 @@ object LLMEdgeManager {
 
                 val cacheKey =
                         makeDiffusionCacheKey(
-                                modelFile.absolutePath,
+                                resolvedModelPath,
                                 vaePath,
-                                t5File?.absolutePath,
+                                t5Path,
                                 taesdPath,
                                 flowShift,
                                 loraModelDir,
@@ -1936,11 +1967,11 @@ object LLMEdgeManager {
                         cachedModel = cached
                         currentDiffusionModelSpec =
                                 LoadedDiffusionModelSpec(
-                                        modelId = DEFAULT_VIDEO_MODEL_ID,
-                                        filename = DEFAULT_VIDEO_MODEL_FILENAME,
-                                        path = modelFile.absolutePath,
+                                        modelId = if (modelPathOverride != null) "local" else DEFAULT_VIDEO_MODEL_ID,
+                                        filename = resolvedModelPath.substringAfterLast('/'),
+                                        path = resolvedModelPath,
                                         vaePath = vaePath,
-                                        t5xxlPath = t5File?.absolutePath,
+                                        t5xxlPath = t5Path,
                                         taesdPath = taesdPath,
                                         flowShift = flowShift,
                                         loraModelDir = loraModelDir,
@@ -1979,9 +2010,9 @@ object LLMEdgeManager {
                 val model =
                         StableDiffusion.load(
                                 context = context,
-                                modelPath = modelFile.absolutePath,
+                                modelPath = resolvedModelPath,
                                 vaePath = vaePath,
-                                t5xxlPath = t5File?.absolutePath,
+                                t5xxlPath = t5Path,
                                 taesdPath = taesdPath,
                                 nThreads =
                                         CpuTopology.getOptimalThreadCount(
@@ -2002,31 +2033,28 @@ object LLMEdgeManager {
                                 loraApplyMode = loraApplyMode
                         )
                 val loadTime = System.currentTimeMillis() - loadStart
-                val modelSize = modelFile.length()
+                // Use model param memory estimation for cache if possible, fallback to file size
+                val estimatedSize = StableDiffusion.estimateModelParamsMemoryBytes(resolvedModelPath)
+                val modelSize = if (estimatedSize > 0) estimatedSize else File(resolvedModelPath).length()
                 Log.i(
                         TAG,
-                        "Loaded video model in ${loadTime}ms (size=${modelSize / 1024 / 1024}MB) sequentialLoad=${sequentialLoad}"
+                        "Loaded video model in ${loadTime}ms (est_size=${modelSize / 1024 / 1024}MB)"
                 )
-                // Use file size as cache size estimate to avoid re-parsing the model file.
 
                 diffusionModelCache.put(cacheKey, model, modelSize, loadTime)
                 cachedModel = model
                 currentDiffusionModelSpec =
                         LoadedDiffusionModelSpec(
-                                modelId = DEFAULT_VIDEO_MODEL_ID,
-                                filename = DEFAULT_VIDEO_MODEL_FILENAME,
-                                path = modelFile.absolutePath,
+                                modelId = if (modelPathOverride != null) "local" else DEFAULT_VIDEO_MODEL_ID,
+                                filename = resolvedModelPath.substringAfterLast('/'),
+                                path = resolvedModelPath,
                                 vaePath = vaePath,
-                                t5xxlPath = t5File?.absolutePath,
+                                t5xxlPath = t5Path,
                                 taesdPath = taesdPath,
                                 flowShift = flowShift,
                                 loraModelDir = loraModelDir,
                                 loraApplyMode = loraApplyMode
                         )
-                Log.i(
-                        TAG,
-                        "Loaded Video model from cache: $cacheKey, sequentialLoad=${sequentialLoad}"
-                )
                 return model
         }
 

@@ -126,8 +126,8 @@ object CpuTopology {
         return when (taskType) {
             TaskType.PROMPT_PROCESSING -> {
                 // Restore prior fast default: 4 threads for small LLMs (matches previous SmolLM default)
-                // On larger devices, allow up to 8 threads but never below 4.
-                val avail = Runtime.getRuntime().availableProcessors().coerceAtMost(8)
+                // On larger devices, allow up to 16 threads but never below 4.
+                val avail = Runtime.getRuntime().availableProcessors().coerceAtMost(16)
                 avail.coerceAtLeast(4)
             }
             TaskType.TOKEN_GENERATION -> {
