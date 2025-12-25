@@ -55,8 +55,8 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         val strength: Float,
         val initImage: ByteArray?,
         val initWidth: Int,
-        val initHeight: Int
-        ,
+        val initHeight: Int,
+        val vaceStrength: Float,
         val easyCacheEnabled: Boolean,
         val easyCacheReuseThreshold: Float,
         val easyCacheStartPercent: Float,
@@ -79,6 +79,7 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         initImage: ByteArray?,
         initWidth: Int,
         initHeight: Int,
+        vaceStrength: Float,
         easyCacheEnabled: Boolean,
         easyCacheReuseThreshold: Float,
         easyCacheStartPercent: Float,
@@ -87,8 +88,8 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         // Track the call
         txt2VidCalls.add(Txt2VidCall(
             handle, prompt, negative, width, height, videoFrames, steps, cfg, seed,
-            sampleMethod, scheduler, strength, initImage, initWidth, initHeight
-            , easyCacheEnabled, easyCacheReuseThreshold, easyCacheStartPercent, easyCacheEndPercent
+            sampleMethod, scheduler, strength, initImage, initWidth, initHeight, vaceStrength,
+            easyCacheEnabled, easyCacheReuseThreshold, easyCacheStartPercent, easyCacheEndPercent
         ))
 
         // Simulate failure if configured

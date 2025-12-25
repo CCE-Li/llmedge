@@ -293,9 +293,13 @@ public:
         }
 
         if (strlen(SAFE_STR(sd_ctx_params->vae_path)) > 0) {
-            LOG_INFO("loading vae from '%s'", sd_ctx_params->vae_path);
-            if (!model_loader.init_from_file(sd_ctx_params->vae_path, "vae.")) {
-                LOG_WARN("loading vae from '%s' failed", sd_ctx_params->vae_path);
+            if (!use_tiny_autoencoder || sd_ctx_params->tae_preview_only) {
+                LOG_INFO("loading vae from '%s'", sd_ctx_params->vae_path);
+                if (!model_loader.init_from_file(sd_ctx_params->vae_path, "vae.")) {
+                    LOG_WARN("loading vae from '%s' failed", sd_ctx_params->vae_path);
+                }
+            } else {
+                LOG_INFO("taesd path provided; skipping VAE load");
             }
         }
 
@@ -564,14 +568,16 @@ public:
             }
 
             if (sd_version_is_wan(version) || sd_version_is_qwen_image(version)) {
-                first_stage_model = std::make_shared<WAN::WanVAERunner>(vae_backend,
-                                                                        offload_params_to_cpu,
-                                                                        tensor_storage_map,
-                                                                        "first_stage_model",
-                                                                        vae_decode_only,
-                                                                        version);
-                first_stage_model->alloc_params_buffer();
-                first_stage_model->get_param_tensors(tensors, "first_stage_model");
+                if (!use_tiny_autoencoder || sd_ctx_params->tae_preview_only) {
+                    first_stage_model = std::make_shared<WAN::WanVAERunner>(vae_backend,
+                                                                            offload_params_to_cpu,
+                                                                            tensor_storage_map,
+                                                                            "first_stage_model",
+                                                                            vae_decode_only,
+                                                                            version);
+                    first_stage_model->alloc_params_buffer();
+                    first_stage_model->get_param_tensors(tensors, "first_stage_model");
+                }
             } else if (version == VERSION_CHROMA_RADIANCE) {
                 first_stage_model = std::make_shared<FakeVAE>(vae_backend,
                                                               offload_params_to_cpu);
@@ -600,12 +606,22 @@ public:
                 first_stage_model->get_param_tensors(tensors, "first_stage_model");
             }
             if (use_tiny_autoencoder) {
-                tae_first_stage = std::make_shared<TinyAutoEncoder>(vae_backend,
-                                                                    offload_params_to_cpu,
-                                                                    tensor_storage_map,
-                                                                    "decoder.layers",
-                                                                    vae_decode_only,
-                                                                    version);
+                if (sd_version_is_wan(version) || sd_version_is_qwen_image(version)) {
+                    tae_first_stage = std::make_shared<TinyVideoAutoEncoder>(vae_backend,
+                                                                             offload_params_to_cpu,
+                                                                             tensor_storage_map,
+                                                                             "decoder",
+                                                                             vae_decode_only,
+                                                                             version);
+                } else {
+                    tae_first_stage = std::make_shared<TinyImageAutoEncoder>(vae_backend,
+                                                                             offload_params_to_cpu,
+                                                                             tensor_storage_map,
+                                                                             "decoder.layers",
+                                                                             vae_decode_only,
+                                                                             version);
+                }
+
                 if (sd_ctx_params->vae_conv_direct) {
                     LOG_INFO("Using Conv2d direct in the tae model");
                     tae_first_stage->set_conv2d_direct_enabled(true);
@@ -913,7 +929,7 @@ public:
         diffusion_params.timesteps = timesteps;
         diffusion_params.context   = c;
         diffusion_params.c_concat  = concat;
-        diffusion_model->compute(n_threads, diffusion_params, &out);
+        diffusion_model->compute(n_threads, diffusion_params, &out, work_ctx);
         diffusion_model->free_compute_buffer();
 
         double result = 0.f;
@@ -1398,7 +1414,7 @@ public:
                 if (vae_tiling_params.enabled) {
                     // split latent in 32x32 tiles and compute in several steps
                     auto on_tiling = [&](ggml_tensor* in, ggml_tensor* out, bool init) {
-                        first_stage_model->compute(n_threads, in, true, &out, nullptr);
+                        first_stage_model->compute(n_threads, in, true, &out, work_ctx);
                     };
                     silent_tiling(latents, result, get_vae_scale_factor(), 32, 0.5f, on_tiling);
 
@@ -1417,7 +1433,7 @@ public:
                 if (vae_tiling_params.enabled) {
                     // split latent in 64x64 tiles and compute in several steps
                     auto on_tiling = [&](ggml_tensor* in, ggml_tensor* out, bool init) {
-                        tae_first_stage->compute(n_threads, in, true, &out, nullptr);
+                        tae_first_stage->compute(n_threads, in, true, &out, work_ctx);
                     };
                     silent_tiling(latents, result, get_vae_scale_factor(), 64, 0.5f, on_tiling);
                 } else {
@@ -1710,7 +1726,8 @@ public:
             if (!skip_model) {
                 if (!work_diffusion_model->compute(n_threads,
                                                    diffusion_params,
-                                                   active_output)) {
+                                                   active_output,
+                                                   work_ctx)) {
                     LOG_ERROR("diffusion model compute failed");
                     return nullptr;
                 }
@@ -1738,7 +1755,8 @@ public:
                 if (!skip_uncond) {
                     if (!work_diffusion_model->compute(n_threads,
                                                        diffusion_params,
-                                                       &out_uncond)) {
+                                                       &out_uncond,
+                                                       work_ctx)) {
                         LOG_ERROR("diffusion model compute failed");
                         return nullptr;
                     }
@@ -1756,7 +1774,8 @@ public:
                 if (!skip_img_cond) {
                     if (!work_diffusion_model->compute(n_threads,
                                                        diffusion_params,
-                                                       &out_img_cond)) {
+                                                       &out_img_cond,
+                                                       work_ctx)) {
                         LOG_ERROR("diffusion model compute failed");
                         return nullptr;
                     }
@@ -1778,7 +1797,8 @@ public:
                     diffusion_params.skip_layers = skip_layers;
                     if (!work_diffusion_model->compute(n_threads,
                                                        diffusion_params,
-                                                       &out_skip)) {
+                                                       &out_skip,
+                                                       work_ctx)) {
                         LOG_ERROR("diffusion model compute failed");
                         return nullptr;
                     }
@@ -2170,7 +2190,7 @@ public:
             if (vae_tiling_params.enabled && !encode_video) {
                 // split latent in 32x32 tiles and compute in several steps
                 auto on_tiling = [&](ggml_tensor* in, ggml_tensor* out, bool init) {
-                    tae_first_stage->compute(n_threads, in, false, &out, nullptr);
+                    tae_first_stage->compute(n_threads, in, false, &out, work_ctx);
                 };
                 sd_tiling(x, result, vae_scale_factor, 64, 0.5f, on_tiling);
             } else {
@@ -2288,7 +2308,7 @@ public:
 
                 // split latent in 32x32 tiles and compute in several steps
                 auto on_tiling = [&](ggml_tensor* in, ggml_tensor* out, bool init) {
-                    first_stage_model->compute(n_threads, in, true, &out, nullptr);
+                    first_stage_model->compute(n_threads, in, true, &out, work_ctx);
                 };
                 sd_tiling_non_square(x, result, vae_scale_factor, tile_size_x, tile_size_y, tile_overlap, on_tiling);
             } else {
@@ -2300,11 +2320,11 @@ public:
             if (vae_tiling_params.enabled && !decode_video) {
                 // split latent in 64x64 tiles and compute in several steps
                 auto on_tiling = [&](ggml_tensor* in, ggml_tensor* out, bool init) {
-                    tae_first_stage->compute(n_threads, in, true, &out);
+                    tae_first_stage->compute(n_threads, in, true, &out, work_ctx);
                 };
                 sd_tiling(x, result, vae_scale_factor, 64, 0.5f, on_tiling);
             } else {
-                tae_first_stage->compute(n_threads, x, true, &result);
+                tae_first_stage->compute(n_threads, x, true, &result, work_ctx);
             }
             tae_first_stage->free_compute_buffer();
         }
@@ -3309,7 +3329,12 @@ sd_image_t* generate_image_internal(sd_ctx_t* sd_ctx,
     int64_t t4 = ggml_time_ms();
     LOG_INFO("decode_first_stage completed, taking %.2fs", (t4 - t3) * 1.0f / 1000);
     if (sd_ctx->sd->free_params_immediately && !sd_ctx->sd->use_tiny_autoencoder) {
-        sd_ctx->sd->first_stage_model->free_params_buffer();
+        if (sd_ctx->sd->first_stage_model) {
+            sd_ctx->sd->first_stage_model->free_params_buffer();
+        }
+        if (sd_ctx->sd->tae_first_stage) {
+            sd_ctx->sd->tae_first_stage->free_params_buffer();
+        }
     }
 
     sd_ctx->sd->lora_stat();
@@ -4255,7 +4280,12 @@ SD_API sd_image_t* sd_generate_video_with_precomputed_condition(sd_ctx_t* sd_ctx
     int64_t t5              = ggml_time_ms();
     LOG_INFO("decode_first_stage completed, taking %.2fs", (t5 - t4) * 1.0f / 1000);
     if (sd_ctx->sd->free_params_immediately) {
-        sd_ctx->sd->first_stage_model->free_params_buffer();
+        if (sd_ctx->sd->first_stage_model) {
+            sd_ctx->sd->first_stage_model->free_params_buffer();
+        }
+        if (sd_ctx->sd->tae_first_stage) {
+            sd_ctx->sd->tae_first_stage->free_params_buffer();
+        }
     }
 
     sd_ctx->sd->lora_stat();
@@ -4701,7 +4731,12 @@ SD_API sd_image_t* generate_video(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* s
     int64_t t5              = ggml_time_ms();
     LOG_INFO("decode_first_stage completed, taking %.2fs", (t5 - t4) * 1.0f / 1000);
     if (sd_ctx->sd->free_params_immediately) {
-        sd_ctx->sd->first_stage_model->free_params_buffer();
+        if (sd_ctx->sd->first_stage_model) {
+            sd_ctx->sd->first_stage_model->free_params_buffer();
+        }
+        if (sd_ctx->sd->tae_first_stage) {
+            sd_ctx->sd->tae_first_stage->free_params_buffer();
+        }
     }
 
     sd_ctx->sd->lora_stat();

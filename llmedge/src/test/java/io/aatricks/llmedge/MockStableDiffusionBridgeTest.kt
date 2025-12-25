@@ -59,6 +59,7 @@ class MockStableDiffusionBridgeTest {
             initImage = byteArrayOf(1, 2, 3),
             initWidth = 256,
             initHeight = 256,
+            vaceStrength = 1.0f,
             easyCacheEnabled = false,
             easyCacheReuseThreshold = 0.2f,
             easyCacheStartPercent = 0.15f,
@@ -102,6 +103,7 @@ class MockStableDiffusionBridgeTest {
             initImage = null,
             initWidth = 0,
             initHeight = 0
+            , vaceStrength = 1.0f
             , easyCacheEnabled = false
             , easyCacheReuseThreshold = 0.2f
             , easyCacheStartPercent = 0.15f
@@ -140,6 +142,7 @@ class MockStableDiffusionBridgeTest {
             initImage = null,
             initWidth = 0,
             initHeight = 0
+            , vaceStrength = 1.0f
             , easyCacheEnabled = false
             , easyCacheReuseThreshold = 0.2f
             , easyCacheStartPercent = 0.15f

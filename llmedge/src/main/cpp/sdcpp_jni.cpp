@@ -299,11 +299,13 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         jstring jModelPath,
         jstring jVaePath,
         jstring jT5xxlPath,
+        jstring jTaesdPath,
         jint nThreads,
         jboolean offloadToCpu,
         jboolean keepClipOnCpu,
         jboolean keepVaeOnCpu,
         jboolean flashAttn,
+        jboolean jvaeDecodeOnly,
         jfloat flowShift,
         jstring jLoraModelDir, jint jLoraApplyMode) {
     (void)clazz;
@@ -316,6 +318,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     const char* modelPath = jModelPath ? env->GetStringUTFChars(jModelPath, nullptr) : nullptr;
     const char* vaePath   = jVaePath   ? env->GetStringUTFChars(jVaePath,   nullptr) : nullptr;
     const char* t5xxlPath = jT5xxlPath ? env->GetStringUTFChars(jT5xxlPath, nullptr) : nullptr;
+    const char* taesdPath = jTaesdPath ? env->GetStringUTFChars(jTaesdPath, nullptr) : nullptr;
 
     sd_set_log_callback(sd_android_log_cb, nullptr);
 
@@ -323,11 +326,13 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     ALOGI("  modelPath=%s", modelPath ? modelPath : "NULL");
     ALOGI("  vaePath=%s", vaePath ? vaePath : "NULL");
     ALOGI("  t5xxlPath=%s", t5xxlPath ? t5xxlPath : "NULL");
-    ALOGI("  offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s",
+    ALOGI("  taesdPath=%s", taesdPath ? taesdPath : "NULL");
+    ALOGI("  offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s, vaeDecodeOnly=%s",
           offloadToCpu ? "true" : "false",
           keepClipOnCpu ? "true" : "false",
           keepVaeOnCpu ? "true" : "false",
-          flashAttn ? "true" : "false");
+          flashAttn ? "true" : "false",
+          jvaeDecodeOnly ? "true" : "false");
 
     sd_ctx_params_t p{};
     sd_ctx_params_init(&p);
@@ -337,6 +342,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     // distinguish between null and empty string; using nullptr ensures the
     // text encoder is selected correctly for SD 1.x models.
     p.t5xxl_path = t5xxlPath; // keep null if not provided
+    p.taesd_path = taesdPath ? taesdPath : "";
     p.free_params_immediately = true;
     p.n_threads = nThreads > 0 ? nThreads : sd_get_num_physical_cores_safe();
     p.offload_params_to_cpu = offloadToCpu;
@@ -344,9 +350,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     p.keep_vae_on_cpu = keepVaeOnCpu;
     p.diffusion_flash_attn = flashAttn;
     p.flow_shift = flowShift;
-    // Enable VAE encoder for I2V (Image-to-Video) support
-    // Default is true (decode-only), but we need encoder for I2V
-    p.vae_decode_only = false;
+    // VAE decode only (usually true for TAE, false for full VAE if encoding needed for I2V)
+    p.vae_decode_only = jvaeDecodeOnly;
     if (jLoraModelDir) {
         const char* loraPath = env->GetStringUTFChars(jLoraModelDir, nullptr);
         if (loraPath) {
@@ -391,6 +396,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
                      if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
                      if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
                      if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
+                     if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
                      return 0;
                  }
                  ALOGI("Backend initialized for T5");
@@ -423,6 +429,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
                  if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
                  if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
                  if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
+                 if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
 
                  return reinterpret_cast<jlong>(handle);
              } else {
@@ -434,12 +441,14 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
         if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
         if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
+        if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
         return 0;
     }
 
     if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
     if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
     if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
+    if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
 
     auto* handle = new SdHandle();
     handle->ctx = ctx;
@@ -554,6 +563,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     jint videoFrames, jint steps, jfloat cfg, jlong seed,
     jint jSampleMethod, jint jScheduler, jfloat jStrength,
     jbyteArray jInitImage, jint initWidth, jint initHeight,
+    jfloat jVaceStrength,
     jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
     (void)thiz;
     if (handlePtr == 0) {
@@ -597,6 +607,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     gen.video_frames = videoFrames;
     gen.sample_params = sample;
     gen.seed = seed;
+    gen.vace_strength = jVaceStrength;
 
     // Map Kotlin enums (DEFAULT=0) to upstream enums (no DEFAULT).
     // Use *_COUNT as a sentinel to request model defaults.
@@ -1088,6 +1099,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
         jint jSampleMethod, jint jScheduler, jfloat jStrength,
         jbyteArray jInitImage, jint initWidth, jint initHeight,
         jobjectArray condArr, jobjectArray uncondArr,
+        jfloat jVaceStrength,
         jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
     (void)thiz;
     if (handlePtr == 0) {
@@ -1126,6 +1138,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
     gen.video_frames = videoFrames;
     gen.sample_params = sample;
     gen.seed = seed;
+    gen.vace_strength = jVaceStrength;
 
     // Map Kotlin enums (DEFAULT=0) to upstream enums (no DEFAULT).
     // Use *_COUNT as a sentinel to request model defaults.

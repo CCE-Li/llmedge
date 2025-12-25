@@ -66,18 +66,18 @@ class VideoGenerationLinuxE2ETest {
 
         // Get model paths from environment
         val t5Path = System.getenv("LLMEDGE_TEST_T5_PATH") ?: System.getProperty("LLMEDGE_TEST_T5_PATH")
-        val vaePath = System.getenv("LLMEDGE_TEST_VAE_PATH") ?: System.getProperty("LLMEDGE_TEST_VAE_PATH")
-        println("[VideoGenerationLinuxE2ETest] modelPath=$modelPath t5Path=$t5Path vaePath=$vaePath")
+        val taesdPath = System.getenv("LLMEDGE_TEST_TAESD_PATH") ?: System.getProperty("LLMEDGE_TEST_TAESD_PATH")
+        println("[VideoGenerationLinuxE2ETest] modelPath=$modelPath t5Path=$t5Path taesdPath=$taesdPath")
 
         Assume.assumeTrue("T5 path not set", !t5Path.isNullOrBlank())
-        Assume.assumeTrue("VAE path not set", !vaePath.isNullOrBlank())
+        Assume.assumeTrue("TAESD path not set", !taesdPath.isNullOrBlank())
 
         // Test parameters
         val width = 256
         val height = 256
         val videoFrames = 5  // Minimum 5 frames required for Wan model
-        val steps = 10
-        val cfgScale = 7.0f
+        val steps = 5
+        val cfgScale = 1.0f
         val seed = 1L
         val prompt = "a simple test of desktop video generation"
 
@@ -91,8 +91,9 @@ class VideoGenerationLinuxE2ETest {
             StableDiffusion.load(
                 context = context,
                 modelPath = modelPath,
-                vaePath = vaePath,
+                vaePath = null, // Disable VAE loading
                 t5xxlPath = t5Path,
+                taesdPath = taesdPath,
                 nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
                 offloadToCpu = true,
                 keepClipOnCpu = true,
@@ -134,6 +135,35 @@ class VideoGenerationLinuxE2ETest {
         val elapsed = System.currentTimeMillis() - startTime
         println("[VideoGenerationLinuxE2ETest] Video generation completed in ${elapsed}ms, got ${bitmaps.size} frames")
 
+        // Save frames to disk
+        val outputDir = File("build/outputs/frames")
+        if (!outputDir.exists()) outputDir.mkdirs()
+        bitmaps.forEachIndexed { index, bitmap ->
+            val file = File(outputDir, "frame_%04d.png".format(index))
+            java.io.FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+            println("[VideoGenerationLinuxE2ETest] Saved frame to ${file.absolutePath}")
+        }
+
+        // Generate GIF
+        val projectRoot = File(System.getProperty("user.dir") ?: ".")
+        val outputGif = File(projectRoot, "generated_video.gif")
+        try {
+            java.io.FileOutputStream(outputGif).use { fos ->
+                io.aatricks.llmedge.vision.ImageUtils.createAnimatedGif(
+                    frames = bitmaps,
+                    delayMs = 125, // 8 FPS
+                    output = fos,
+                    loop = 0
+                )
+            }
+            println("[VideoGenerationLinuxE2ETest] Saved GIF to ${outputGif.absolutePath}")
+        } catch (e: Exception) {
+            println("[VideoGenerationLinuxE2ETest] Failed to save GIF: ${e.message}")
+            e.printStackTrace()
+        }
+
         // Basic sanity checks for generated frames
         // Note: The Wan model may produce fewer frames than requested at small resolutions
         // due to internal constraints. We accept at least 1 frame for the test to pass.
@@ -173,66 +203,67 @@ class VideoGenerationLinuxE2ETest {
         }
     }
 
-    @Test
-    fun `desktop I2V video generation`() = runBlocking {
-        // Skip test if model paths are not provided
-        val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
-        val t5Path = System.getenv("LLMEDGE_TEST_T5_PATH") ?: System.getProperty("LLMEDGE_TEST_T5_PATH")
-        val vaePath = System.getenv("LLMEDGE_TEST_VAE_PATH") ?: System.getProperty("LLMEDGE_TEST_VAE_PATH")
-        
-        println("[VideoGenerationLinuxE2ETest-I2V] modelPath=$modelPath t5Path=$t5Path vaePath=$vaePath")
-        Assume.assumeTrue("Model path not set", !modelPath.isNullOrBlank())
-        Assume.assumeTrue("T5 path not set", !t5Path.isNullOrBlank())
-        Assume.assumeTrue("VAE path not set", !vaePath.isNullOrBlank())
+        @Test
+        fun `desktop I2V video generation`() = runBlocking {
+            // Skip test if model paths are not provided
+            val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
+            val t5Path = System.getenv("LLMEDGE_TEST_T5_PATH") ?: System.getProperty("LLMEDGE_TEST_T5_PATH")
+            val vaePath = System.getenv("LLMEDGE_TEST_VAE_PATH") ?: System.getProperty("LLMEDGE_TEST_VAE_PATH")
+            val taesdPath = System.getenv("LLMEDGE_TEST_TAESD_PATH") ?: System.getProperty("LLMEDGE_TEST_TAESD_PATH")
 
-        val libPath = System.getenv(LIB_PATH_ENV)
-            ?: System.getProperty(LIB_PATH_ENV)
-            ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
-        Assume.assumeTrue("Native library not found", java.io.File(libPath).exists())
-        Assume.assumeTrue("Native loading disabled", System.getProperty("llmedge.disableNativeLoad") != "true")
+            println("[VideoGenerationLinuxE2ETest-I2V] modelPath=$modelPath t5Path=$t5Path vaePath=$vaePath taesdPath=$taesdPath")
+            Assume.assumeTrue("Model path not set", !modelPath.isNullOrBlank())
+            Assume.assumeTrue("T5 path not set", !t5Path.isNullOrBlank())
+            Assume.assumeTrue("VAE or TAESD path not set", !vaePath.isNullOrBlank() || !taesdPath.isNullOrBlank())
 
-        val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
+            val libPath = System.getenv(LIB_PATH_ENV)
+                ?: System.getProperty(LIB_PATH_ENV)
+                ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
+            Assume.assumeTrue("Native library not found", java.io.File(libPath).exists())
+            Assume.assumeTrue("Native loading disabled", System.getProperty("llmedge.disableNativeLoad") != "true")
 
-        // Test parameters for I2V
-        val width = 256
-        val height = 256
-        val videoFrames = 5
-        val steps = 10
-        val cfgScale = 7.0f
-        val seed = 42L
-        val strength = 0.8f
-        val prompt = "A cat walking in a garden"
+            val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
 
-        println("[VideoGenerationLinuxE2ETest-I2V] Starting I2V generation (non-sequential path)")
-        val startTime = System.currentTimeMillis()
+            // Test parameters for I2V
+            val width = 256
+            val height = 256
+            val videoFrames = 5
+            val steps = 10
+            val cfgScale = 7.0f
+            val seed = 42L
+            val strength = 0.8f
+            val prompt = "A cat walking in a garden"
 
-        // Create a simple init image (gradient)
-        val initBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                val r = (x * 255 / width)
-                val g = (y * 255 / height)
-                val b = 128
-                initBitmap.setPixel(x, y, (0xFF shl 24) or (r shl 16) or (g shl 8) or b)
+            println("[VideoGenerationLinuxE2ETest-I2V] Starting I2V generation (non-sequential path)")
+            val startTime = System.currentTimeMillis()
+
+            // Create a simple init image (gradient)
+            val initBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    val r = (x * 255 / width)
+                    val g = (y * 255 / height)
+                    val b = 128
+                    initBitmap.setPixel(x, y, (0xFF shl 24) or (r shl 16) or (g shl 8) or b)
+                }
             }
-        }
-        println("[VideoGenerationLinuxE2ETest-I2V] Created init image ${width}x${height}")
+            println("[VideoGenerationLinuxE2ETest-I2V] Created init image ${width}x${height}")
 
-        // Load model with all components (non-sequential)
-        println("[VideoGenerationLinuxE2ETest-I2V] Loading StableDiffusion model...")
-        val sd = StableDiffusion.load(
-            context = context,
-            modelPath = modelPath,
-            vaePath = vaePath,
-            t5xxlPath = t5Path,
-            nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
-            offloadToCpu = true,
-            keepClipOnCpu = true,
-            keepVaeOnCpu = true,
-            flashAttn = true,
-            sequentialLoad = false
-        )
-
+            // Load model with all components (non-sequential)
+            println("[VideoGenerationLinuxE2ETest-I2V] Loading StableDiffusion model...")
+            val sd = StableDiffusion.load(
+                context = context,
+                modelPath = modelPath,
+                vaePath = vaePath,
+                t5xxlPath = t5Path,
+                taesdPath = taesdPath,
+                nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
+                offloadToCpu = true,
+                keepClipOnCpu = true,
+                keepVaeOnCpu = true,
+                flashAttn = true,
+                sequentialLoad = false
+            )
         println("[VideoGenerationLinuxE2ETest-I2V] Model loaded, generating I2V...")
 
         val bitmaps = try {
@@ -269,56 +300,57 @@ class VideoGenerationLinuxE2ETest {
         println("[VideoGenerationLinuxE2ETest-I2V] ✓ I2V validation passed!")
     }
 
-    @Test
-    fun `desktop sampler and scheduler enumeration test`() = runBlocking {
-        // Skip test if model paths are not provided
-        val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
-        val t5Path = System.getenv("LLMEDGE_TEST_T5_PATH") ?: System.getProperty("LLMEDGE_TEST_T5_PATH")
-        val vaePath = System.getenv("LLMEDGE_TEST_VAE_PATH") ?: System.getProperty("LLMEDGE_TEST_VAE_PATH")
-        
-        println("[SamplerSchedulerTest] modelPath=$modelPath t5Path=$t5Path vaePath=$vaePath")
-        Assume.assumeTrue("Model path not set", !modelPath.isNullOrBlank())
-        Assume.assumeTrue("T5 path not set", !t5Path.isNullOrBlank())
-        Assume.assumeTrue("VAE path not set", !vaePath.isNullOrBlank())
+        @Test
+        fun `desktop sampler and scheduler enumeration test`() = runBlocking {
+            // Skip test if model paths are not provided
+            val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
+            val t5Path = System.getenv("LLMEDGE_TEST_T5_PATH") ?: System.getProperty("LLMEDGE_TEST_T5_PATH")
+            val vaePath = System.getenv("LLMEDGE_TEST_VAE_PATH") ?: System.getProperty("LLMEDGE_TEST_VAE_PATH")
+            val taesdPath = System.getenv("LLMEDGE_TEST_TAESD_PATH") ?: System.getProperty("LLMEDGE_TEST_TAESD_PATH")
 
-        val libPath = System.getenv(LIB_PATH_ENV)
-            ?: System.getProperty(LIB_PATH_ENV)
-            ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
-        Assume.assumeTrue("Native library not found", java.io.File(libPath).exists())
-        Assume.assumeTrue("Native loading disabled", System.getProperty("llmedge.disableNativeLoad") != "true")
+            println("[SamplerSchedulerTest] modelPath=$modelPath t5Path=$t5Path vaePath=$vaePath taesdPath=$taesdPath")
+            Assume.assumeTrue("Model path not set", !modelPath.isNullOrBlank())
+            Assume.assumeTrue("T5 path not set", !t5Path.isNullOrBlank())
+            Assume.assumeTrue("VAE or TAESD path not set", !vaePath.isNullOrBlank() || !taesdPath.isNullOrBlank())
 
-        val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
+            val libPath = System.getenv(LIB_PATH_ENV)
+                ?: System.getProperty(LIB_PATH_ENV)
+                ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
+            Assume.assumeTrue("Native library not found", java.io.File(libPath).exists())
+            Assume.assumeTrue("Native loading disabled", System.getProperty("llmedge.disableNativeLoad") != "true")
 
-        // Test parameters - minimal settings for quick tests
-        val width = 256
-        val height = 256
-        val videoFrames = 5  // Will produce 5 frames per Wan formula
-        val steps = 10
-        val cfgScale = 7.0f
-        val seed = 42L
-        val prompt = "A simple test scene"
+            val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
 
-        // Load model once
-        println("[SamplerSchedulerTest] Loading model...")
-        val sd = StableDiffusion.load(
-            context = context,
-            modelPath = modelPath,
-            vaePath = vaePath,
-            t5xxlPath = t5Path,
-            nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
-            offloadToCpu = true,
-            keepClipOnCpu = true,
-            keepVaeOnCpu = true,
-            flashAttn = true,
-            sequentialLoad = false
-        )
+            // Test parameters - minimal settings for quick tests
+            val width = 256
+            val height = 256
+            val videoFrames = 5  // Will produce 5 frames per Wan formula
+            val steps = 10
+            val cfgScale = 7.0f
+            val seed = 42L
+            val prompt = "A simple test scene"
 
+            // Load model once
+            println("[SamplerSchedulerTest] Loading model...")
+            val sd = StableDiffusion.load(
+                context = context,
+                modelPath = modelPath,
+                vaePath = vaePath,
+                t5xxlPath = t5Path,
+                taesdPath = taesdPath,
+                nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
+                offloadToCpu = true,
+                keepClipOnCpu = true,
+                keepVaeOnCpu = true,
+                flashAttn = true,
+                sequentialLoad = false
+            )
         try {
             // Test all sample methods
             println("[SamplerSchedulerTest] Testing all sample methods...")
             for (sampleMethod in StableDiffusion.SampleMethod.values()) {
                 println("[SamplerSchedulerTest] Testing sampler: $sampleMethod (id=${sampleMethod.id})")
-                
+
                 val params = StableDiffusion.VideoGenerateParams(
                     prompt = prompt,
                     width = width,
@@ -345,7 +377,7 @@ class VideoGenerationLinuxE2ETest {
             println("[SamplerSchedulerTest] Testing all schedulers...")
             for (scheduler in StableDiffusion.Scheduler.values()) {
                 println("[SamplerSchedulerTest] Testing scheduler: $scheduler (id=${scheduler.id})")
-                
+
                 val params = StableDiffusion.VideoGenerateParams(
                     prompt = prompt,
                     width = width,

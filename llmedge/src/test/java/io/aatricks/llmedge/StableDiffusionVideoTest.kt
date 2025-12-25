@@ -46,6 +46,7 @@ private val disableNativeLoadForTests = run {
                 initImage: ByteArray?,
                 initWidth: Int,
                 initHeight: Int,
+                vaceStrength: Float,
                 easyCacheEnabled: Boolean,
                 easyCacheReuseThreshold: Float,
                 easyCacheStartPercent: Float,
@@ -157,7 +158,7 @@ class StableDiffusionVideoTest {
         // before the IllegalArgumentException is thrown. We accept either exception type.
         assertTrue(
             "Expected IllegalArgumentException or RuntimeException (Log not mocked) but got: ${error?.javaClass?.name}",
-            error is IllegalArgumentException || 
+            error is IllegalArgumentException ||
             (error is RuntimeException && error.message?.contains("not mocked") == true)
         )
         // Only check the message if it's IllegalArgumentException

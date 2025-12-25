@@ -68,29 +68,34 @@ fi
 if [[ -n "${LLMEDGE_TEST_VAE_PATH:-}" ]]; then
   export LLMEDGE_TEST_VAE_PATH="$LLMEDGE_TEST_VAE_PATH"
 fi
+if [[ -n "${LLMEDGE_TEST_TAESD_PATH:-}" ]]; then
+  export LLMEDGE_TEST_TAESD_PATH="$LLMEDGE_TEST_TAESD_PATH"
+fi
 export LLMEDGE_BUILD_NATIVE_LIB_PATH="$LLMEDGE_NATIVE_DIR/$NATIVE_LIB_NAME"
 echo "LLMEDGE_BUILD_NATIVE_LIB_PATH=${LLMEDGE_BUILD_NATIVE_LIB_PATH:-}"
 echo "LLMEDGE_TEST_T5_PATH=${LLMEDGE_TEST_T5_PATH:-}"
 echo "LLMEDGE_TEST_VAE_PATH=${LLMEDGE_TEST_VAE_PATH:-}"
+echo "LLMEDGE_TEST_TAESD_PATH=${LLMEDGE_TEST_TAESD_PATH:-}"
 
 # Ensure the dynamic linker can resolve dependent shared libraries when loading libsdcpp.so.
 # Prefer adding the prebuilt bin dir first, then native dir, so that transitive shared libs are found.
 export LD_LIBRARY_PATH="$PREBUILT_BIN_DIR:$LLMEDGE_NATIVE_DIR:${LD_LIBRARY_PATH:-}"
 echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
 
-echo "Environment variables visible to the process:" 
+echo "Environment variables visible to the process:"
 env | grep -i llmedge || true
 
 ./gradlew :llmedge:testDebugUnitTest \
-  --tests "*VideoGenerationLinuxE2ETest" \
+  --tests "io.aatricks.llmedge.VideoGenerationLinuxE2ETest.desktop end-to-end video generation" \
   --no-daemon \
   --console=plain \
-  --info \
+  --warning-mode=none \
   -DLLMEDGE_BUILD_NATIVE_LIB_PATH="${LLMEDGE_BUILD_NATIVE_LIB_PATH:-}" \
   -DLLMEDGE_TEST_MODEL_ID="${LLMEDGE_TEST_MODEL_ID:-}" \
   -DLLMEDGE_TEST_MODEL_PATH="${LLMEDGE_TEST_MODEL_PATH:-}" \
   -DLLMEDGE_TEST_T5_PATH="${LLMEDGE_TEST_T5_PATH:-}" \
   -DLLMEDGE_TEST_VAE_PATH="${LLMEDGE_TEST_VAE_PATH:-}" \
+  -DLLMEDGE_TEST_TAESD_PATH="${LLMEDGE_TEST_TAESD_PATH:-}" \
   -DHUGGING_FACE_TOKEN="${HUGGING_FACE_TOKEN:-}" \
   -Dorg.gradle.jvmargs="-Xmx8g"
 
