@@ -579,6 +579,49 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         nativeDestroy(handle)
     }
 
+    // Native method declarations
+    private external fun nativeCheckBindings(): Boolean
+    private external fun nativeGetVersion(): String
+    private external fun nativeGetSystemInfo(): String
+    private external fun nativeGetMaxLanguageId(): Int
+    private external fun nativeGetLanguageId(lang: String): Int
+    private external fun nativeGetLanguageString(langId: Int): String
+    private external fun nativeCreate(
+            modelPath: String,
+            useGpu: Boolean,
+            flashAttn: Boolean,
+            gpuDevice: Int
+    ): Long
+    private external fun nativeDestroy(handle: Long)
+    private external fun nativeIsMultilingual(handle: Long): Boolean
+    private external fun nativeGetModelType(handle: Long): String
+    private external fun nativeSetProgressCallback(handle: Long, callback: Any?)
+    private external fun nativeSetSegmentCallback(handle: Long, callback: Any?)
+    private external fun nativeTranscribe(
+            handle: Long,
+            samples: FloatArray,
+            nThreads: Int,
+            translate: Boolean,
+            language: String?,
+            detectLanguage: Boolean,
+            tokenTimestamps: Boolean,
+            maxLen: Int,
+            splitOnWord: Boolean,
+            temperature: Float,
+            beamSize: Int,
+            suppressBlank: Boolean,
+            printProgress: Boolean
+    ): Array<TranscriptionSegment>?
+    private external fun nativeDetectLanguage(
+            handle: Long,
+            samples: FloatArray,
+            nThreads: Int,
+            offsetMs: Int
+    ): Int
+    private external fun nativeGetFullText(handle: Long): String
+    private external fun nativeResetTimings(handle: Long)
+    private external fun nativePrintTimings(handle: Long)
+
     companion object {
         private const val LOG_TAG = "Whisper"
 
@@ -659,6 +702,9 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             }
         }
 
+        // Dummy instance used to invoke static native methods that are now at the class level.
+        private val staticInvoker by lazy { Whisper(0L) }
+
         private fun supportsArm64V8a(): Boolean {
             return Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }
         }
@@ -667,20 +713,38 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         @JvmStatic
         fun checkBindings(): Boolean {
             return try {
-                nativeCheckBindings()
+                staticInvoker.nativeCheckBindings()
             } catch (e: UnsatisfiedLinkError) {
                 false
             }
         }
 
         /** Get the whisper.cpp version string. */
-        @JvmStatic fun getVersion(): String = nativeGetVersion()
+        @JvmStatic fun getVersion(): String {
+            return try {
+                staticInvoker.nativeGetVersion()
+            } catch (e: UnsatisfiedLinkError) {
+                "unknown"
+            }
+        }
 
         /** Get system information string. */
-        @JvmStatic fun getSystemInfo(): String = nativeGetSystemInfo()
+        @JvmStatic fun getSystemInfo(): String {
+            return try {
+                staticInvoker.nativeGetSystemInfo()
+            } catch (e: UnsatisfiedLinkError) {
+                "unknown"
+            }
+        }
 
         /** Get the maximum language ID supported. */
-        @JvmStatic fun getMaxLanguageId(): Int = nativeGetMaxLanguageId()
+        @JvmStatic fun getMaxLanguageId(): Int {
+            return try {
+                staticInvoker.nativeGetMaxLanguageId()
+            } catch (e: UnsatisfiedLinkError) {
+                0
+            }
+        }
 
         /**
          * Get the language ID for a language code or name.
@@ -688,7 +752,13 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
          * @param lang Language code (e.g., "en") or name (e.g., "english")
          * @return Language ID or -1 if not found
          */
-        @JvmStatic fun getLanguageId(lang: String): Int = nativeGetLanguageId(lang)
+        @JvmStatic fun getLanguageId(lang: String): Int {
+            return try {
+                staticInvoker.nativeGetLanguageId(lang)
+            } catch (e: UnsatisfiedLinkError) {
+                -1
+            }
+        }
 
         /**
          * Get the language code for a language ID.
@@ -696,7 +766,13 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
          * @param langId Language ID
          * @return Language code (e.g., "en") or empty string if not found
          */
-        @JvmStatic fun getLanguageString(langId: Int): String = nativeGetLanguageString(langId)
+        @JvmStatic fun getLanguageString(langId: Int): String {
+            return try {
+                staticInvoker.nativeGetLanguageString(langId)
+            } catch (e: UnsatisfiedLinkError) {
+                "unknown"
+            }
+        }
 
         /**
          * Load a Whisper model from a file path.
@@ -719,7 +795,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                 throw FileNotFoundException("Model file not found: $modelPath")
             }
 
-            val handle = nativeCreate(modelPath, useGpu, flashAttn, gpuDevice)
+            val handle = staticInvoker.nativeCreate(modelPath, useGpu, flashAttn, gpuDevice)
             if (handle == 0L) {
                 throw RuntimeException("Failed to load Whisper model from: $modelPath")
             }
@@ -804,48 +880,5 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                             )
                     load(result.file.absolutePath, useGpu, flashAttn, gpuDevice)
                 }
-
-        // Native method declarations
-        private external fun nativeCheckBindings(): Boolean
-        private external fun nativeGetVersion(): String
-        private external fun nativeGetSystemInfo(): String
-        private external fun nativeGetMaxLanguageId(): Int
-        private external fun nativeGetLanguageId(lang: String): Int
-        private external fun nativeGetLanguageString(langId: Int): String
-        private external fun nativeCreate(
-                modelPath: String,
-                useGpu: Boolean,
-                flashAttn: Boolean,
-                gpuDevice: Int
-        ): Long
-        private external fun nativeDestroy(handle: Long)
-        private external fun nativeIsMultilingual(handle: Long): Boolean
-        private external fun nativeGetModelType(handle: Long): String
-        private external fun nativeSetProgressCallback(handle: Long, callback: Any?)
-        private external fun nativeSetSegmentCallback(handle: Long, callback: Any?)
-        private external fun nativeTranscribe(
-                handle: Long,
-                samples: FloatArray,
-                nThreads: Int,
-                translate: Boolean,
-                language: String?,
-                detectLanguage: Boolean,
-                tokenTimestamps: Boolean,
-                maxLen: Int,
-                splitOnWord: Boolean,
-                temperature: Float,
-                beamSize: Int,
-                suppressBlank: Boolean,
-                printProgress: Boolean
-        ): Array<TranscriptionSegment>?
-        private external fun nativeDetectLanguage(
-                handle: Long,
-                samples: FloatArray,
-                nThreads: Int,
-                offsetMs: Int
-        ): Int
-        private external fun nativeGetFullText(handle: Long): String
-        private external fun nativeResetTimings(handle: Long)
-        private external fun nativePrintTimings(handle: Long)
     }
 }

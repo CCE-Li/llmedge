@@ -86,7 +86,7 @@ echo "Environment variables visible to the process:"
 env | grep -i llmedge || true
 
 ./gradlew :llmedge:testDebugUnitTest \
-  --tests "*VideoGenerationLinuxE2ETest" \
+  --tests "io.aatricks.llmedge.VideoGenerationLinuxE2ETest.desktop end-to-end video generation" \
   --no-daemon \
   --console=plain \
   --warning-mode=none \

@@ -929,7 +929,7 @@ public:
         diffusion_params.timesteps = timesteps;
         diffusion_params.context   = c;
         diffusion_params.c_concat  = concat;
-        diffusion_model->compute(n_threads, diffusion_params, &out);
+        diffusion_model->compute(n_threads, diffusion_params, &out, work_ctx);
         diffusion_model->free_compute_buffer();
 
         double result = 0.f;
@@ -1414,7 +1414,7 @@ public:
                 if (vae_tiling_params.enabled) {
                     // split latent in 32x32 tiles and compute in several steps
                     auto on_tiling = [&](ggml_tensor* in, ggml_tensor* out, bool init) {
-                        first_stage_model->compute(n_threads, in, true, &out, nullptr);
+                        first_stage_model->compute(n_threads, in, true, &out, work_ctx);
                     };
                     silent_tiling(latents, result, get_vae_scale_factor(), 32, 0.5f, on_tiling);
 
@@ -1433,7 +1433,7 @@ public:
                 if (vae_tiling_params.enabled) {
                     // split latent in 64x64 tiles and compute in several steps
                     auto on_tiling = [&](ggml_tensor* in, ggml_tensor* out, bool init) {
-                        tae_first_stage->compute(n_threads, in, true, &out, nullptr);
+                        tae_first_stage->compute(n_threads, in, true, &out, work_ctx);
                     };
                     silent_tiling(latents, result, get_vae_scale_factor(), 64, 0.5f, on_tiling);
                 } else {
@@ -1726,7 +1726,8 @@ public:
             if (!skip_model) {
                 if (!work_diffusion_model->compute(n_threads,
                                                    diffusion_params,
-                                                   active_output)) {
+                                                   active_output,
+                                                   work_ctx)) {
                     LOG_ERROR("diffusion model compute failed");
                     return nullptr;
                 }
@@ -1754,7 +1755,8 @@ public:
                 if (!skip_uncond) {
                     if (!work_diffusion_model->compute(n_threads,
                                                        diffusion_params,
-                                                       &out_uncond)) {
+                                                       &out_uncond,
+                                                       work_ctx)) {
                         LOG_ERROR("diffusion model compute failed");
                         return nullptr;
                     }
@@ -1772,7 +1774,8 @@ public:
                 if (!skip_img_cond) {
                     if (!work_diffusion_model->compute(n_threads,
                                                        diffusion_params,
-                                                       &out_img_cond)) {
+                                                       &out_img_cond,
+                                                       work_ctx)) {
                         LOG_ERROR("diffusion model compute failed");
                         return nullptr;
                     }
@@ -1794,7 +1797,8 @@ public:
                     diffusion_params.skip_layers = skip_layers;
                     if (!work_diffusion_model->compute(n_threads,
                                                        diffusion_params,
-                                                       &out_skip)) {
+                                                       &out_skip,
+                                                       work_ctx)) {
                         LOG_ERROR("diffusion model compute failed");
                         return nullptr;
                     }
@@ -2186,7 +2190,7 @@ public:
             if (vae_tiling_params.enabled && !encode_video) {
                 // split latent in 32x32 tiles and compute in several steps
                 auto on_tiling = [&](ggml_tensor* in, ggml_tensor* out, bool init) {
-                    tae_first_stage->compute(n_threads, in, false, &out, nullptr);
+                    tae_first_stage->compute(n_threads, in, false, &out, work_ctx);
                 };
                 sd_tiling(x, result, vae_scale_factor, 64, 0.5f, on_tiling);
             } else {
@@ -2304,7 +2308,7 @@ public:
 
                 // split latent in 32x32 tiles and compute in several steps
                 auto on_tiling = [&](ggml_tensor* in, ggml_tensor* out, bool init) {
-                    first_stage_model->compute(n_threads, in, true, &out, nullptr);
+                    first_stage_model->compute(n_threads, in, true, &out, work_ctx);
                 };
                 sd_tiling_non_square(x, result, vae_scale_factor, tile_size_x, tile_size_y, tile_overlap, on_tiling);
             } else {
@@ -2316,11 +2320,11 @@ public:
             if (vae_tiling_params.enabled && !decode_video) {
                 // split latent in 64x64 tiles and compute in several steps
                 auto on_tiling = [&](ggml_tensor* in, ggml_tensor* out, bool init) {
-                    tae_first_stage->compute(n_threads, in, true, &out);
+                    tae_first_stage->compute(n_threads, in, true, &out, work_ctx);
                 };
                 sd_tiling(x, result, vae_scale_factor, 64, 0.5f, on_tiling);
             } else {
-                tae_first_stage->compute(n_threads, x, true, &result);
+                tae_first_stage->compute(n_threads, x, true, &result, work_ctx);
             }
             tae_first_stage->free_compute_buffer();
         }

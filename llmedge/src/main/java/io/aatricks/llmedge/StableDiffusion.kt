@@ -274,6 +274,9 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         private const val MIN_FRAME_BATCH = 4
         private const val MAX_FRAME_BATCH = 8
 
+        // Dummy instance used to invoke static native methods that are now at the class level.
+        private val staticInvoker: StableDiffusion by lazy { StableDiffusion(0L) }
+
         @Volatile private var isNativeLibraryAvailable: Boolean
         // Flag set by tests when overriding the native bridge to a test mock so we avoid
         // calling actual JNI functions like nativeDestroy during Android instrumentation tests.
@@ -582,38 +585,6 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             nativeBridgeOverriddenForTests = false
         }
 
-        private external fun nativeCreate(
-                modelPath: String,
-                vaePath: String?,
-                t5xxlPath: String?,
-                taesdPath: String?,
-                nThreads: Int,
-                offloadToCpu: Boolean,
-                keepClipOnCpu: Boolean,
-                keepVaeOnCpu: Boolean,
-                flashAttn: Boolean,
-                vaeDecodeOnly: Boolean,
-                flowShift: Float,
-                loraModelDir: String?,
-                loraApplyMode: Int
-        ): Long
-
-        private external fun nativeGetVulkanDeviceCount(): Int
-
-        private external fun nativeGetVulkanDeviceMemory(deviceIndex: Int): LongArray?
-
-        private external fun nativeEstimateModelParamsMemory(
-                modelPath: String,
-                deviceIndex: Int
-        ): Long
-
-        private external fun nativeEstimateModelParamsMemoryDetailed(
-                modelPath: String,
-                deviceIndex: Int
-        ): LongArray?
-
-        private external fun nativeCheckBindings(): Boolean
-
         /**
          * Get the number of Vulkan devices available on this system
          * @return Number of Vulkan-capable devices, or 0 if Vulkan is not available
@@ -655,6 +626,53 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 0L
             }
         }
+
+        @JvmStatic
+        fun checkBindings(): Boolean {
+            return try {
+                nativeCheckBindings()
+            } catch (t: Throwable) {
+                false
+            }
+        }
+
+        @JvmStatic
+        private external fun nativeCreate(
+                modelPath: String,
+                vaePath: String?,
+                t5xxlPath: String?,
+                taesdPath: String?,
+                nThreads: Int,
+                offloadToCpu: Boolean,
+                keepClipOnCpu: Boolean,
+                keepVaeOnCpu: Boolean,
+                flashAttn: Boolean,
+                vaeDecodeOnly: Boolean,
+                flowShift: Float,
+                loraModelDir: String?,
+                loraApplyMode: Int
+        ): Long
+
+        @JvmStatic
+        private external fun nativeGetVulkanDeviceCount(): Int
+
+        @JvmStatic
+        private external fun nativeGetVulkanDeviceMemory(deviceIndex: Int): LongArray?
+
+        @JvmStatic
+        private external fun nativeEstimateModelParamsMemory(
+                modelPath: String,
+                deviceIndex: Int
+        ): Long
+
+        @JvmStatic
+        private external fun nativeEstimateModelParamsMemoryDetailed(
+                modelPath: String,
+                deviceIndex: Int
+        ): LongArray?
+
+        @JvmStatic
+        private external fun nativeCheckBindings(): Boolean
 
         @JvmStatic
         private fun computeEffectiveSequentialLoad(
