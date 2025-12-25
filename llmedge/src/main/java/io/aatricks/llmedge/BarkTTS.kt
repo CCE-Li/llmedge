@@ -440,8 +440,7 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
                 }
 
         // Native method declarations
-        @JvmStatic private external fun nativeCheckBindings(): Boolean
-        @JvmStatic
+        private external fun nativeCheckBindings(): Boolean
         private external fun nativeCreate(
                 modelPath: String,
                 seed: Int,
@@ -449,13 +448,12 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
                 fineTemp: Float,
                 verbosity: Int
         ): Long
-        @JvmStatic private external fun nativeDestroy(handle: Long)
-        @JvmStatic private external fun nativeSetProgressCallback(handle: Long, callback: Any?)
-        @JvmStatic
+        private external fun nativeDestroy(handle: Long)
+        private external fun nativeSetProgressCallback(handle: Long, callback: Any?)
         private external fun nativeGenerate(handle: Long, text: String, nThreads: Int): FloatArray?
-        @JvmStatic private external fun nativeGetSampleRate(handle: Long): Int
-        @JvmStatic private external fun nativeGetLoadTime(handle: Long): Long
-        @JvmStatic private external fun nativeGetEvalTime(handle: Long): Long
-        @JvmStatic private external fun nativeResetStatistics(handle: Long)
+        private external fun nativeGetSampleRate(handle: Long): Int
+        private external fun nativeGetLoadTime(handle: Long): Long
+        private external fun nativeGetEvalTime(handle: Long): Long
+        private external fun nativeResetStatistics(handle: Long)
     }
 }

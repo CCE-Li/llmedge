@@ -582,7 +582,6 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             nativeBridgeOverriddenForTests = false
         }
 
-        @JvmStatic
         private external fun nativeCreate(
                 modelPath: String,
                 vaePath: String?,
@@ -599,23 +598,21 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 loraApplyMode: Int
         ): Long
 
-        @JvmStatic private external fun nativeGetVulkanDeviceCount(): Int
+        private external fun nativeGetVulkanDeviceCount(): Int
 
-        @JvmStatic private external fun nativeGetVulkanDeviceMemory(deviceIndex: Int): LongArray?
+        private external fun nativeGetVulkanDeviceMemory(deviceIndex: Int): LongArray?
 
-        @JvmStatic
         private external fun nativeEstimateModelParamsMemory(
                 modelPath: String,
                 deviceIndex: Int
         ): Long
 
-        @JvmStatic
         private external fun nativeEstimateModelParamsMemoryDetailed(
                 modelPath: String,
                 deviceIndex: Int
         ): LongArray?
 
-        @JvmStatic private external fun nativeCheckBindings(): Boolean
+        private external fun nativeCheckBindings(): Boolean
 
         /**
          * Get the number of Vulkan devices available on this system

@@ -806,25 +806,23 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                 }
 
         // Native method declarations
-        @JvmStatic private external fun nativeCheckBindings(): Boolean
-        @JvmStatic private external fun nativeGetVersion(): String
-        @JvmStatic private external fun nativeGetSystemInfo(): String
-        @JvmStatic private external fun nativeGetMaxLanguageId(): Int
-        @JvmStatic private external fun nativeGetLanguageId(lang: String): Int
-        @JvmStatic private external fun nativeGetLanguageString(langId: Int): String
-        @JvmStatic
+        private external fun nativeCheckBindings(): Boolean
+        private external fun nativeGetVersion(): String
+        private external fun nativeGetSystemInfo(): String
+        private external fun nativeGetMaxLanguageId(): Int
+        private external fun nativeGetLanguageId(lang: String): Int
+        private external fun nativeGetLanguageString(langId: Int): String
         private external fun nativeCreate(
                 modelPath: String,
                 useGpu: Boolean,
                 flashAttn: Boolean,
                 gpuDevice: Int
         ): Long
-        @JvmStatic private external fun nativeDestroy(handle: Long)
-        @JvmStatic private external fun nativeIsMultilingual(handle: Long): Boolean
-        @JvmStatic private external fun nativeGetModelType(handle: Long): String
-        @JvmStatic private external fun nativeSetProgressCallback(handle: Long, callback: Any?)
-        @JvmStatic private external fun nativeSetSegmentCallback(handle: Long, callback: Any?)
-        @JvmStatic
+        private external fun nativeDestroy(handle: Long)
+        private external fun nativeIsMultilingual(handle: Long): Boolean
+        private external fun nativeGetModelType(handle: Long): String
+        private external fun nativeSetProgressCallback(handle: Long, callback: Any?)
+        private external fun nativeSetSegmentCallback(handle: Long, callback: Any?)
         private external fun nativeTranscribe(
                 handle: Long,
                 samples: FloatArray,
@@ -840,15 +838,14 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                 suppressBlank: Boolean,
                 printProgress: Boolean
         ): Array<TranscriptionSegment>?
-        @JvmStatic
         private external fun nativeDetectLanguage(
                 handle: Long,
                 samples: FloatArray,
                 nThreads: Int,
                 offsetMs: Int
         ): Int
-        @JvmStatic private external fun nativeGetFullText(handle: Long): String
-        @JvmStatic private external fun nativeResetTimings(handle: Long)
-        @JvmStatic private external fun nativePrintTimings(handle: Long)
+        private external fun nativeGetFullText(handle: Long): String
+        private external fun nativeResetTimings(handle: Long)
+        private external fun nativePrintTimings(handle: Long)
     }
 }
