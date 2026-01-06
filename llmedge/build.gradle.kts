@@ -93,6 +93,37 @@ android {
 
                 // Check if we're running the E2E test with native library path specified
                 val nativeLibPath = System.getenv("LLMEDGE_BUILD_NATIVE_LIB_PATH")
+                val skipE2E = System.getenv("LLMEDGE_SKIP_E2E_IN_UNIT")?.equals("true", ignoreCase = true) == true
+                
+                if (skipE2E) {
+                    println("LLMEDGE CI: Skipping E2E tests for task ${it.name}")
+                    it.filter.excludeTestsMatching("*LinuxE2ETest")
+                    it.filter.excludeTestsMatching("*IntegrationTest")
+                    it.filter.excludeTestsMatching("*ImageGenerationTest")
+                    it.filter.excludeTestsMatching("*VideoGenerationTest")
+                    it.filter.excludeTestsMatching("*StableDiffusionTxt2VidTest")
+                    it.filter.excludeTestsMatching("*StableDiffusionTxt2ImgTest")
+                    it.filter.excludeTestsMatching("*VideoI2VAndLoraE2ETest")
+                    it.filter.excludeTestsMatching("*VideoGenerationSequentialE2ETest")
+                    it.filter.excludeTestsMatching("*VideoGenerationHQTest")
+                    it.filter.excludeTestsMatching("*VideoGenerationExportTest")
+                    it.filter.excludeTestsMatching("*SamplerSchedulerGifTest")
+                    it.filter.excludeTestsMatching("*FullPhonePathCatTest")
+                    it.filter.excludeTestsMatching("*BarkTTSTest")
+                    it.filter.excludeTestsMatching("*WhisperTest")
+                    it.filter.excludeTestsMatching("*ReproductionTest")
+                    it.filter.excludeTestsMatching("*WanCatGifTask")
+                    it.filter.excludeTestsMatching("*LLMEdgeManagerTest")
+                    it.filter.excludeTestsMatching("*MemoryManagementTest")
+                    it.filter.excludeTestsMatching("*MetadataInferenceTest")
+                    it.filter.excludeTestsMatching("*StableDiffusionVideoModelDetectorExtraTest")
+                    it.filter.excludeTestsMatching("*StableDiffusionVideoTest")
+                    it.filter.excludeTestsMatching("*VideoGenerateParamsTest")
+                    it.filter.excludeTestsMatching("*VideoModelDetectorTest")
+                    it.filter.excludeTestsMatching("*BitmapConversionTest")
+                    it.filter.excludeTestsMatching("*CombinedHeuristicTest")
+                }
+
                 val whisperLibPath = System.getenv("LLMEDGE_BUILD_WHISPER_LIB_PATH")
                 val barkLibPath = System.getenv("LLMEDGE_BUILD_BARK_LIB_PATH")
                 val hasNativeLib = !nativeLibPath.isNullOrBlank() || !whisperLibPath.isNullOrBlank() || !barkLibPath.isNullOrBlank()

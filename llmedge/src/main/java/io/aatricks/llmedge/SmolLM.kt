@@ -101,6 +101,20 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             }
         }
 
+        private fun logI(tag: String, message: String) {
+            if (isAndroidLogAvailable) {
+                try {
+                    val logClass = Class.forName("android.util.Log")
+                    val iMethod = logClass.getMethod("i", String::class.java, String::class.java)
+                    iMethod.invoke(null, tag, message)
+                } catch (t: Throwable) {
+                    println("I/$tag: $message")
+                }
+            } else {
+                println("I/$tag: $message")
+            }
+        }
+
         private fun logW(tag: String, message: String) {
             if (isAndroidLogAvailable) {
                 try {
@@ -112,6 +126,28 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 }
             } else {
                 println("W/$tag: $message")
+            }
+        }
+
+        private fun logE(tag: String, message: String, throwable: Throwable? = null) {
+            if (isAndroidLogAvailable) {
+                try {
+                    val logClass = Class.forName("android.util.Log")
+                    val eMethod =
+                            logClass.getMethod(
+                                    "e",
+                                    String::class.java,
+                                    String::class.java,
+                                    Throwable::class.java
+                            )
+                    eMethod.invoke(null, tag, message, throwable)
+                } catch (t: Throwable) {
+                    System.err.println("E/$tag: $message")
+                    throwable?.printStackTrace()
+                }
+            } else {
+                System.err.println("E/$tag: $message")
+                throwable?.printStackTrace()
             }
         }
 
@@ -155,39 +191,39 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 if (!isEmulated) {
                     if (supportsArm64V8a()) {
                         if (isAtLeastArmV84 && hasSve && hasI8mm && hasFp16 && hasDotProd) {
-                            Log.d(logTag, "Loading libsmollm_v8_4_fp16_dotprod_i8mm_sve.so")
+                            logD(logTag, "Loading libsmollm_v8_4_fp16_dotprod_i8mm_sve.so")
                             System.loadLibrary("smollm_v8_4_fp16_dotprod_i8mm_sve")
                         } else if (isAtLeastArmV84 && hasSve && hasFp16 && hasDotProd) {
-                            Log.d(logTag, "Loading libsmollm_v8_4_fp16_dotprod_sve.so")
+                            logD(logTag, "Loading libsmollm_v8_4_fp16_dotprod_sve.so")
                             System.loadLibrary("smollm_v8_4_fp16_dotprod_sve")
                         } else if (isAtLeastArmV84 && hasI8mm && hasFp16 && hasDotProd) {
-                            Log.d(logTag, "Loading libsmollm_v8_4_fp16_dotprod_i8mm.so")
+                            logD(logTag, "Loading libsmollm_v8_4_fp16_dotprod_i8mm.so")
                             System.loadLibrary("smollm_v8_4_fp16_dotprod_i8mm")
                         } else if (isAtLeastArmV84 && hasFp16 && hasDotProd) {
-                            Log.d(logTag, "Loading libsmollm_v8_4_fp16_dotprod.so")
+                            logD(logTag, "Loading libsmollm_v8_4_fp16_dotprod.so")
                             System.loadLibrary("smollm_v8_4_fp16_dotprod")
                         } else if (isAtLeastArmV82 && hasFp16 && hasDotProd) {
-                            Log.d(logTag, "Loading libsmollm_v8_2_fp16_dotprod.so")
+                            logD(logTag, "Loading libsmollm_v8_2_fp16_dotprod.so")
                             System.loadLibrary("smollm_v8_2_fp16_dotprod")
                         } else if (isAtLeastArmV82 && hasFp16) {
-                            Log.d(logTag, "Loading libsmollm_v8_2_fp16.so")
+                            logD(logTag, "Loading libsmollm_v8_2_fp16.so")
                             System.loadLibrary("smollm_v8_2_fp16")
                         } else {
-                            Log.d(logTag, "Loading libsmollm_v8.so")
+                            logD(logTag, "Loading libsmollm_v8.so")
                             System.loadLibrary("smollm_v8")
                         }
                     } else if (Build.SUPPORTED_32_BIT_ABIS[0]?.equals("armeabi-v7a") == true) {
                         // armv7a (32bit) device
-                        Log.d(logTag, "Loading libsmollm_v7a.so")
+                        logD(logTag, "Loading libsmollm_v7a.so")
                         System.loadLibrary("smollm_v7a")
                     } else {
-                        Log.d(logTag, "Loading default libsmollm.so")
+                        logD(logTag, "Loading default libsmollm.so")
                         System.loadLibrary("smollm")
                     }
                 } else {
                     // load the default native library with no ARM
                     // specific instructions
-                    Log.d(logTag, "Loading default libsmollm.so")
+                    logD(logTag, "Loading default libsmollm.so")
                     System.loadLibrary("smollm")
                 }
             }
@@ -662,7 +698,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      */
     fun getResponse(query: String, maxTokens: Int = -1): String {
         verifyHandle()
-        Log.d(LOG_TAG, "getResponse: starting completion. maxTokens=$maxTokens, queryLength=${query.length}")
+        logD(LOG_TAG, "getResponse: starting completion. maxTokens=$maxTokens, queryLength=${query.length}")
         nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
         var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
         var response = ""
@@ -674,22 +710,22 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             
             if (tokensGenerated % 10 == 0) {
                  // Log occasional progress to confirm it's alive without spamming
-                 Log.d(LOG_TAG, "Generated $tokensGenerated tokens...")
+                 logD(LOG_TAG, "Generated $tokensGenerated tokens...")
             }
 
             if (maxTokens > 0 && tokensGenerated >= maxTokens) {
-                Log.d(LOG_TAG, "getResponse: maxTokens ($maxTokens) reached. Stopping.")
+                logD(LOG_TAG, "getResponse: maxTokens ($maxTokens) reached. Stopping.")
                 break
             }
             
             piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
         }
         if (piece == "[EOG]") {
-             Log.d(LOG_TAG, "getResponse: [EOG] received after $tokensGenerated tokens.")
+             logD(LOG_TAG, "getResponse: [EOG] received after $tokensGenerated tokens.")
         }
         
         nativeBridge.stopCompletion(this, nativePtr)
-        Log.d(LOG_TAG, "getResponse: finished. Total length=${response.length}")
+        logD(LOG_TAG, "getResponse: finished. Total length=${response.length}")
         return response
     }
 
@@ -898,7 +934,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         val clamped = desired.coerceIn(MIN_CONTEXT_SIZE, effectiveCap)
         if (desired != clamped) {
             val heapMb = Runtime.getRuntime().maxMemory() / (1024 * 1024)
-            Log.w(
+            logW(
                     LOG_TAG,
                     "Context window $desired→$clamped tokens to fit heap (${heapMb}MB max). " +
                             "Override via InferenceParams(contextSize=...).",

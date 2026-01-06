@@ -274,6 +274,78 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         private const val MIN_FRAME_BATCH = 4
         private const val MAX_FRAME_BATCH = 8
 
+        private val isAndroidLogAvailable: Boolean =
+                try {
+                    Class.forName("android.util.Log")
+                    true
+                } catch (_: Throwable) {
+                    false
+                }
+
+        private fun logD(tag: String, message: String) {
+            if (isAndroidLogAvailable) {
+                try {
+                    val logClass = Class.forName("android.util.Log")
+                    val dMethod = logClass.getMethod("d", String::class.java, String::class.java)
+                    dMethod.invoke(null, tag, message)
+                } catch (t: Throwable) {
+                    println("D/$tag: $message")
+                }
+            } else {
+                println("D/$tag: $message")
+            }
+        }
+
+        private fun logI(tag: String, message: String) {
+            if (isAndroidLogAvailable) {
+                try {
+                    val logClass = Class.forName("android.util.Log")
+                    val iMethod = logClass.getMethod("i", String::class.java, String::class.java)
+                    iMethod.invoke(null, tag, message)
+                } catch (t: Throwable) {
+                    println("I/$tag: $message")
+                }
+            } else {
+                println("I/$tag: $message")
+            }
+        }
+
+        private fun logW(tag: String, message: String) {
+            if (isAndroidLogAvailable) {
+                try {
+                    val logClass = Class.forName("android.util.Log")
+                    val wMethod = logClass.getMethod("w", String::class.java, String::class.java)
+                    wMethod.invoke(null, tag, message)
+                } catch (t: Throwable) {
+                    println("W/$tag: $message")
+                }
+            } else {
+                println("W/$tag: $message")
+            }
+        }
+
+        private fun logE(tag: String, message: String, throwable: Throwable? = null) {
+            if (isAndroidLogAvailable) {
+                try {
+                    val logClass = Class.forName("android.util.Log")
+                    val eMethod =
+                            logClass.getMethod(
+                                    "e",
+                                    String::class.java,
+                                    String::class.java,
+                                    Throwable::class.java
+                            )
+                    eMethod.invoke(null, tag, message, throwable)
+                } catch (t: Throwable) {
+                    System.err.println("E/$tag: $message")
+                    throwable?.printStackTrace()
+                }
+            } else {
+                System.err.println("E/$tag: $message")
+                throwable?.printStackTrace()
+            }
+        }
+
         // Dummy instance used to invoke static native methods that are now at the class level.
         private val staticInvoker: StableDiffusion by lazy { StableDiffusion(0L) }
 
@@ -351,14 +423,14 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 sampleMethod.id,
                                 scheduler.id,
                                 strength,
-                                initImage,
-                                initWidth,
-                                initHeight,
-                                vaceStrength,
-                                easyCacheEnabled,
-                                easyCacheReuseThreshold,
-                                easyCacheStartPercent,
-                                easyCacheEndPercent
+                                initImage = initImage,
+                                initWidth = initWidth,
+                                initHeight = initHeight,
+                                vaceStrength = vaceStrength,
+                                easyCacheEnabled = easyCacheEnabled,
+                                easyCacheReuseThreshold = easyCacheReuseThreshold,
+                                easyCacheStartPercent = easyCacheStartPercent,
+                                easyCacheEndPercent = easyCacheEndPercent
                         )
 
                 override fun precomputeCondition(
@@ -456,16 +528,16 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             sampleMethod.id,
                             scheduler.id,
                             strength,
-                            initImage,
-                            initWidth,
-                            initHeight,
-                            condArr,
-                            uncondArr,
-                            vaceStrength,
-                            easyCacheEnabled,
-                            easyCacheReuseThreshold,
-                            easyCacheStartPercent,
-                            easyCacheEndPercent,
+                            initImage = initImage,
+                            initWidth = initWidth,
+                            initHeight = initHeight,
+                            cond = condArr,
+                            uncond = uncondArr,
+                            vaceStrength = vaceStrength,
+                            easyCacheEnabled = easyCacheEnabled,
+                            easyCacheReuseThreshold = easyCacheReuseThreshold,
+                            easyCacheStartPercent = easyCacheStartPercent,
+                            easyCacheEndPercent = easyCacheEndPercent,
                     )
                 }
 
@@ -549,7 +621,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     System.loadLibrary("sdcpp")
                     check(nativeCheckBindings()) { "Failed to link StableDiffusion JNI bindings" }
                 } catch (e: UnsatisfiedLinkError) {
-                    Log.e(LOG_TAG, "Failed to load sdcpp native library", e)
+                    logE(LOG_TAG, "Failed to load sdcpp native library", e)
                     throw e
                 }
             }

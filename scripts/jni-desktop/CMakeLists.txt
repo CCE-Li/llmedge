@@ -5,49 +5,94 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Point to stable-diffusion.cpp root.
-#
-# By default we build against the `stable-diffusion.cpp` submodule checkout.
-# For experiments / hotfixes, callers may set -DSD_ROOT_OVERRIDE=... to point at a
-# patched source tree (e.g. a copy with overlay files applied).
 set(SD_ROOT_OVERRIDE "" CACHE PATH "Override path to stable-diffusion.cpp root")
 if (SD_ROOT_OVERRIDE)
     get_filename_component(SD_ROOT "${SD_ROOT_OVERRIDE}" ABSOLUTE)
 else()
     get_filename_component(SD_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../stable-diffusion.cpp" ABSOLUTE)
 endif()
+
 get_filename_component(LLMEDGE_CPP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../llmedge/src/main/cpp" ABSOLUTE)
 
-message(STATUS "Using stable-diffusion.cpp root: ${SD_ROOT}")
-
-# Configure stable-diffusion.cpp options
-set(SD_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(SD_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(SD_VULKAN OFF CACHE BOOL "" FORCE) # Disable Vulkan for host build for now to avoid complications
-
-# Add stable-diffusion.cpp
-add_subdirectory(${SD_ROOT} stable-diffusion)
+# Options to control what to build
+option(BUILD_SDCPP "Build stable-diffusion.cpp JNI" ON)
+option(BUILD_SMOLLM "Build SmolLM (llama.cpp) JNI" OFF)
 
 # Find JNI
 find_package(JNI REQUIRED)
 
-# Build sdcpp shared library
-add_library(sdcpp SHARED
-    ${LLMEDGE_CPP_ROOT}/sdcpp_jni.cpp
-)
+# ------------------------------------------------------------
+# Stable Diffusion JNI
+# ------------------------------------------------------------
+if(BUILD_SDCPP)
+    message(STATUS "Using stable-diffusion.cpp root: ${SD_ROOT}")
 
-target_include_directories(sdcpp PRIVATE
-    ${SD_ROOT}
-    ${SD_ROOT}/thirdparty
-    ${JNI_INCLUDE_DIRS}
-)
+    # Configure stable-diffusion.cpp options
+    set(SD_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SD_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(SD_VULKAN OFF CACHE BOOL "" FORCE) # Disable Vulkan for host build for now to avoid complications
 
-target_link_libraries(sdcpp PRIVATE
-    stable-diffusion
-    ${JNI_LIBRARIES}
-)
+    # Add stable-diffusion.cpp
+    add_subdirectory(${SD_ROOT} stable-diffusion)
 
-if(WAN_SUPPORT)
-    target_compile_definitions(sdcpp PRIVATE WAN_SUPPORT=1)
+    # Build sdcpp shared library
+    add_library(sdcpp SHARED
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni.cpp
+    )
+
+    target_include_directories(sdcpp PRIVATE
+        ${SD_ROOT}
+        ${SD_ROOT}/thirdparty
+        ${JNI_INCLUDE_DIRS}
+    )
+
+    target_link_libraries(sdcpp PRIVATE
+        stable-diffusion
+        ${JNI_LIBRARIES}
+    )
+
+    if(WAN_SUPPORT)
+        target_compile_definitions(sdcpp PRIVATE WAN_SUPPORT=1)
+    endif()
+endif()
+
+# ------------------------------------------------------------
+# SmolLM (llama.cpp) JNI
+# ------------------------------------------------------------
+if(BUILD_SMOLLM)
+    get_filename_component(LLAMA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../llama.cpp" ABSOLUTE)
+    message(STATUS "Using llama.cpp root: ${LLAMA_ROOT}")
+
+    # Configure llama.cpp options
+    set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
+    set(LLAMA_BUILD_COMMON ON CACHE BOOL "" FORCE)
+
+    # Add llama.cpp
+    add_subdirectory(${LLAMA_ROOT} llama.cpp)
+
+    # Build smollm shared library
+    add_library(smollm SHARED
+        ${LLMEDGE_CPP_ROOT}/smollm.cpp
+        ${LLMEDGE_CPP_ROOT}/LLMInference.cpp
+        ${LLMEDGE_CPP_ROOT}/GGUFReader.cpp
+    )
+
+    target_include_directories(smollm PRIVATE
+        ${LLAMA_ROOT}/include
+        ${LLAMA_ROOT}/common
+        ${LLAMA_ROOT} # For some internal headers if needed
+        ${JNI_INCLUDE_DIRS}
+    )
+
+    target_link_libraries(smollm PRIVATE
+        llama
+        common
+        ${JNI_LIBRARIES}
+    )
 endif()
 
 # ------------------------------------------------------------

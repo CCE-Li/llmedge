@@ -286,7 +286,13 @@ endif()
 option(LLMEDGE_SDCPP_USE_MODS "Build stable-diffusion.cpp from a copied tree with mods/ overlays (keeps submodule clean)" ${_LLMEDGE_SDCPP_USE_MODS_DEFAULT})
 
 # Default overlays: only include wan.hpp when it exists in mods/.
-set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT "stable-diffusion.cpp;stable-diffusion.h")
+set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT
+    stable-diffusion.cpp
+    stable-diffusion.h
+    ggml_extend.hpp
+    util.cpp
+    ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
+)
 if (EXISTS "${LLMEDGE_MODS_DIR}/wan.hpp")
         set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT "wan.hpp;${_LLMEDGE_SDCPP_MODS_FILES_DEFAULT}")
 endif()
@@ -405,6 +411,7 @@ set(Vulkan_LIBRARY "${VULKAN_LIB}" CACHE FILEPATH "Vulkan library" FORCE)
 
 # Find glslc compiler for Vulkan shader compilation
 find_program(Vulkan_GLSLC_EXECUTABLE NAMES glslc HINTS $ENV{VULKAN_SDK}/bin)
+message(STATUS "Vulkan_GLSLC_EXECUTABLE: ${Vulkan_GLSLC_EXECUTABLE}")
 if(Vulkan_GLSLC_EXECUTABLE)
     set(Vulkan_glslc_FOUND ON)
     set(Vulkan_glslc_EXECUTABLE "${Vulkan_GLSLC_EXECUTABLE}")
