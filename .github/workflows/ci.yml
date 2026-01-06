@@ -74,12 +74,3 @@ jobs:
         LLMEDGE_TEST_TEXT_MODEL_PATH: ${{ github.workspace }}/models/SmolLM2-135M-Instruct-Q8_0.gguf
       run: |
         ./scripts/run_text_e2e.sh
-
-    - name: Build release AAR
-      run: ./gradlew :llmedge:assembleRelease
-
-    - name: Upload AAR
-      uses: actions/upload-artifact@v4
-      with:
-        name: llmedge-release
-        path: llmedge/build/outputs/aar/*.aar
