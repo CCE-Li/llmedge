@@ -13,17 +13,20 @@ echo "Available space: $((AVAILABLE_SPACE_KB / 1024 / 1024)) GB"
 # 1. Audio Model: Whisper Tiny (Small, ~75MB)
 echo "Downloading Whisper Tiny model..."
 if [ ! -f "ggml-tiny.en.bin" ]; then
-    wget -q https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin -O ggml-tiny.en.bin
+    curl -L -o ggml-tiny.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
 fi
 echo "Whisper model downloaded."
 
-# 2. Text Model: SmolLM 135M (Small, ~300MB)
+# 2. Text Model: SmolLM2 135M (Small, ~150MB)
 # We need a GGUF model for SmolLM/Llama.cpp
-echo "Downloading SmolLM model..."
-if [ ! -f "SmolLM-135M-Instruct-q8_0.gguf" ]; then
-    wget -q https://huggingface.co/HuggingFaceTB/SmolLM-135M-Instruct-GGUF/resolve/main/SmolLM-135M-Instruct-q8_0.gguf -O SmolLM-135M-Instruct-q8_0.gguf
+echo "Downloading SmolLM2 model..."
+# Cleanup old failed download if exists
+rm -f "SmolLM-135M-Instruct-q8_0.gguf"
+
+if [ ! -f "SmolLM2-135M-Instruct-Q8_0.gguf" ]; then
+    curl -L -o SmolLM2-135M-Instruct-Q8_0.gguf https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q8_0.gguf
 fi
-echo "SmolLM model downloaded."
+echo "SmolLM2 model downloaded."
 
 # 3. Video/Image Model: Wan 1.3B + T5 + VAE
 # This is heavy. Wan 1.3B Q4_K_M is ~1GB. T5 Q8 is ~4GB.
@@ -35,12 +38,12 @@ if [ "$AVAILABLE_SPACE_KB" -gt 10485760 ]; then
 
     # Wan 1.3B
     if [ ! -f "Wan2.1-T2V-1.3B-Q4_K_M.gguf" ]; then
-        wget -q https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-GGUF/resolve/main/Wan2.1-T2V-1.3B-Q4_K_M.gguf -O Wan2.1-T2V-1.3B-Q4_K_M.gguf
+        curl -L -o Wan2.1-T2V-1.3B-Q4_K_M.gguf https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-GGUF/resolve/main/Wan2.1-T2V-1.3B-Q4_K_M.gguf
     fi
 
     # VAE
     if [ ! -f "wan_2.1_vae.gguf" ]; then
-        wget -q https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-GGUF/resolve/main/wan_2.1_vae.gguf -O wan_2.1_vae.gguf
+        curl -L -o wan_2.1_vae.gguf https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-GGUF/resolve/main/wan_2.1_vae.gguf
     fi
 
     # T5 Encoder (The big one)

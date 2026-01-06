@@ -1,13 +1,19 @@
 #include "LLMInference.h"
+#ifdef __ANDROID__
 #include <android/log.h>
+#define TAG "[SmolLMAndroid-Cpp]"
+#define LOGi(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define LOGe(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+#else
+#include <cstdio>
+#define TAG "[SmolLM-Cpp]"
+#define LOGi(...) fprintf(stdout, "%s ", TAG); fprintf(stdout, __VA_ARGS__); fprintf(stdout, "\n")
+#define LOGe(...) fprintf(stderr, "%s ", TAG); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n")
+#endif
 #include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <limits>
-
-#define TAG "[SmolLMAndroid-Cpp]"
-#define LOGi(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGe(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 void
 LLMInference::loadModel(const char *model_path, float minP, float temperature, bool storeChats, long contextSize,
