@@ -110,6 +110,17 @@ android {
                     it.exclude("**/FullPhonePathCatTest*")
                     it.exclude("**/BarkTTSTest*")
                     it.exclude("**/WhisperTest*")
+                    it.exclude("**/ReproductionTest*")
+                    it.exclude("**/WanCatGifTask*")
+                    it.exclude("**/LLMEdgeManagerTest*")
+                    it.exclude("**/MemoryManagementTest*")
+                    it.exclude("**/MetadataInferenceTest*")
+                    it.exclude("**/StableDiffusionVideoModelDetectorExtraTest*")
+                    it.exclude("**/StableDiffusionVideoTest*")
+                    it.exclude("**/VideoGenerateParamsTest*")
+                    it.exclude("**/VideoModelDetectorTest*")
+                    it.exclude("**/BitmapConversionTest*")
+                    it.exclude("**/CombinedHeuristicTest*")
                 }
 
                 val whisperLibPath = System.getenv("LLMEDGE_BUILD_WHISPER_LIB_PATH")

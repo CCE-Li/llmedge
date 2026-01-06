@@ -285,7 +285,9 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
         private fun logD(tag: String, message: String) {
             if (isAndroidLogAvailable) {
                 try {
-                    Log.d(tag, message)
+                    val logClass = Class.forName("android.util.Log")
+                    val dMethod = logClass.getMethod("d", String::class.java, String::class.java)
+                    dMethod.invoke(null, tag, message)
                 } catch (t: Throwable) {
                     println("D/$tag: $message")
                 }
@@ -294,15 +296,53 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
             }
         }
 
-        private fun logE(tag: String, message: String) {
+        private fun logI(tag: String, message: String) {
             if (isAndroidLogAvailable) {
                 try {
-                    Log.e(tag, message)
+                    val logClass = Class.forName("android.util.Log")
+                    val iMethod = logClass.getMethod("i", String::class.java, String::class.java)
+                    iMethod.invoke(null, tag, message)
                 } catch (t: Throwable) {
-                    println("E/$tag: $message")
+                    println("I/$tag: $message")
                 }
             } else {
-                println("E/$tag: $message")
+                println("I/$tag: $message")
+            }
+        }
+
+        private fun logW(tag: String, message: String) {
+            if (isAndroidLogAvailable) {
+                try {
+                    val logClass = Class.forName("android.util.Log")
+                    val wMethod = logClass.getMethod("w", String::class.java, String::class.java)
+                    wMethod.invoke(null, tag, message)
+                } catch (t: Throwable) {
+                    println("W/$tag: $message")
+                }
+            } else {
+                println("W/$tag: $message")
+            }
+        }
+
+        private fun logE(tag: String, message: String, throwable: Throwable? = null) {
+            if (isAndroidLogAvailable) {
+                try {
+                    val logClass = Class.forName("android.util.Log")
+                    val eMethod =
+                            logClass.getMethod(
+                                    "e",
+                                    String::class.java,
+                                    String::class.java,
+                                    Throwable::class.java
+                            )
+                    eMethod.invoke(null, tag, message, throwable)
+                } catch (t: Throwable) {
+                    System.err.println("E/$tag: $message")
+                    throwable?.printStackTrace()
+                }
+            } else {
+                System.err.println("E/$tag: $message")
+                throwable?.printStackTrace()
             }
         }
 
