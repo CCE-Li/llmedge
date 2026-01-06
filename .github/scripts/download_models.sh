@@ -37,13 +37,15 @@ if [ "$AVAILABLE_SPACE_KB" -gt 10485760 ]; then
     echo "Enough space for Video models. Attempting download."
 
     # Wan 1.3B
+    rm -f "Wan2.1-T2V-1.3B-Q4_K_M.gguf"
     if [ ! -f "Wan2.1-T2V-1.3B-Q4_K_M.gguf" ]; then
-        curl -L -o Wan2.1-T2V-1.3B-Q4_K_M.gguf https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-GGUF/resolve/main/Wan2.1-T2V-1.3B-Q4_K_M.gguf
+        curl -L -o Wan2.1-T2V-1.3B-Q4_K_M.gguf https://huggingface.co/bartowski/Wan2.1-T2V-1.3B-GGUF/resolve/main/Wan2.1-T2V-1.3B-Q4_K_M.gguf
     fi
 
     # VAE
+    rm -f "wan_2.1_vae.gguf"
     if [ ! -f "wan_2.1_vae.gguf" ]; then
-        curl -L -o wan_2.1_vae.gguf https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-GGUF/resolve/main/wan_2.1_vae.gguf
+        curl -L -o wan_2.1_vae.gguf https://huggingface.co/bartowski/Wan2.1-T2V-1.3B-GGUF/resolve/main/wan_2.1_vae.gguf
     fi
 
     # T5 Encoder (The big one)

@@ -57,22 +57,9 @@ jobs:
       run: .github/scripts/download_models.sh
 
     - name: Run Unit Tests
-      run: |
-        ./gradlew :llmedge:testDebugUnitTest \
-          --exclude-tests "*LinuxE2ETest" \
-          --exclude-tests "*IntegrationTest" \
-          --exclude-tests "io.aatricks.llmedge.ImageGenerationTest" \
-          --exclude-tests "io.aatricks.llmedge.VideoGenerationTest" \
-          --exclude-tests "io.aatricks.llmedge.StableDiffusionTxt2VidTest" \
-          --exclude-tests "io.aatricks.llmedge.StableDiffusionTxt2ImgTest" \
-          --exclude-tests "io.aatricks.llmedge.VideoI2VAndLoraE2ETest" \
-          --exclude-tests "io.aatricks.llmedge.VideoGenerationSequentialE2ETest" \
-          --exclude-tests "io.aatricks.llmedge.VideoGenerationHQTest" \
-          --exclude-tests "io.aatricks.llmedge.VideoGenerationExportTest" \
-          --exclude-tests "io.aatricks.llmedge.SamplerSchedulerGifTest" \
-          --exclude-tests "io.aatricks.llmedge.FullPhonePathCatTest" \
-          --exclude-tests "io.aatricks.llmedge.BarkTTSTest" \
-          --exclude-tests "io.aatricks.llmedge.WhisperTest"
+      env:
+        LLMEDGE_SKIP_E2E_IN_UNIT: "true"
+      run: ./gradlew :llmedge:testDebugUnitTest
 
     - name: Run E2E Tests (Whisper)
       env:

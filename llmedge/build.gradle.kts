@@ -93,6 +93,25 @@ android {
 
                 // Check if we're running the E2E test with native library path specified
                 val nativeLibPath = System.getenv("LLMEDGE_BUILD_NATIVE_LIB_PATH")
+                val skipE2E = System.getenv("LLMEDGE_SKIP_E2E_IN_UNIT")?.equals("true", ignoreCase = true) == true
+                
+                if (skipE2E) {
+                    it.exclude("**/*LinuxE2ETest*")
+                    it.exclude("**/*IntegrationTest*")
+                    it.exclude("**/ImageGenerationTest*")
+                    it.exclude("**/VideoGenerationTest*")
+                    it.exclude("**/StableDiffusionTxt2VidTest*")
+                    it.exclude("**/StableDiffusionTxt2ImgTest*")
+                    it.exclude("**/VideoI2VAndLoraE2ETest*")
+                    it.exclude("**/VideoGenerationSequentialE2ETest*")
+                    it.exclude("**/VideoGenerationHQTest*")
+                    it.exclude("**/VideoGenerationExportTest*")
+                    it.exclude("**/SamplerSchedulerGifTest*")
+                    it.exclude("**/FullPhonePathCatTest*")
+                    it.exclude("**/BarkTTSTest*")
+                    it.exclude("**/WhisperTest*")
+                }
+
                 val whisperLibPath = System.getenv("LLMEDGE_BUILD_WHISPER_LIB_PATH")
                 val barkLibPath = System.getenv("LLMEDGE_BUILD_BARK_LIB_PATH")
                 val hasNativeLib = !nativeLibPath.isNullOrBlank() || !whisperLibPath.isNullOrBlank() || !barkLibPath.isNullOrBlank()
