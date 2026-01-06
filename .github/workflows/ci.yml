@@ -42,7 +42,7 @@ jobs:
     - name: Install Native Build Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake build-essential ninja-build
+        sudo apt-get install -y cmake build-essential ninja-build google-shaderc
 
     - name: Build Native Libraries
       run: |
