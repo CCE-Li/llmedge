@@ -286,7 +286,13 @@ endif()
 option(LLMEDGE_SDCPP_USE_MODS "Build stable-diffusion.cpp from a copied tree with mods/ overlays (keeps submodule clean)" ${_LLMEDGE_SDCPP_USE_MODS_DEFAULT})
 
 # Default overlays: only include wan.hpp when it exists in mods/.
-set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT "stable-diffusion.cpp;stable-diffusion.h;ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp")
+set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT
+    stable-diffusion.cpp
+    stable-diffusion.h
+    ggml_extend.hpp
+    util.cpp
+    ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
+)
 if (EXISTS "${LLMEDGE_MODS_DIR}/wan.hpp")
         set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT "wan.hpp;${_LLMEDGE_SDCPP_MODS_FILES_DEFAULT}")
 endif()

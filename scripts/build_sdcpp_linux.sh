@@ -38,7 +38,7 @@ if [[ "$USE_MODS" == "1" ]]; then
   #
   # Default overlays: only apply files that exist in mods/ by default.
   # If you add additional overlays (e.g. wan.hpp), set LLMEDGE_SDCPP_MODS_FILES accordingly.
-  _DEFAULT_MODS_FILES="stable-diffusion.cpp,stable-diffusion.h,ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp"
+  _DEFAULT_MODS_FILES="stable-diffusion.cpp,stable-diffusion.h,ggml_extend.hpp,util.cpp,ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp"
   if [[ -f "$ROOT_DIR/mods/wan.hpp" ]]; then
     _DEFAULT_MODS_FILES="wan.hpp,$_DEFAULT_MODS_FILES"
   fi
