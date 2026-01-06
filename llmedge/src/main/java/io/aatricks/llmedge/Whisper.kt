@@ -715,7 +715,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                     // On desktop/JVM testing, we use whisper_jni
 
                     // First, check if this is a desktop JVM environment (for testing)
-                    val osName = System.getProperty("os.name", "").lowercase()
+                    val osName = System.getProperty("os.name")?.lowercase() ?: ""
                     val isDesktopJvm = osName.contains("linux") && !osName.contains("android")
 
                     if (isDesktopJvm) {

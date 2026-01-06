@@ -18,6 +18,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url = URI("https://repo1.maven.org/maven2/") }
         maven { url = URI("https://jitpack.io") }
         maven { url = URI("https://oss.sonatype.org/content/repositories/snapshots/") }
     }
