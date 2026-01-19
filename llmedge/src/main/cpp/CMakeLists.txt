@@ -1,3 +1,13 @@
+# 强制禁用 Vulkan（x86 + NDK27 下必崩）
+set(SD_VULKAN OFF CACHE BOOL "" FORCE)
+set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
+set(VULKAN_FOUND OFF CACHE BOOL "" FORCE)
+# 修正 Vulkan 路径（Windows 下替换 linux 为 windows）
+if (WIN32 AND ANDROID)
+    set(Vulkan_INCLUDE_DIRS "C:/Users/Lenovo/AppData/Local/Android/Sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/include" CACHE PATH "" FORCE)
+    set(Vulkan_LIBRARIES "C:/Users/Lenovo/AppData/Local/Android/Sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/i686-linux-android/30/libvulkan.so" CACHE PATH "" FORCE)
+endif()
+
 cmake_minimum_required(VERSION 3.22.1)
 project("smollm")
 
@@ -85,15 +95,15 @@ if(EXISTS "${LLAMA_DIR}/src/models" AND NOT EXISTS "${LLAMA_DIR}/src/llama-model
                 list(APPEND SMOLLM_SOURCES ${LLAMA_MODEL_SOURCES})
         endif()
 endif()
-set(VULKAN_ENABLED ON CACHE BOOL "Enable Vulkan support")
+set(VULKAN_ENABLED OFF CACHE BOOL "Enable Vulkan support" FORCE)
 
-if(VULKAN_ENABLED)
-    if (EXISTS "${GGML_DIR}/src/ggml-vulkan.cpp")
-        list(APPEND SMOLLM_SOURCES
-                ${GGML_DIR}/src/ggml-vulkan.cpp
-                )
-    endif()
-endif()
+# if(VULKAN_ENABLED)
+#     if (EXISTS "${GGML_DIR}/src/ggml-vulkan.cpp")
+#         list(APPEND SMOLLM_SOURCES
+#                 ${GGML_DIR}/src/ggml-vulkan.cpp
+#                 )
+#     endif()
+# endif()
 
 set(GGUF_READER_SOURCES
         ${GGML_DIR}/src/ggml.c
@@ -356,7 +366,7 @@ set(SD_USE_SYSTEM_GGML OFF CACHE BOOL "sd: use system-installed GGML library" FO
 # mismatch). Disable Vulkan by default to allow the project to build
 # on developer machines. Enable Vulkan later when a proper host-tool
 # solution is available.
-set(SD_VULKAN ON CACHE BOOL "sd: vulkan backend" FORCE)
+set(SD_VULKAN OFF CACHE BOOL "sd: vulkan backend" FORCE)
 set(SD_CUDA OFF CACHE BOOL "sd: cuda backend" FORCE)
 set(SD_METAL OFF CACHE BOOL "sd: metal backend" FORCE)
 set(SD_OPENCL OFF CACHE BOOL "sd: opencl backend" FORCE)
@@ -385,44 +395,44 @@ if (CMAKE_MAKE_PROGRAM)
         set(GGML_VULKAN_SHADERS_GEN_TOOLCHAIN "${_GGML_VK_HOST_TC}" CACHE STRING "Toolchain for ggml-vulkan shader generator" FORCE)
 endif()
 # Enable ggml Vulkan for stable-diffusion's ggml
-set(GGML_VULKAN ON CACHE BOOL "ggml: vulkan" FORCE)
+set(GGML_VULKAN OFF CACHE BOOL "ggml: vulkan" FORCE)
 message(STATUS "Stable Diffusion Vulkan=${SD_VULKAN}; GGML Vulkan=${GGML_VULKAN}")
 
 # Provide Vulkan library and include path for Android NDK
-find_library(VULKAN_LIB vulkan REQUIRED)
-set(Vulkan_INCLUDE_DIR "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include")
+# find_library(VULKAN_LIB vulkan REQUIRED)
+# set(Vulkan_INCLUDE_DIR "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include")
 
 # Download Vulkan C++ headers (vulkan.hpp) which don't ship with Android NDK
-include(FetchContent)
-FetchContent_Declare(
-    vulkan_hpp
-    GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Hpp.git
-    GIT_TAG        v1.3.275  # Must match Android NDK's Vulkan version
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(vulkan_hpp)
+# include(FetchContent)
+# FetchContent_Declare(
+#     vulkan_hpp
+#     GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Hpp.git
+#     GIT_TAG        v1.3.275  # Must match Android NDK's Vulkan version
+#     GIT_SHALLOW    TRUE
+# )
+# FetchContent_MakeAvailable(vulkan_hpp)
 
 # Configure Vulkan for both llama.cpp and stable-diffusion.cpp ggml-vulkan
-set(Vulkan_INCLUDE_DIRS "${Vulkan_INCLUDE_DIR};${vulkan_hpp_SOURCE_DIR}")
-set(Vulkan_LIBRARIES "${VULKAN_LIB}")
-set(Vulkan_FOUND ON)
-set(Vulkan_INCLUDE_DIR "${Vulkan_INCLUDE_DIR}" CACHE PATH "Vulkan include directory" FORCE)
-set(Vulkan_LIBRARY "${VULKAN_LIB}" CACHE FILEPATH "Vulkan library" FORCE)
+# set(Vulkan_INCLUDE_DIRS "${Vulkan_INCLUDE_DIR};${vulkan_hpp_SOURCE_DIR}")
+# set(Vulkan_LIBRARIES "${VULKAN_LIB}")
+# set(Vulkan_FOUND ON)
+# set(Vulkan_INCLUDE_DIR "${Vulkan_INCLUDE_DIR}" CACHE PATH "Vulkan include directory" FORCE)
+# set(Vulkan_LIBRARY "${VULKAN_LIB}" CACHE FILEPATH "Vulkan library" FORCE)
 
 # Find glslc compiler for Vulkan shader compilation
-find_program(Vulkan_GLSLC_EXECUTABLE NAMES glslc HINTS $ENV{VULKAN_SDK}/bin)
-message(STATUS "Vulkan_GLSLC_EXECUTABLE: ${Vulkan_GLSLC_EXECUTABLE}")
-if(Vulkan_GLSLC_EXECUTABLE)
-    set(Vulkan_glslc_FOUND ON)
-    set(Vulkan_glslc_EXECUTABLE "${Vulkan_GLSLC_EXECUTABLE}")
-endif()
+# find_program(Vulkan_GLSLC_EXECUTABLE NAMES glslc HINTS $ENV{VULKAN_SDK}/bin)
+# message(STATUS "Vulkan_GLSLC_EXECUTABLE: ${Vulkan_GLSLC_EXECUTABLE}")
+# if(Vulkan_GLSLC_EXECUTABLE)
+#     set(Vulkan_glslc_FOUND ON)
+#     set(Vulkan_glslc_EXECUTABLE "${Vulkan_GLSLC_EXECUTABLE}")
+# endif()
 
 add_subdirectory(${SD_DIR} ${CMAKE_CURRENT_BINARY_DIR}/stable-diffusion.cpp)
 
 # Add Vulkan-Hpp headers to ggml-vulkan target created by stable-diffusion.cpp
-if (TARGET ggml-vulkan)
-    target_include_directories(ggml-vulkan PRIVATE ${vulkan_hpp_SOURCE_DIR})
-endif()
+# if (TARGET ggml-vulkan)
+#     target_include_directories(ggml-vulkan PRIVATE ${vulkan_hpp_SOURCE_DIR})
+# endif()
 
 # JNI glue for stable diffusion
 add_library(sdcpp SHARED
@@ -607,7 +617,9 @@ set(BARK_JNI_ALL_SOURCES
 )
 
 # Build bark_jni as a single shared library with all sources
-add_library(bark_jni SHARED ${BARK_JNI_ALL_SOURCES})
+add_library(bark_jni SHARED
+    ${BARK_JNI_ALL_SOURCES}
+)
 
 target_include_directories(bark_jni
         PRIVATE
