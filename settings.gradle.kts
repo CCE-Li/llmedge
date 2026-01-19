@@ -26,3 +26,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "llmedge"
 include(":llmedge")
+
+// 添加以下内容
+include(":app")
+project(":app").projectDir = file("llmedge-examples/app")
